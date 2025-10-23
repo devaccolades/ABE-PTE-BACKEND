@@ -19,3 +19,4 @@ class SectionAdmin(admin.ModelAdmin):
     search_fields = ('section_type',)
     # inlines = [SubSectionInline]
 
+

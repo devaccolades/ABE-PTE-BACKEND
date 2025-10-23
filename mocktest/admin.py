@@ -18,3 +18,4 @@ class SectionAdmin(admin.ModelAdmin):
     list_filter = ('section_type', 'has_subsection')
     search_fields = ('section_type',)
     # inlines = [SubSectionInline]
+    

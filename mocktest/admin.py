@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import MockTest, Section,SubSection
+from .models import MockTest, Section,SubSection,Question
 
 
 
@@ -26,3 +26,26 @@ class SubSectionAdmin(admin.ModelAdmin):
     list_filter = ('section',)
     search_fields = ('name',)
     ordering = ('section', 'order')
+
+
+@admin.register(Question)
+class QuestionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'section', 'question_type', 'is_first_listening_question', 'answering_timer')
+    list_filter = ('section', 'question_type', 'is_first_listening_question')
+    search_fields = ('question_text',)
+    ordering = ('section', 'id')
+    readonly_fields = ('id',)
+    fieldsets = (
+        ('Basic Info', {
+            'fields': ('section', 'subsection', 'question_type', 'question_text')
+        }),
+        ('Media', {
+            'fields': ('audio_file', 'image_file')
+        }),
+        ('Answer & Options', {
+            'fields': ('correct_answer', 'options')
+        }),
+        ('Timing', {
+            'fields': ('answering_timer', 'is_first_listening_question', 'read_time')
+        }),
+    )

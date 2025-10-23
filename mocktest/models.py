@@ -21,7 +21,7 @@ class Section(models.Model):
         ('listening','Listening'),
     ]
 
-    section_types = models.CharField(max_length=50,choices=SECTION_TYPES)
+    section_type = models.CharField(max_length=50,choices=SECTION_TYPES)
     has_subsection = models.BooleanField(default=False)
 
     def __str__(self):

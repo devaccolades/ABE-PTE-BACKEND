@@ -14,9 +14,9 @@ class MockTestAdmin(admin.ModelAdmin):
 
 @admin.register(Section)
 class SectionAdmin(admin.ModelAdmin):
-    list_display = ('section_types', 'has_subsection')
-    list_filter = ('section_types', 'has_subsection')
-    search_fields = ('section_types',)
+    list_display = ('section_type', 'has_subsection')
+    list_filter = ('section_type', 'has_subsection')
+    search_fields = ('section_type',)
     # inlines = [SubSectionInline]
 
 

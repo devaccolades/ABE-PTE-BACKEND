@@ -148,3 +148,4 @@ CSRF_TRUSTED_ORIGINS = [
     "https://admin.abepte.accoladesweb.com",
 ]
 
+

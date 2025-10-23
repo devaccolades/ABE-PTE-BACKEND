@@ -33,8 +33,8 @@ ALLOWED_HOSTS = ['82.112.226.176','admin.abepte.accoladesweb.com']
 # Application definition
 
 INSTALLED_APPS = [
-    'unfold',  
     'django.contrib.admin',
+    'unfold',  
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',

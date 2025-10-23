@@ -27,3 +27,10 @@ class Section(models.Model):
     def __str__(self):
         return self.section_type
     
+class SubSection(models.Model):
+    section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name='subsections')
+    name = models.CharField(max_length=255)
+    order = models.PositiveIntegerField()
+
+    def __str__(self):
+        return f"{self.section.section_type} - {self.name}"

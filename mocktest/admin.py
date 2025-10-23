@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import MockTest, Section
+from .models import MockTest, Section,SubSection
 
 
 
@@ -20,3 +20,9 @@ class SectionAdmin(admin.ModelAdmin):
     # inlines = [SubSectionInline]
 
 
+@admin.register(SubSection)
+class SubSectionAdmin(admin.ModelAdmin):
+    list_display = ('name', 'section', 'order')
+    list_filter = ('section',)
+    search_fields = ('name',)
+    ordering = ('section', 'order')

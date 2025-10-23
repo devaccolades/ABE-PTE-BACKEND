@@ -3,7 +3,7 @@ from .models import MockTest, Section
 
 
 
-@admin.register(admin.ModelAdmin)
+@admin.register(MockTest)
 class MockTestAdmin(admin.ModelAdmin):
     list_display = ('title', 'total_duration', 'is_active', 'created_at')
     list_filter = ('is_active', 'created_at')
@@ -18,3 +18,4 @@ class SectionAdmin(admin.ModelAdmin):
     list_filter = ('section_type', 'has_subsection')
     search_fields = ('section_type',)
     # inlines = [SubSectionInline]
+    

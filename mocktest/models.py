@@ -77,7 +77,7 @@ class Question(models.Model):
             ('select_missing_word', 'Select Missing Word'),
             ('highlight_incorrect_words', 'Highlight Incorrect Words'),
             ('write_from_dictation', 'Write from Dictation'),
-        ]
+    ]
     section = models.ForeignKey(Section, on_delete=models.CASCADE)
     question_type = models.CharField(max_length=50,choices=QUESTION_TYPES)
     question_text = models.TextField()

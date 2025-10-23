@@ -30,7 +30,7 @@ class SubSectionAdmin(admin.ModelAdmin):
 
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
-    list_display = ('id', 'section', 'question_type', 'is_first_listening_question', 'answering_timer')
+    list_display = ('id', 'section', 'question_type', 'is_first_listening_question', 'answering_time')
     list_filter = ('section', 'question_type', 'is_first_listening_question')
     search_fields = ('question_text',)
     ordering = ('section', 'id')
@@ -46,6 +46,6 @@ class QuestionAdmin(admin.ModelAdmin):
             'fields': ('correct_answer', 'options')
         }),
         ('Timing', {
-            'fields': ('answering_timer', 'is_first_listening_question', 'read_time')
+            'fields': ('answering_time', 'is_first_listening_question', 'read_time')
         }),
     )

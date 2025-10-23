@@ -46,6 +46,6 @@ class QuestionAdmin(admin.ModelAdmin):
             'fields': ('correct_answer', 'options')
         }),
         ('Timing', {
-            'fields': ('answering_time', 'is_first_listening_question', 'read_time')
+            'fields': ('answering_time', 'is_first_listening_question', 'reading_time')
         }),
     )

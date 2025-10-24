@@ -2,7 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from .models import Section
-from .serializers import SectionSerializer  # You’ll need to create this
+from .serializers import SectionSerializer,QuestionSerializer
 
 class MockTestAllSectionsAPIView(APIView):
     def get(self, request):
@@ -15,5 +15,18 @@ class MockTestAllSectionsAPIView(APIView):
 
         return Response({
             "sections_count": sections.count(),
+            "sections": serializer.data
+        }, status=status.HTTP_200_OK)
+
+class Questions(APIView):
+    def get(self,request):
+        questions = Questions.objects.all()
+        if not questions.exists():
+            return Response({"error": "No questions found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = QuestionSerializer(questions, many=True)
+
+        return Response({
+            "sections_count": questions.count(),
             "sections": serializer.data
         }, status=status.HTTP_200_OK)

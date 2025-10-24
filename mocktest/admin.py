@@ -50,6 +50,7 @@ class QuestionAdmin(admin.ModelAdmin):
         }),
     )
 
+@admin.register(MockTestSection)
 class MockTestSectionAdmin(admin.ModelAdmin):
     list_display = ('mock_test', 'section', 'order', 'section_total_duration', 'total_score_for_section', 'per_question_timer')
     list_filter = ('mock_test', 'section', 'per_question_timer')

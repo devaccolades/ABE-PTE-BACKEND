@@ -83,7 +83,7 @@ class Question(models.Model):
     question_text = models.TextField()
     audio_file = models.FileField(blank=True, null=True)
     image_file = models.FileField(blank=True, null=True)
-    correct_answer = models.JSONField(blank=True, null=True)
+    correct_answer = models.TextField(blank=True, null=True)
     options = models.JSONField(blank=True, null=True)
     answering_time = models.PositiveIntegerField(help_text="how much Seconds allowed to answer")
     is_first_listening_question = models.BooleanField(default=False)

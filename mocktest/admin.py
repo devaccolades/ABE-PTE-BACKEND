@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import MockTest, Section,SubSection,Question
+from .models import MockTest, Section,SubSection,Question,MockTestQuestion,UserMockTestSession,UserResponse,MockTestSection,MockTestSubSection
 
 
 
@@ -49,3 +49,45 @@ class QuestionAdmin(admin.ModelAdmin):
             'fields': ('answering_time', 'is_first_listening_question', 'reading_time')
         }),
     )
+
+class MockTestSectionAdmin(admin.ModelAdmin):
+    list_display = ('mock_test', 'section', 'order', 'section_total_duration', 'total_score_for_section', 'per_question_timer')
+    list_filter = ('mock_test', 'section', 'per_question_timer')
+    search_fields = ('mock_test__title', 'section__section_type')
+    # inlines = [MockTestSubSectionInline, MockTestQuestionInline]
+    ordering = ('mock_test', 'order')
+
+
+@admin.register(MockTestSubSection)
+class MockTestSubSectionAdmin(admin.ModelAdmin):
+    list_display = ('mock_section', 'subsection', 'total_duration', 'total_score_for_subsection', 'per_question_timer')
+    list_filter = ('mock_section__mock_test', 'subsection')
+    search_fields = ('mock_section__mock_test__title', 'subsection__name')
+    ordering = ('mock_section', 'subsection')
+
+
+
+@admin.register(MockTestQuestion)
+class MockTestQuestionAdmin(admin.ModelAdmin):
+    list_display = ('mock_test', 'section', 'question', 'order', 'score_for_question')
+    list_filter = ('mock_test', 'section')
+    search_fields = ('mock_test__title', 'question__question_text')
+    ordering = ('mock_test', 'section', 'order')
+
+
+@admin.register(UserMockTestSession)
+class UserMockTestSessionAdmin(admin.ModelAdmin):
+    list_display = ('session_id', 'mock_test', 'started_at', 'completed_at', 'is_completed', 'total_score')
+    list_filter = ('is_completed', 'mock_test')
+    search_fields = ('session_id', 'mock_test__title')
+    ordering = ('-started_at',)
+    readonly_fields = ('started_at', 'completed_at')
+
+
+@admin.register(UserResponse)
+class UserResponseAdmin(admin.ModelAdmin):
+    list_display = ('session', 'mock_test', 'question', 'score_awarded', 'evaluated', 'submitted_at')
+    list_filter = ('evaluated', 'mock_test', 'session')
+    search_fields = ('question__question_text', 'session__session_id', 'mock_test__title')
+    ordering = ('-submitted_at',)
+    readonly_fields = ('submitted_at',)

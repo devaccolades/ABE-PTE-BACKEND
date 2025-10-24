@@ -49,8 +49,22 @@ class MockTestSection(models.Model):
     def __str__(self):
         return f"{self.mock_test.title} - {self.section.section_type}"
 
-class Question(models.Model):
+class MockTestSubSection(models.Model):
+    mock_section = models.ForeignKey(MockTestSection, on_delete=models.CASCADE, related_name='subsections')
+    subsection = models.ForeignKey(SubSection, on_delete=models.CASCADE)
+    total_score_for_subsection = models.PositiveIntegerField()
+    total_duration = models.DurationField()
+    per_question_timer = models.BooleanField(default=False)
 
+    class Meta:
+        unique_together = ('mock_section', 'subsection')
+
+    def __str__(self):
+        return f"{self.mock_section} - {self.subsection.name}"
+
+
+
+class Question(models.Model):
     QUESTION_TYPES = [
             # Speaking & Writing
             ('read_aloud', 'Read Aloud'),
@@ -79,8 +93,9 @@ class Question(models.Model):
             ('write_from_dictation', 'Write from Dictation'),
     ]
     section = models.ForeignKey(Section, on_delete=models.CASCADE)
-    question_type = models.CharField(max_length=50,choices=QUESTION_TYPES)
-    question_text = models.TextField()
+    question_type = models.CharField(max_length=50,choices=QUESTION_TYPES, help_text="")
+    instructions = models.TextField(null=True, blank=True)
+    question_text = models.TextField(null=True, blank=True)
     audio_file = models.FileField(blank=True, null=True)
     image_file = models.FileField(blank=True, null=True)
     correct_answer = models.TextField(blank=True, null=True)
@@ -92,3 +107,35 @@ class Question(models.Model):
 
     def __str__(self):
         return f"{self.question_type} - {self.id}"
+
+class MockTestQuestion(models.Model):
+    mock_test = models.ForeignKey(MockTest, on_delete=models.CASCADE)
+    section = models.ForeignKey(Section, on_delete=models.CASCADE)
+    sub_section = models.ForeignKey(SubSection, on_delete=models.SET_NULL, null=True, blank=True)
+    question = models.ForeignKey(Question, on_delete=models.CASCADE)
+    order = models.PositiveIntegerField()
+    score_for_question = models.PositiveIntegerField()
+
+    class Meta:
+        unique_together = ('mock_test', 'section', 'question')
+
+
+class UserMockTestSession(models.Model):
+    name = models.CharField(max_length=255)
+    session_id = models.CharField(max_length=255)
+    mock_test = models.ForeignKey(MockTest, on_delete=models.CASCADE)
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
+    is_completed = models.BooleanField(default=False)
+    total_score = models.PositiveIntegerField(default=0)
+
+
+class UserResponse(models.Model):
+    session = models.ForeignKey(UserMockTestSession, on_delete=models.CASCADE, related_name='responses')
+    mock_test = models.ForeignKey(MockTest, on_delete=models.CASCADE)
+    question = models.ForeignKey(Question, on_delete=models.CASCADE)
+    text_response = models.TextField(blank=True, null=True)
+    audio_response = models.FileField(blank=True, null=True)
+    score_awarded = models.PositiveIntegerField(default=0)
+    evaluated = models.BooleanField(default=False)
+    submitted_at = models.DateTimeField(auto_now_add=True)

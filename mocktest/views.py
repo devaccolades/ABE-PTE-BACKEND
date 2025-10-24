@@ -1,31 +1,26 @@
-from django.shortcuts import render
-from django.http import JsonResponse
 
-def dummy_pte_data(request):
-    # Dummy JSON data (can be any nested structure)
-    data = {
-        "exam_name": "PTE Mock Test",
-        "sections": [
-            {
-                "id": 1,
-                "name": "Speaking & Writing",
-                "duration": 77,
-                "questions": [
-                    {"id": 1, "type": "Read Aloud", "text": "Technology is reshaping education."},
-                    {"id": 2, "type": "Repeat Sentence", "text": "Education empowers the future."}
-                ]
-            },
-            {
-                "id": 2,
-                "name": "Reading",
-                "duration": 32,
-                "questions": [
-                    {"id": 1, "type": "Fill in the blanks", "count": 5},
-                    {"id": 2, "type": "Reorder paragraphs", "count": 3}
-                ]
-            }
-        ],
-        "total_duration": 109
-    }
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework import status
+from .models import MockTestSection, Section, SubSection
+from .serializers import SubSectionSerializer
 
-    return JsonResponse(data)
+class SpeakingSectionQuestionsAPIView(APIView):
+    def get(self, request, mocktest_section_id):
+        try:
+            mock_section = MockTestSection.objects.get(id=mocktest_section_id)
+        except MockTestSection.DoesNotExist:
+            return Response({"error": "MockTestSection not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Ensure it's a Speaking & Writing section
+        if mock_section.section.section_type != "speaking & writing":
+            return Response({"error": "This section is not Speaking & Writing."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get all subsections linked to this section
+        subsections = SubSection.objects.filter(section=mock_section.section).order_by('order')
+        serializer = SubSectionSerializer(subsections, many=True)
+        return Response({
+            "mock_test": mock_section.mock_test.title,
+            "section": mock_section.section.section_type,
+            "subsections": serializer.data
+        })

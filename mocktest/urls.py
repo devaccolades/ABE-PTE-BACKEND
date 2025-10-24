@@ -1,6 +1,6 @@
 from django.urls import path
-from .views import dummy_pte_data
+from .views import SpeakingSectionQuestionsAPIView
 urlpatterns = [
-    path('',dummy_pte_data, name="dummy"),
+    path('mocktestsections/<uuid:mocktest_section_id>/speaking/', SpeakingSectionQuestionsAPIView.as_view(), name='speaking-section-questions'),
 ]
 

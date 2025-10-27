@@ -56,7 +56,7 @@ class SubSection(models.Model):
 class Question(models.Model):
     """Question master table connected with subsection"""
     subsection = models.ForeignKey(SubSection, on_delete=models.CASCADE, related_name='questions')
-    name = models.CharField(max_length=100)
+    name = models.CharField(max_length=100,null=True,blank=True)
     text = models.TextField(blank=True, null=True)
     audio = models.FileField(upload_to='questions/audio/', blank=True, null=True)
     image = models.FileField(upload_to='questions/images/', blank=True, null=True)

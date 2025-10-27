@@ -36,9 +36,9 @@ class Section(models.Model):
     Main sections linked to both a Skill and an Exam Part.
     Example: Speaking section inside 'Part 1: Speaking & Writing'
     """
-    exam_part = models.ForeignKey(ExamPart, on_delete=models.CASCADE, related_name='sections')
-    skill = models.ForeignKey(Skill, on_delete=models.CASCADE, related_name='sections')
-    name = models.CharField(max_length=100)
+    exam_part = models.ForeignKey(ExamPart, on_delete=models.CASCADE, related_name='sections',null=True,blank=True)
+    skill = models.ForeignKey(Skill, on_delete=models.CASCADE, related_name='sections',null=True,blank=True)
+    name = models.CharField(max_length=100,null=True,blank=True)
     total_duration = models.PositiveIntegerField(blank=True,null=True)
     
 
@@ -49,13 +49,13 @@ class SubSection(models.Model):
     """
     Detailed subsections like 'Read Aloud', 'Describe Image', etc.
     """
-    section = models.ForeignKey('Section', on_delete=models.CASCADE, related_name='subsections')
-    name = models.CharField(max_length=150)
+    section = models.ForeignKey('Section', on_delete=models.CASCADE, related_name='subsections',null=True,blank=True)
+    name = models.CharField(max_length=150,null=True,blank=True)
     order = models.PositiveIntegerField(default=1)
 
 class Question(models.Model):
     """Question master table connected with subsection"""
-    subsection = models.ForeignKey(SubSection, on_delete=models.CASCADE, related_name='questions')
+    subsection = models.ForeignKey(SubSection, on_delete=models.CASCADE, related_name='questions',null=True,blank=True)
     name = models.CharField(max_length=100,null=True,blank=True)
     text = models.TextField(blank=True, null=True)
     audio = models.FileField(upload_to='questions/audio/', blank=True, null=True)
@@ -79,7 +79,7 @@ class MockTest(models.Model):
     title = models.CharField(max_length=255)
     description = models.TextField(null=True,blank=True)
     total_score = models.PositiveIntegerField(default=0, help_text="Maximum total score for the test")
-    total_duration = models.PositiveIntegerField(help_text="Duration in seconds")
+    total_duration = models.PositiveIntegerField(help_text="Duration in seconds",null=True,blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
 
@@ -87,8 +87,8 @@ class MockTest(models.Model):
         return self.title
 
 class MockTestSection(models.Model):
-    mock_test = models.ForeignKey(MockTest, on_delete=models.CASCADE, related_name="sections")
-    section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name="mock_test_sections")
+    mock_test = models.ForeignKey(MockTest, on_delete=models.CASCADE, related_name="sections",null=True,blank=True)
+    section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name="mock_test_sections",null=True,blank=True)
     order = models.PositiveIntegerField(default=1)
 
     def __str__(self):

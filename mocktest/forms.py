@@ -1,3 +1,11 @@
+from django import forms
+from .models import Question
+
+TIME_UNIT_CHOICES = [
+    ('seconds', 'Seconds'),
+    ('minutes', 'Minutes'),
+    ('hours', 'Hours'),
+]
 class QuestionAdminForm(forms.ModelForm):
     reading_time_value = forms.FloatField(label="Reading Time", required=False)
     reading_time_unit = forms.ChoiceField(choices=TIME_UNIT_CHOICES, initial='seconds', required=False)

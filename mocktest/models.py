@@ -52,6 +52,10 @@ class SubSection(models.Model):
     section = models.ForeignKey('Section', on_delete=models.CASCADE, related_name='subsections',null=True,blank=True)
     name = models.CharField(max_length=150,null=True,blank=True)
     order = models.PositiveIntegerField(default=1)
+    
+    def __str__(self):
+        return f"{self.section.name} - {self.name}"
+    
 
 class Question(models.Model):
     """Question master table connected with subsection"""
@@ -60,7 +64,6 @@ class Question(models.Model):
     text = models.TextField(blank=True, null=True)
     audio = models.FileField(upload_to='questions/audio/', blank=True, null=True)
     image = models.FileField(upload_to='questions/images/', blank=True, null=True)
-    options = models.JSONField(blank=True, null=True)
     correct_answer = models.TextField(blank=True, null=True)
     reading_time = models.PositiveIntegerField(help_text="Time allowed to read question in seconds", default=0)
     answering_time = models.PositiveIntegerField(help_text="Time allowed to answer in seconds", default=0)
@@ -73,6 +76,21 @@ class Question(models.Model):
     def __str__(self):
         return f"{self.subsection.name} - Q{self.id}"
 
+
+class QuestionOptions(models.Model):
+    """Represents the options available for a question (for MCQ type questions)."""
+    question = models.ForeignKey(
+        Question,
+        on_delete=models.CASCADE,
+        related_name='options',
+        null=True,
+        blank=True
+    )
+    option_text = models.CharField(max_length=255, null=True, blank=True)
+    is_correct = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.question} - {self.option_text}"
 
 class MockTest(models.Model):
     test_id = models.UUIDField(primary_key=True, default=uuid.uuid4)
@@ -93,6 +111,38 @@ class MockTestSection(models.Model):
 
     def __str__(self):
         return f"{self.mock_test.title} - {self.section.name}"
+
+class UserMockTestSession(models.Model):
+    name = models.CharField(max_length=255)
+    session_id = models.CharField(max_length=255)
+    mock_test = models.ForeignKey(MockTest, on_delete=models.CASCADE)
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
+    is_completed = models.BooleanField(default=False)
+    total_score = models.PositiveIntegerField(default=0)
+    speaking_score_awarded = models.FloatField(default=0. )
+    writing_score_awarded = models.FloatField(default=0)
+    reading_score_awarded = models.FloatField(default=0)
+    listening_score_awarded = models.FloatField(default=0)
+
+    def __str__(self):
+        return self.name
+
+class UserResponse(models.Model):
+    user_session = models.ForeignKey(UserMockTestSession, on_delete=models.CASCADE, related_name='responses')
+    mock_test = models.ForeignKey(MockTest, on_delete=models.CASCADE)
+    question = models.ForeignKey(Question, on_delete=models.CASCADE)
+    text_response = models.TextField(blank=True, null=True)
+    audio_response = models.FileField(blank=True, null=True)
+    speaking_score_awarded = models.FloatField(default=0. )
+    writing_score_awarded = models.FloatField(default=0)
+    reading_score_awarded = models.FloatField(default=0)
+    listening_score_awarded = models.FloatField(default=0)
+    evaluated = models.BooleanField(default=False)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.user_session.name
 
 
 # class Section(models.Model):
@@ -211,12 +261,3 @@ class MockTestSection(models.Model):
 #     total_score = models.PositiveIntegerField(default=0)
 
 
-# class UserResponse(models.Model):
-#     session = models.ForeignKey(UserMockTestSession, on_delete=models.CASCADE, related_name='responses')
-#     mock_test = models.ForeignKey(MockTest, on_delete=models.CASCADE)
-#     question = models.ForeignKey(Question, on_delete=models.CASCADE)
-#     text_response = models.TextField(blank=True, null=True)
-#     audio_response = models.FileField(blank=True, null=True)
-#     score_awarded = models.PositiveIntegerField(default=0)
-#     evaluated = models.BooleanField(default=False)
-#     submitted_at = models.DateTimeField(auto_now_add=True)

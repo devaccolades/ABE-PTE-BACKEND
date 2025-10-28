@@ -175,52 +175,52 @@ class SubSectionAdmin(admin.ModelAdmin):
     ordering = ['section__exam_part__order', 'order']
 
 
-# @admin.register(Question)
-# class QuestionAdmin(admin.ModelAdmin):
-#     list_display = (
-#         'name', 'subsection', 'reading_time', 'answering_time',
-#         'speaking_score_max', 'writing_score_max', 'reading_score_max', 'listening_score_max'
-#     )
-#     list_filter = ('subsection__section__exam_part', 'subsection__section__skill')
-#     search_fields = ('name', 'text')
-#     ordering = ['subsection__order', 'id']
-
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
-    form = QuestionAdminForm
     list_display = (
         'name', 'subsection', 'reading_time', 'answering_time',
-        'speaking_score_max', 'writing_score_max',
-        'reading_score_max', 'listening_score_max'
+        'speaking_score_max', 'writing_score_max', 'reading_score_max', 'listening_score_max'
     )
+    list_filter = ('subsection__section__exam_part', 'subsection__section__skill')
+    search_fields = ('name', 'text')
     ordering = ['subsection__order', 'id']
 
-    fieldsets = (
-        (None, {
-            'fields': (
-                'subsection',
-                'name',
-                'text',
-                'audio',
-                'image',
-                'correct_answer',
-            )
-        }),
-        ('Timing (with unit selection)', {
-            'fields': (
-                ('reading_time_value', 'reading_time_unit'),
-                ('answering_time_value', 'answering_time_unit'),
-            )
-        }),
-        ('Scores', {
-            'fields': (
-                'speaking_score_max',
-                'writing_score_max',
-                'reading_score_max',
-                'listening_score_max',
-            )
-        }),
-    )
+# @admin.register(Question)
+# class QuestionAdmin(admin.ModelAdmin):
+#     form = QuestionAdminForm
+#     list_display = (
+#         'name', 'subsection', 'reading_time', 'answering_time',
+#         'speaking_score_max', 'writing_score_max',
+#         'reading_score_max', 'listening_score_max'
+#     )
+#     ordering = ['subsection__order', 'id']
+
+#     fieldsets = (
+#         (None, {
+#             'fields': (
+#                 'subsection',
+#                 'name',
+#                 'text',
+#                 'audio',
+#                 'image',
+#                 'correct_answer',
+#             )
+#         }),
+#         ('Timing (with unit selection)', {
+#             'fields': (
+#                 ('reading_time_value', 'reading_time_unit'),
+#                 ('answering_time_value', 'answering_time_unit'),
+#             )
+#         }),
+#         ('Scores', {
+#             'fields': (
+#                 'speaking_score_max',
+#                 'writing_score_max',
+#                 'reading_score_max',
+#                 'listening_score_max',
+#             )
+#         }),
+#     )
 
 @admin.register(QuestionOptions)
 class QuestionOptionsAdmin(admin.ModelAdmin):

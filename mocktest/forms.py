@@ -1,17 +1,4 @@
-from django.contrib import admin
-from django import forms
-from .models import Question
-
-# Time unit choices
-TIME_UNIT_CHOICES = [
-    ('seconds', 'Seconds'),
-    ('minutes', 'Minutes'),
-    ('hours', 'Hours'),
-]
-
-
 class QuestionAdminForm(forms.ModelForm):
-    # Custom fields for better UX
     reading_time_value = forms.FloatField(label="Reading Time", required=False)
     reading_time_unit = forms.ChoiceField(choices=TIME_UNIT_CHOICES, initial='seconds', required=False)
 
@@ -20,15 +7,13 @@ class QuestionAdminForm(forms.ModelForm):
 
     class Meta:
         model = Question
-        exclude = ('reading_time', 'answering_time')  # hide raw fields
+        exclude = ('reading_time', 'answering_time')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # Prefill values when editing
         if self.instance and self.instance.reading_time:
             seconds = self.instance.reading_time
-            # Display in best fit unit (seconds/minutes/hours)
             if seconds >= 3600:
                 self.fields['reading_time_value'].initial = round(seconds / 3600, 2)
                 self.fields['reading_time_unit'].initial = 'hours'
@@ -51,25 +36,27 @@ class QuestionAdminForm(forms.ModelForm):
                 self.fields['answering_time_value'].initial = seconds
                 self.fields['answering_time_unit'].initial = 'seconds'
 
-    def clean(self):
-        cleaned_data = super().clean()
+    def to_seconds(self, value, unit):
+        if not value:
+            return 0
+        if unit == 'minutes':
+            return int(value * 60)
+        elif unit == 'hours':
+            return int(value * 3600)
+        return int(value)
 
-        def to_seconds(value, unit):
-            if not value:
-                return 0
-            if unit == 'minutes':
-                return int(value * 60)
-            elif unit == 'hours':
-                return int(value * 3600)
-            return int(value)
+    def save(self, commit=True):
+        instance = super().save(commit=False)
 
-        cleaned_data['reading_time'] = to_seconds(
-            cleaned_data.get('reading_time_value'),
-            cleaned_data.get('reading_time_unit')
-        )
-        cleaned_data['answering_time'] = to_seconds(
-            cleaned_data.get('answering_time_value'),
-            cleaned_data.get('answering_time_unit')
-        )
+        # Convert unit values to seconds before saving
+        rt_value = self.cleaned_data.get('reading_time_value') or 0
+        rt_unit = self.cleaned_data.get('reading_time_unit') or 'seconds'
+        at_value = self.cleaned_data.get('answering_time_value') or 0
+        at_unit = self.cleaned_data.get('answering_time_unit') or 'seconds'
 
-        return cleaned_data
+        instance.reading_time = self.to_seconds(rt_value, rt_unit)
+        instance.answering_time = self.to_seconds(at_value, at_unit)
+
+        if commit:
+            instance.save()
+        return instance

@@ -191,8 +191,8 @@ class QuestionOptionsAdmin(admin.ModelAdmin):
         'question',
         'is_correct',
     )
-    list_filter = ('question__subsection',)
-    search_fields = ('option_text', 'question__question_text')
+    list_filter = ('question__subsection','question__name')
+    search_fields = ('option_text', 'question__question_name')
     ordering = ['question__subsection__order', 'question__id', 'id']
 
 

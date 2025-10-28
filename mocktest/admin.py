@@ -194,6 +194,32 @@ class QuestionAdmin(admin.ModelAdmin):
         'reading_score_max', 'listening_score_max'
     )
     ordering = ['subsection__order', 'id']
+    fieldsets = (
+        (None, {
+            'fields': (
+                'subsection',
+                'name',
+                'text',
+                'audio',
+                'image',
+                'correct_answer',
+            )
+        }),
+        ('Timing (with unit selection)', {
+            'fields': (
+                ('reading_time_value', 'reading_time_unit'),
+                ('answering_time_value', 'answering_time_unit'),
+            )
+        }),
+        ('Scores', {
+            'fields': (
+                'speaking_score_max',
+                'writing_score_max',
+                'reading_score_max',
+                'listening_score_max',
+            )
+        }),
+    )
 
 
 @admin.register(QuestionOptions)

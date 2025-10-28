@@ -95,6 +95,7 @@
 
 from django.contrib import admin
 from .models import Skill, ExamPart, Section, SubSection, Question, MockTest, MockTestSection, UserResponse, UserMockTestSession,QuestionOptions
+from .forms import QuestionAdminForm
 
 
 # ============================================================
@@ -174,15 +175,26 @@ class SubSectionAdmin(admin.ModelAdmin):
     ordering = ['section__exam_part__order', 'order']
 
 
+# @admin.register(Question)
+# class QuestionAdmin(admin.ModelAdmin):
+#     list_display = (
+#         'name', 'subsection', 'reading_time', 'answering_time',
+#         'speaking_score_max', 'writing_score_max', 'reading_score_max', 'listening_score_max'
+#     )
+#     list_filter = ('subsection__section__exam_part', 'subsection__section__skill')
+#     search_fields = ('name', 'text')
+#     ordering = ['subsection__order', 'id']
+
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
+    form = QuestionAdminForm
     list_display = (
         'name', 'subsection', 'reading_time', 'answering_time',
-        'speaking_score_max', 'writing_score_max', 'reading_score_max', 'listening_score_max'
+        'speaking_score_max', 'writing_score_max',
+        'reading_score_max', 'listening_score_max'
     )
-    list_filter = ('subsection__section__exam_part', 'subsection__section__skill')
-    search_fields = ('name', 'text')
     ordering = ['subsection__order', 'id']
+
 
 @admin.register(QuestionOptions)
 class QuestionOptionsAdmin(admin.ModelAdmin):

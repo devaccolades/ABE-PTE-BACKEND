@@ -194,6 +194,7 @@ class QuestionAdmin(admin.ModelAdmin):
         'reading_score_max', 'listening_score_max'
     )
     ordering = ['subsection__order', 'id']
+
     fieldsets = (
         (None, {
             'fields': (
@@ -220,7 +221,6 @@ class QuestionAdmin(admin.ModelAdmin):
             )
         }),
     )
-
 
 @admin.register(QuestionOptions)
 class QuestionOptionsAdmin(admin.ModelAdmin):

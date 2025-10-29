@@ -120,7 +120,7 @@ class UserMockTestSession(models.Model):
     completed_at = models.DateTimeField(blank=True, null=True)
     is_completed = models.BooleanField(default=False)
     total_score = models.PositiveIntegerField(default=0)
-    speaking_score_awarded = models.FloatField(default=0. )
+    speaking_score_awarded = models.FloatField(default=0)
     writing_score_awarded = models.FloatField(default=0)
     reading_score_awarded = models.FloatField(default=0)
     listening_score_awarded = models.FloatField(default=0)

@@ -1,3 +1,4 @@
+from django.db import DatabaseError
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -20,13 +21,36 @@ class SectionsAPIView(APIView):
 
 class QuestionsAPIView(APIView):
     def get(self, request):
-        questions = Question.objects.select_related(
-            'subsection__section__skill',
-            'subsection__section__exam_part'
-        ).prefetch_related('options')
+        try:
+            # Fetch questions efficiently
+            questions = Question.objects.select_related(
+                'subsection__section__skill',
+                'subsection__section__exam_part'
+            ).prefetch_related('options')
 
-        serializer = QuestionSerializer(questions, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+            if not questions.exists():
+                return Response(
+                    {"detail": "No questions found."},
+                    status=status.HTTP_204_NO_CONTENT
+                )
+
+            serializer = QuestionSerializer(questions, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        except DatabaseError as e:
+            # Handle database-level errors
+            return Response(
+                {"error": "Database error occurred.", "details": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        except Exception as e:
+            # Catch-all for any unexpected errors
+            return Response(
+                {"error": "An unexpected error occurred.", "details": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 # class Questions(APIView):
 #     def get(self,request):

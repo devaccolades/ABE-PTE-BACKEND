@@ -4,7 +4,7 @@ from rest_framework import status
 from .models import Section,Question
 from .serializers import SectionSerializer,QuestionSerializer
 
-class MockTestAllSectionsAPIView(APIView):
+class SectionsAPIView(APIView):
     def get(self, request):
         sections = Section.objects.all()
         
@@ -18,15 +18,25 @@ class MockTestAllSectionsAPIView(APIView):
             "sections": serializer.data
         }, status=status.HTTP_200_OK)
 
-class Questions(APIView):
-    def get(self,request):
-        questions = Question.objects.all()
-        if not questions.exists():
-            return Response({"error": "No questions found."}, status=status.HTTP_404_NOT_FOUND)
+class QuestionsAPIView(APIView):
+    def get(self, request):
+        questions = Question.objects.select_related(
+            'subsection__section__skill',
+            'subsection__section__exam_part'
+        ).prefetch_related('options')
 
         serializer = QuestionSerializer(questions, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
-        return Response({
-            "sections_count": questions.count(),
-            "sections": serializer.data
-        }, status=status.HTTP_200_OK)
+# class Questions(APIView):
+#     def get(self,request):
+#         questions = Question.objects.all()
+#         if not questions.exists():
+#             return Response({"error": "No questions found."}, status=status.HTTP_404_NOT_FOUND)
+
+#         serializer = QuestionSerializer(questions, many=True)
+
+#         return Response({
+#             "sections_count": questions.count(),
+#             "sections": serializer.data
+#         }, status=status.HTTP_200_OK)

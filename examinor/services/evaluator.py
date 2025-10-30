@@ -9,7 +9,7 @@ def evaluate_with_openai(question, response_text):
     prompt = build_prompt(question, response_text)
 
     completion = openai.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-5-nano",
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
     )

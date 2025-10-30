@@ -2,8 +2,19 @@ from django.db import DatabaseError
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Section,Question
-from .serializers import SectionSerializer,QuestionSerializer
+from .models import Section,Question,MockTest
+from .serializers import SectionSerializer,QuestionSerializer,MockTestSerializer
+
+
+class MockTestAPIView(APIView):
+    def get(self, request):
+        tests = MockTest.objects.all()
+        if not tests.exists():
+            return Response({"error": "No sections found."}, status=status.HTTP_404_NOT_FOUND)
+        
+        serializer = MockTestSerializer(tests,many=True)
+        return Response({"tests":serializer.data},status=status.HTTP_200)
+
 
 class SectionsAPIView(APIView):
     def get(self, request):

@@ -26,12 +26,15 @@ class QuestionSerializer(serializers.ModelSerializer):
     options = QuestionOptionSerializer(many=True, read_only=True)
     subsection_name = serializers.CharField(source='subsection.name', read_only=True)
     section_name = serializers.CharField(source='subsection.section.name', read_only=True)
-    skill_name = serializers.CharField(source='subsection.section.skill.name', read_only=True)
+    # skill_name = serializers.CharField(source='subsection.section.skill.name', read_only=True)
     exam_part_name = serializers.CharField(source='subsection.section.exam_part.name', read_only=True)
     
     class Meta:
         model = Question
         fields = [
+            'exam_part_name',
+            'section_name',
+            'subsection_name',
             'id',
             'name',
             'text',
@@ -44,10 +47,6 @@ class QuestionSerializer(serializers.ModelSerializer):
             'writing_score_max',
             'reading_score_max',
             'listening_score_max',
-            'subsection_name',
-            'section_name',
-            'skill_name',
-            'exam_part_name',
             'options',
         ]
 

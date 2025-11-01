@@ -31,8 +31,8 @@ SECRET_KEY = 'django-insecure-kc&7(+$5aa0%zq!wj2&=)zkzuz^hpc!@_qx##w==-2jnh^&7_6
 DEBUG = True
 
 
-# ALLOWED_HOSTS = ['*']
-ALLOWED_HOSTS = ['82.112.226.176','admin.abepte.accoladesweb.com']
+ALLOWED_HOSTS = ['*']
+# ALLOWED_HOSTS = ['82.112.226.176','admin.abepte.accoladesweb.com']
 
 
 # Application definition
@@ -102,7 +102,7 @@ DATABASES = {
         "PORT": os.getenv("DB_PORT", ""),
     }
 }
-
+ 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
@@ -144,7 +144,6 @@ STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
@@ -154,5 +153,3 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CSRF_TRUSTED_ORIGINS = [
     "https://admin.abepte.accoladesweb.com",
 ]
-
-

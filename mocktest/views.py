@@ -13,7 +13,7 @@ class MockTestAPIView(APIView):
             return Response({"error": "No sections found."}, status=status.HTTP_404_NOT_FOUND)
         
         serializer = MockTestSerializer(tests,many=True)
-        return Response({"tests":serializer.data},status=status.HTTP_200)
+        return Response({"tests":serializer.data},status=status.HTTP_200_OK)
 
 
 class SectionsAPIView(APIView):

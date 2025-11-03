@@ -49,9 +49,42 @@ class SubSection(models.Model):
     """
     Detailed subsections like 'Read Aloud', 'Describe Image', etc.
     """
+    SUBSECTION_CHOICES = [
+        # Speaking
+        ("read_aloud", "Read Aloud"),
+        ("repeat_sentence", "Repeat Sentence"),
+        ("describe_image", "Describe Image"),
+        ("retell_lecture", "Retell Lecture"),
+        ("answer_short_question", "Answer Short Question"),
+        ("summarise_group_discussion", "Summarise Group Discussion"),
+        ("respond_to_a_situation", "Respond to a Situation"),
+
+        # Writing
+        ("summarize_written_text", "Summarize Written Text"),
+        ("write_essay", "Write Essay"),
+
+        # Reading
+        ("fib_dropdown", "Fill in the Blanks – Dropdown"),
+        ("mc_multiple", "MCQ – Multiple Answers (Reading)"),
+        ("reorder_paragraphs", "Reorder Paragraphs"),
+        ("fib_drag_drop", "Fill in the Blanks – Drag & Drop"),
+        ("mc_single", "MCQ – Single Answer (Reading)"),
+
+        # Listening
+        ("summarize_spoken_text", "Summarize Spoken Text"),
+        ("l_mc_multiple", "MCQ – Multiple Answers (Listening)"),
+        ("l_fill_in_blanks", "Fill in the Blanks (Listening)"),
+        ("highlight_correct_summary", "Highlight Correct Summary"),
+        ("l_mc_single", "MCQ – Single Answer (Listening)"),
+        ("select_missing_word", "Select Missing Word"),
+        ("highlight_incorrect_words", "Highlight Incorrect Words"),
+        ("write_from_dictation", "Write from Dictation"),
+    ]
+
     section = models.ForeignKey('Section', on_delete=models.CASCADE, related_name='subsections',null=True,blank=True)
-    name = models.CharField(max_length=150,null=True,blank=True)
+    name = models.CharField(max_length=60, choices=SUBSECTION_CHOICES, default="read_aloud")
     order = models.PositiveIntegerField(default=1)
+    rubric = models.JSONField(default=dict, blank=True, null=True)
     
     def __str__(self):
         return f"{self.section.name} - {self.name}"

@@ -2,48 +2,70 @@ import uuid
 from django.db import models
 
 
-class Skill(models.Model):
-    SKILL_CHOICES = [
-        ('speaking', 'Speaking'),
-        ('writing', 'Writing'),
-        ('reading', 'Reading'),
-        ('listening', 'Listening'),
-    ]
-    name = models.CharField(max_length=50, choices=SKILL_CHOICES, unique=True)
+# class Skill(models.Model):
+#     SKILL_CHOICES = [
+#         ('speaking', 'Speaking'),
+#         ('writing', 'Writing'),
+#         ('reading', 'Reading'),
+#         ('listening', 'Listening'),
+#     ]
+#     name = models.CharField(max_length=50, choices=SKILL_CHOICES, unique=True)
+#
+#     def __str__(self):
+#         return self.name
+
+
+# class ExamPart(models.Model):
+#     """
+#     Represents the actual structure of a PTE exam:
+#     e.g., Part 1: Speaking & Writing, Part 2: Reading, Part 3: Listening
+#     """
+#     name = models.CharField(max_length=100, unique=True)
+#     order = models.PositiveIntegerField(default=1)
+#     description = models.TextField(blank=True, null=True)
+#
+#     class Meta:
+#         ordering = ['order']
+#
+#     def __str__(self):
+#         return f"Part {self.order}: {self.name}"
+#
+
+class MockTest(models.Model):
+    test_id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    title = models.CharField(max_length=255)
+    description = models.TextField(null=True,blank=True)
+    total_score = models.PositiveIntegerField(default=0, help_text="Maximum total score for the test")
+    total_duration = models.PositiveIntegerField(help_text="Duration in seconds",null=True,blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
 
     def __str__(self):
-        return self.name
-
-
-class ExamPart(models.Model):
-    """
-    Represents the actual structure of a PTE exam:
-    e.g., Part 1: Speaking & Writing, Part 2: Reading, Part 3: Listening
-    """
-    name = models.CharField(max_length=100, unique=True)
-    order = models.PositiveIntegerField(default=1)
-    description = models.TextField(blank=True, null=True)
-
-    class Meta:
-        ordering = ['order']
-
-    def __str__(self):
-        return f"Part {self.order}: {self.name}"
-
+        return self.title
 
 class Section(models.Model):
     """
     Main sections linked to both a Skill and an Exam Part.
     Example: Speaking section inside 'Part 1: Speaking & Writing'
     """
-    exam_part = models.ForeignKey(ExamPart, on_delete=models.CASCADE, related_name='sections',null=True,blank=True)
-    skill = models.ForeignKey(Skill, on_delete=models.CASCADE, related_name='sections',null=True,blank=True)
+    # exam_part = models.ForeignKey(ExamPart, on_delete=models.CASCADE, related_name='sections',null=True,blank=True)
+    # skill = models.ForeignKey(Skill, on_delete=models.CASCADE, related_name='sections',null=True,blank=True)
     name = models.CharField(max_length=100,null=True,blank=True)
-    total_duration = models.PositiveIntegerField(blank=True,null=True)
-    
+    description = models.TextField(null=True,blank=True)
+    # total_duration = models.PositiveIntegerField(blank=True,null=True)
+
 
     def __str__(self):
-        return f"{self.exam_part.name} - {self.skill.name} - {self.name}"
+        return f"{self.name}"
+
+class MockTestSection(models.Model):
+    mock_test = models.ForeignKey(MockTest, on_delete=models.CASCADE, related_name="sections",null=True,blank=True)
+    section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name="mock_test_sections",null=True,blank=True)
+    order = models.PositiveIntegerField(default=1)
+    total_duration = models.PositiveIntegerField(blank=True, null=True)
+
+    def __str__(self):
+        return f"{self.mock_test.title} - {self.section.name}"
 
 class SubSection(models.Model):
     """
@@ -110,6 +132,8 @@ class Question(models.Model):
         return f"{self.subsection.name} - Q{self.id}"
 
 
+
+
 class QuestionOptions(models.Model):
     """Represents the options available for a question (for MCQ type questions)."""
     question = models.ForeignKey(
@@ -125,25 +149,9 @@ class QuestionOptions(models.Model):
     def __str__(self):
         return f"{self.question} - {self.option_text}"
 
-class MockTest(models.Model):
-    test_id = models.UUIDField(primary_key=True, default=uuid.uuid4)
-    title = models.CharField(max_length=255)
-    description = models.TextField(null=True,blank=True)
-    total_score = models.PositiveIntegerField(default=0, help_text="Maximum total score for the test")
-    total_duration = models.PositiveIntegerField(help_text="Duration in seconds",null=True,blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    is_active = models.BooleanField(default=True)
 
-    def __str__(self):
-        return self.title
 
-class MockTestSection(models.Model):
-    mock_test = models.ForeignKey(MockTest, on_delete=models.CASCADE, related_name="sections",null=True,blank=True)
-    section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name="mock_test_sections",null=True,blank=True)
-    order = models.PositiveIntegerField(default=1)
 
-    def __str__(self):
-        return f"{self.mock_test.title} - {self.section.name}"
 
 class UserMockTestSession(models.Model):
     name = models.CharField(max_length=255)

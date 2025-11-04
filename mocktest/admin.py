@@ -1,11 +1,5 @@
 from django.contrib import admin
-from .models import Skill, ExamPart, Section, SubSection, Question, MockTest, MockTestSection, UserResponse, UserMockTestSession,QuestionOptions
-from .forms import QuestionAdminForm
-
-
-# ============================================================
-# Inline Configurations
-# ============================================================
+from .models import *
 
 class SubSectionInline(admin.TabularInline):
     model = SubSection
@@ -13,10 +7,10 @@ class SubSectionInline(admin.TabularInline):
     ordering = ['order']
 
 
-class SectionInline(admin.TabularInline):
-    model = Section
-    extra = 1
-    ordering = ['exam_part__order']
+# class SectionInline(admin.TabularInline):
+#     model = Section
+#     extra = 1
+#     ordering = ['exam_part__order']
 
 
 class QuestionInline(admin.TabularInline):
@@ -48,36 +42,33 @@ class UserResponseInline(admin.TabularInline):
 # Main Admin Models
 # ============================================================
 
-@admin.register(Skill)
-class SkillAdmin(admin.ModelAdmin):
-    list_display = ('name',)
-    search_fields = ('name',)
-    ordering = ['name']
+# @admin.register(Skill)
+# class SkillAdmin(admin.ModelAdmin):
+#     list_display = ('name',)
+#     search_fields = ('name',)
+#     ordering = ['name']
 
 
-@admin.register(ExamPart)
-class ExamPartAdmin(admin.ModelAdmin):
-    list_display = ('name', 'order', 'description')
-    ordering = ['order']
-    inlines = [SectionInline]
+# @admin.register(ExamPart)
+# class ExamPartAdmin(admin.ModelAdmin):
+#     list_display = ('name', 'order', 'description')
+#     ordering = ['order']
+#     inlines = [SectionInline]
 
 
 @admin.register(Section)
 class SectionAdmin(admin.ModelAdmin):
-    list_display = ('name', 'exam_part', 'skill', 'total_duration')
-    list_filter = ('exam_part', 'skill')
+    list_display = ('name', )
     search_fields = ('name',)
     inlines = [SubSectionInline]
-    ordering = ['exam_part__order', 'skill__name', 'name']
+    ordering = ['name']
 
 
 @admin.register(SubSection)
 class SubSectionAdmin(admin.ModelAdmin):
     list_display = ('name', 'section', 'order')
-    list_filter = ('section__exam_part', 'section__skill')
     search_fields = ('name',)
-    # inlines = [QuestionInline]
-    ordering = ['section__exam_part__order', 'order']
+    ordering = ['order']
 
 
 @admin.register(Question)
@@ -86,7 +77,6 @@ class QuestionAdmin(admin.ModelAdmin):
         'name', 'subsection', 'reading_time', 'answering_time',
         'speaking_score_max', 'writing_score_max', 'reading_score_max', 'listening_score_max'
     )
-    list_filter = ('subsection__section__exam_part', 'subsection__section__skill')
     search_fields = ('name', 'text')
     ordering = ['subsection__order', 'id']
 
@@ -114,7 +104,7 @@ class MockTestAdmin(admin.ModelAdmin):
 @admin.register(MockTestSection)
 class MockTestSectionAdmin(admin.ModelAdmin):
     list_display = ('mock_test', 'section', 'order')
-    list_filter = ('mock_test', 'section__exam_part', 'section__skill')
+    list_filter = ('mock_test',)
     ordering = ['mock_test', 'order']
 
 @admin.register(UserMockTestSession)

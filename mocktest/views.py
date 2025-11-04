@@ -8,11 +8,11 @@ from .models import Question,MockTest,MockTestSection,UserResponse
 from .serializers import UserMockTestSession,SingleQuestionSerializer
 
 
-
 class StartMockTestAPIView(APIView):
     def post(self, request):
         name = request.data.get("name")
         mocktest_id = request.data.get("mocktest_id")
+
         if not name or not mocktest_id:
             return Response({"error": "Name and mocktest_id are required."}, status=status.HTTP_400_BAD_REQUEST)
 

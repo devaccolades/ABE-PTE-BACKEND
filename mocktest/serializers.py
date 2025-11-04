@@ -12,10 +12,10 @@ class QuestionSerializer(serializers.ModelSerializer):
         model = Question
         fields = ['id', 'name', 'text', 'reading_time', 'answering_time']
 
-class UserMockTestSessionCreateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = UserMockTestSession
-        fields = ['id', 'session_id', 'name', 'mock_test', 'created_at']
+# class UserMockTestSessionCreateSerializer(serializers.ModelSerializer):
+#     class Meta:
+#         model = UserMockTestSession
+#         fields = ['id', 'session_id', 'name', 'mock_test', 'created_at']
 
 
 class SingleQuestionSerializer(serializers.ModelSerializer):

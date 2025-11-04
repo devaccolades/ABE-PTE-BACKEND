@@ -78,7 +78,7 @@ class UserResponseAPIView(APIView):
         except UserMockTestSession.DoesNotExist:
             return Response({"error": "Invalid session_id"}, status=status.HTTP_404_NOT_FOUND)
 
-        # mocktest = MockTest.objects.get(pk=session.mocktest_id)
+
 
 
 

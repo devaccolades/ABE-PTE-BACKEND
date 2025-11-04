@@ -1,36 +1,6 @@
 import uuid
 from django.db import models
 
-
-# class Skill(models.Model):
-#     SKILL_CHOICES = [
-#         ('speaking', 'Speaking'),
-#         ('writing', 'Writing'),
-#         ('reading', 'Reading'),
-#         ('listening', 'Listening'),
-#     ]
-#     name = models.CharField(max_length=50, choices=SKILL_CHOICES, unique=True)
-#
-#     def __str__(self):
-#         return self.name
-
-
-# class ExamPart(models.Model):
-#     """
-#     Represents the actual structure of a PTE exam:
-#     e.g., Part 1: Speaking & Writing, Part 2: Reading, Part 3: Listening
-#     """
-#     name = models.CharField(max_length=100, unique=True)
-#     order = models.PositiveIntegerField(default=1)
-#     description = models.TextField(blank=True, null=True)
-#
-#     class Meta:
-#         ordering = ['order']
-#
-#     def __str__(self):
-#         return f"Part {self.order}: {self.name}"
-#
-
 class MockTest(models.Model):
     test_id = models.UUIDField(primary_key=True, default=uuid.uuid4)
     title = models.CharField(max_length=255)
@@ -43,6 +13,7 @@ class MockTest(models.Model):
     def __str__(self):
         return self.title
 
+
 class Section(models.Model):
     """
     Main sections linked to both a Skill and an Exam Part.
@@ -54,9 +25,9 @@ class Section(models.Model):
     description = models.TextField(null=True,blank=True)
     # total_duration = models.PositiveIntegerField(blank=True,null=True)
 
-
     def __str__(self):
         return f"{self.name}"
+
 
 class MockTestSection(models.Model):
     mock_test = models.ForeignKey(MockTest, on_delete=models.CASCADE, related_name="sections",null=True,blank=True)
@@ -66,6 +37,7 @@ class MockTestSection(models.Model):
 
     def __str__(self):
         return f"{self.mock_test.title} - {self.section.name}"
+
 
 class SubSection(models.Model):
     """
@@ -127,11 +99,8 @@ class Question(models.Model):
     reading_score_max = models.FloatField(null=True,blank=True)
     listening_score_max = models.FloatField(null=True,blank=True)
 
-
     def __str__(self):
         return f"{self.subsection.name} - Q{self.id}"
-
-
 
 
 class QuestionOptions(models.Model):
@@ -150,9 +119,6 @@ class QuestionOptions(models.Model):
         return f"{self.question} - {self.option_text}"
 
 
-
-
-
 class UserMockTestSession(models.Model):
     name = models.CharField(max_length=255)
     session_id = models.CharField(max_length=255)
@@ -168,6 +134,7 @@ class UserMockTestSession(models.Model):
 
     def __str__(self):
         return self.name
+
 
 class UserResponse(models.Model):
     user_session = models.ForeignKey(UserMockTestSession, on_delete=models.CASCADE, related_name='responses')

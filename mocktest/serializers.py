@@ -60,16 +60,39 @@ class MockTestSectionSerializer(serializers.ModelSerializer):
         model = MockTestSection
         fields = "__all__"
 
-class UserSessionSerilaizer(serializers.ModelSerializer):
+class UserSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserMockTestSession
         fields = "__all__"
+
+
+
+
 
 
 class LightQuestionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Question
         fields = ['id', 'name', 'text', 'reading_time', 'answering_time']
+
+class UserMockTestSessionCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserMockTestSession
+        fields = ['id', 'session_id', 'name', 'mock_test', 'created_at']
+
+
+class SingleQuestionSerializer(serializers.ModelSerializer):
+    options = QuestionOptionSerializer(many=True, read_only=True)
+    subsection = serializers.CharField(source='subsection.name', read_only=True)
+    section = serializers.CharField(source='subsection.section.name', read_only=True)
+
+    class Meta:
+        model = Question
+        fields = [
+            'id', 'name', 'text', 'audio', 'image',
+            'reading_time', 'answering_time',
+            'section', 'subsection', 'options'
+        ]
 
 
 class LightSubSectionSerializer(serializers.ModelSerializer):

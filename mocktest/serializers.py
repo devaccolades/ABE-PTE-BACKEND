@@ -67,3 +67,7 @@ class UserMockTestSessionCreateSerializer(serializers.ModelSerializer):
         model = UserMockTestSession
         fields = ['id', 'name', 'session_id', 'mock_test', 'mock_test_details']
 
+class UserResponseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserResponse
+        fields = "__all__"

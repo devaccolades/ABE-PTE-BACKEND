@@ -4,7 +4,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
-from .models import Question,MockTest,MockTestSection
+from .models import Question,MockTest,MockTestSection,UserResponse
 from .serializers import UserMockTestSession,SingleQuestionSerializer
 
 
@@ -13,7 +13,6 @@ class StartMockTestAPIView(APIView):
     def post(self, request):
         name = request.data.get("name")
         mocktest_id = request.data.get("mocktest_id")
-
         if not name or not mocktest_id:
             return Response({"error": "Name and mocktest_id are required."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -67,5 +66,19 @@ class GetQuestionAPIView(APIView):
         paginated_qs = paginator.paginate_queryset(questions, request)
         serializer = SingleQuestionSerializer(paginated_qs, many=True)
         return paginator.get_paginated_response(serializer.data)
+
+
+class UserResponseAPIView(APIView):
+    def post(self, request):
+        session_id = request.data.get('session_id')
+        if not session_id:
+            return Response({"error": "session_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            session = UserMockTestSession.objects.get(session_id=session_id)
+        except UserMockTestSession.DoesNotExist:
+            return Response({"error": "Invalid session_id"}, status=status.HTTP_404_NOT_FOUND)
+
+        mocktest = MockTest.objects.get(pk=session.mocktest_id)
+
 
 

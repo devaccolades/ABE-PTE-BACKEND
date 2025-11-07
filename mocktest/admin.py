@@ -1,16 +1,11 @@
 from django.contrib import admin
 from .models import *
 
+
 class SubSectionInline(admin.TabularInline):
     model = SubSection
     extra = 1
     ordering = ['order']
-
-
-# class SectionInline(admin.TabularInline):
-#     model = Section
-#     extra = 1
-#     ordering = ['exam_part__order']
 
 
 class QuestionInline(admin.TabularInline):
@@ -19,11 +14,28 @@ class QuestionInline(admin.TabularInline):
     ordering = ['id']
 
 
+# Inline for options — shown inside SubQuestion
+class QuestionOptionInline(admin.TabularInline):
+    model = QuestionOption
+    extra = 2
+    fields = ['option_text', 'is_correct', 'order_position']
+    show_change_link = True
+
+
+# Inline for sub-questions — shown inside Question (for fill_blank type)
+class SubQuestionInline(admin.TabularInline):
+    model = SubQuestion
+    extra = 1
+    fields = ['blank_number', 'text_before_blank', 'text_after_blank', 'correct_answer']
+    show_change_link = True
+
+
 class MockTestSectionInline(admin.TabularInline):
     """Inline to attach sections to a Mock Test"""
     model = MockTestSection
     extra = 1
     ordering = ['order']
+
 
 class UserResponseInline(admin.TabularInline):
     model = UserResponse
@@ -38,27 +50,9 @@ class UserResponseInline(admin.TabularInline):
     ordering = ['submitted_at']
 
 
-# ============================================================
-# Main Admin Models
-# ============================================================
-
-# @admin.register(Skill)
-# class SkillAdmin(admin.ModelAdmin):
-#     list_display = ('name',)
-#     search_fields = ('name',)
-#     ordering = ['name']
-
-
-# @admin.register(ExamPart)
-# class ExamPartAdmin(admin.ModelAdmin):
-#     list_display = ('name', 'order', 'description')
-#     ordering = ['order']
-#     inlines = [SectionInline]
-
-
 @admin.register(Section)
 class SectionAdmin(admin.ModelAdmin):
-    list_display = ('name', )
+    list_display = ('name',)
     search_fields = ('name',)
     inlines = [SubSectionInline]
     ordering = ['name']
@@ -74,22 +68,46 @@ class SubSectionAdmin(admin.ModelAdmin):
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
     list_display = (
-        'name', 'subsection', 'reading_time', 'answering_time',
+        'id', 'name', 'question_type', 'subsection', 'reading_time', 'answering_time',
         'speaking_score_max', 'writing_score_max', 'reading_score_max', 'listening_score_max'
     )
     search_fields = ('name', 'text')
-    ordering = ['subsection__order', 'id']
+    list_filter = ('question_type', 'subsection')
+    ordering = ['subsection__id', 'id']
 
-@admin.register(QuestionOptions)
-class QuestionOptionsAdmin(admin.ModelAdmin):
-    list_display = (
-        'option_text',
-        'question',
-        'is_correct',
-    )
-    list_filter = ('question__subsection','question__name')
-    search_fields = ('option_text', 'question__question_name')
-    ordering = ['question__subsection__order', 'question__id', 'id']
+    inlines = [SubQuestionInline]
+
+    def get_inlines(self, request, obj=None):
+        """Show inlines based on question type."""
+        if obj and obj.question_type == 'fill_blank':
+            return [SubQuestionInline]
+        else:
+            # For single/multiple/reorder types, show options directly
+            return [QuestionOptionInline]
+
+
+@admin.register(QuestionOption)
+class QuestionOptionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'get_question_name', 'get_blank_number', 'option_text', 'is_correct')
+    search_fields = ('option_text', 'question__name')
+    list_filter = ('is_correct',)
+    ordering = ['question', 'id']
+
+    def get_question_name(self, obj):
+        return obj.question.name if obj.question else obj.sub_question.question.name
+    get_question_name.short_description = "Question"
+
+    def get_blank_number(self, obj):
+        return obj.sub_question.blank_number if obj.sub_question else None
+    get_blank_number.short_description = "Blank #"
+
+
+@admin.register(SubQuestion)
+class SubQuestionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'question', 'blank_number', 'correct_answer')
+    search_fields = ('question__name', 'correct_answer')
+    ordering = ['question', 'blank_number']
+    inlines = [QuestionOptionInline]
 
 
 @admin.register(MockTest)
@@ -107,6 +125,7 @@ class MockTestSectionAdmin(admin.ModelAdmin):
     list_filter = ('mock_test',)
     ordering = ['mock_test', 'order']
 
+
 @admin.register(UserMockTestSession)
 class UserMockTestSessionAdmin(admin.ModelAdmin):
     list_display = (
@@ -122,22 +141,106 @@ class UserMockTestSessionAdmin(admin.ModelAdmin):
         'total_score'
     )
     ordering = ['-started_at']
-    inlines = [UserResponseInline]
 
+
+# @admin.register(UserResponse)
+# class UserResponseAdmin(admin.ModelAdmin):
+#     list_display = (
+#         'user_session', 'mock_test', 'question',
+#         'speaking_score_awarded', 'writing_score_awarded',
+#         'reading_score_awarded', 'listening_score_awarded',
+#         'evaluated', 'submitted_at'
+#     )
+#     list_filter = ('evaluated', 'mock_test', 'user_session__mock_test')
+#     search_fields = (
+#         'question__name', 'user_session__name', 'mock_test__title'
+#     )
+#     readonly_fields = (
+#         'submitted_at', 'mock_test', 'question', 'text_response', 'audio_response'
+#     )
+#     ordering = ['-submitted_at']
+#
+# @admin.register(UserResponse)
+# class UserResponseAdmin(admin.ModelAdmin):
+#     list_display = (
+#         'id',
+#         'user_session',
+#         'mock_test',
+#         'question',
+#         'sub_question_display',
+#         'selected_option_display',
+#         'selected_order',
+#         'text_response_short',
+#         'is_correct',
+#         'evaluated',
+#         'submitted_at',
+#     )
+#
+#     list_filter = (
+#         'mock_test',
+#         'evaluated',
+#         'is_correct',
+#         'question__question_type',
+#     )
+#
+#     search_fields = (
+#         'user_session__name',
+#         'mock_test__title',
+#         'question__name',
+#         'text_response',
+#         'selected_option__option_text',
+#     )
+#
+#     readonly_fields = (
+#         'submitted_at',
+#     )
+#
+#     ordering = ['-submitted_at']
+#
+#     def sub_question_display(self, obj):
+#         return obj.sub_question.blank_number if obj.sub_question else '-'
+#     sub_question_display.short_description = "Blank #"
+#
+#     def selected_option_display(self, obj):
+#         return obj.selected_option.option_text if obj.selected_option else '-'
+#     selected_option_display.short_description = "Selected Option"
+#
+#     def text_response_short(self, obj):
+#         return (obj.text_response[:50] + '...') if obj.text_response else '-'
+#     text_response_short.short_description = "Text Response"
+#
+#     def get_queryset(self, request):
+#         qs = super().get_queryset(request)
+#         # Optimize admin queries by prefetching related fields
+#         return qs.select_related(
+#             'user_session',
+#             'mock_test',
+#             'question',
+#             'sub_question',
+#             'selected_option',
+#         )
 
 @admin.register(UserResponse)
 class UserResponseAdmin(admin.ModelAdmin):
     list_display = (
-        'user_session', 'mock_test', 'question',
-        'speaking_score_awarded', 'writing_score_awarded',
-        'reading_score_awarded', 'listening_score_awarded',
-        'evaluated', 'submitted_at'
+        'user_session',
+        'id',
+        'mock_test',
+        'question',
+        'is_correct',
+        'score_awarded',
+        'evaluated',
+        'submitted_at',
     )
-    list_filter = ('evaluated', 'mock_test', 'user_session__mock_test')
+    list_filter = (
+        'mock_test',
+        'is_correct',
+        'evaluated',
+    )
     search_fields = (
-        'question__name', 'user_session__name', 'mock_test__title'
+        'user_session__name',
+        'question__question_text',
     )
-    readonly_fields = (
-        'submitted_at', 'mock_test', 'question', 'text_response', 'audio_response'
-    )
-    ordering = ['-submitted_at']
+    readonly_fields = ('submitted_at',)
+    list_per_page = 25
+

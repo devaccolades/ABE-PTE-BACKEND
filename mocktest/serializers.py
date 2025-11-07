@@ -2,10 +2,27 @@
 from rest_framework import serializers
 from .models import *
 
+
 class QuestionOptionSerializer(serializers.ModelSerializer):
     class Meta:
-        model = QuestionOptions
+        model = QuestionOption
         fields = "__all__"
+
+class SubQuestionSerializer(serializers.ModelSerializer):
+    """Serializer for each blank inside a fill-in-the-blank question."""
+    options = QuestionOptionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = SubQuestion
+        fields = [
+            "id",
+            "blank_number",
+            "text_before_blank",
+            "text_after_blank",
+            "correct_answer",
+            "options"
+        ]
+
 
 class QuestionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -13,20 +30,20 @@ class QuestionSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'text', 'reading_time', 'answering_time']
 
 
-
 class SingleQuestionSerializer(serializers.ModelSerializer):
+    """Used when fetching questions one-by-one during the mock test."""
     options = QuestionOptionSerializer(many=True, read_only=True)
+    sub_questions = SubQuestionSerializer(many=True, read_only=True)
     subsection = serializers.CharField(source='subsection.name', read_only=True)
     section = serializers.CharField(source='subsection.section.name', read_only=True)
 
     class Meta:
         model = Question
         fields = [
-            'id', 'name', 'text', 'audio', 'image',
-            'reading_time', 'answering_time',
-            'section', 'subsection', 'options'
+            'id', 'name', 'text', 'audio', 'image', 'question_type',
+            'reading_time', 'answering_time', 'section', 'subsection',
+            'options', 'sub_questions'
         ]
-
 
 class SubSectionSerializer(serializers.ModelSerializer):
     questions = QuestionSerializer(many=True, read_only=True)
@@ -62,6 +79,7 @@ class UserMockTestSessionCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserMockTestSession
         fields = ['id', 'name', 'session_id', 'mock_test', 'mock_test_details']
+
 
 class UserResponseSerializer(serializers.ModelSerializer):
     class Meta:

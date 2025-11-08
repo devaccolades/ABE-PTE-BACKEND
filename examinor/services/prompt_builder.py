@@ -1,20 +1,39 @@
 def build_prompt(question, response_text):
-    rubric = question.rubric.criteria if question.rubric else {}
-    rubric_text = ", ".join([f"{k} ({v} marks)" for k, v in rubric.items()])
+    """
+    Builds an AI evaluation prompt based on the question's subsection and rubric.
+    """
+    subsection = getattr(question, "subsection", None)
+    rubric = subsection.rubric if subsection and subsection.rubric else {}
+
+    rubric_text = ", ".join(
+        [f"{criterion} ({details.get('max_score', '?')} marks)" for criterion, details in rubric.items()]
+    ) if isinstance(rubric, dict) else "content, form, grammar, vocabulary"
 
     return f"""
-    You are a certified PTE examiner.
+You are a certified PTE examiner.
 
-    Question: {question.prompt}
+### Task Type:
+{subsection.name.replace("_", " ").title() if subsection else "General Task"}
 
-    Candidate's Answer:
-    {response_text}
+### Question:
+{question.prompt}
 
-    Evaluate the response based on:
-    {rubric_text}.
+### Candidate's Response:
+{response_text}
 
-    Output a JSON object with:
-    - overall_score
-    - breakdown (each criterion)
-    - feedback (a short paragraph with strengths and improvements)
-    """
+### Evaluation Rubric:
+Evaluate the response based on the following criteria:
+{rubric_text}.
+
+### Output:
+Return a valid JSON object with:
+{{
+  "overall_score": <numeric>,
+  "breakdown": {{
+    "criterion_1": <score>,
+    "criterion_2": <score>,
+    ...
+  }},
+  "feedback": "short summary of strengths and areas for improvement"
+}}
+"""

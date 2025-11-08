@@ -13,9 +13,9 @@ def evaluate_with_openai(question, response_text):
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
     )
-
+         
     try:
         result = json.loads(completion.choices[0].message.content)
         return {"success": True, "data": result}
-    except Exception as e:
+    except Exception as e:  
         return {"success": False, "error": str(e)}

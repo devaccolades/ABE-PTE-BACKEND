@@ -88,6 +88,7 @@ class Question(models.Model):
 
     """Question master table connected with subsection"""
     QUESTION_TYPES = [
+        ('general','General question'),
         ('single', 'Single Choice'),
         ('multiple', 'Multiple Choice'),
         ('reorder', 'Reorder'),

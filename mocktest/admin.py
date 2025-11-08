@@ -68,7 +68,7 @@ class SubSectionAdmin(admin.ModelAdmin):
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
     list_display = (
-        'id', 'name', 'question_type', 'subsection', 'reading_time', 'answering_time',
+        'name','id', 'question_type', 'subsection', 'reading_time', 'answering_time',
         'speaking_score_max', 'writing_score_max', 'reading_score_max', 'listening_score_max'
     )
     search_fields = ('name', 'text')
@@ -142,83 +142,6 @@ class UserMockTestSessionAdmin(admin.ModelAdmin):
     )
     ordering = ['-started_at']
 
-
-# @admin.register(UserResponse)
-# class UserResponseAdmin(admin.ModelAdmin):
-#     list_display = (
-#         'user_session', 'mock_test', 'question',
-#         'speaking_score_awarded', 'writing_score_awarded',
-#         'reading_score_awarded', 'listening_score_awarded',
-#         'evaluated', 'submitted_at'
-#     )
-#     list_filter = ('evaluated', 'mock_test', 'user_session__mock_test')
-#     search_fields = (
-#         'question__name', 'user_session__name', 'mock_test__title'
-#     )
-#     readonly_fields = (
-#         'submitted_at', 'mock_test', 'question', 'text_response', 'audio_response'
-#     )
-#     ordering = ['-submitted_at']
-#
-# @admin.register(UserResponse)
-# class UserResponseAdmin(admin.ModelAdmin):
-#     list_display = (
-#         'id',
-#         'user_session',
-#         'mock_test',
-#         'question',
-#         'sub_question_display',
-#         'selected_option_display',
-#         'selected_order',
-#         'text_response_short',
-#         'is_correct',
-#         'evaluated',
-#         'submitted_at',
-#     )
-#
-#     list_filter = (
-#         'mock_test',
-#         'evaluated',
-#         'is_correct',
-#         'question__question_type',
-#     )
-#
-#     search_fields = (
-#         'user_session__name',
-#         'mock_test__title',
-#         'question__name',
-#         'text_response',
-#         'selected_option__option_text',
-#     )
-#
-#     readonly_fields = (
-#         'submitted_at',
-#     )
-#
-#     ordering = ['-submitted_at']
-#
-#     def sub_question_display(self, obj):
-#         return obj.sub_question.blank_number if obj.sub_question else '-'
-#     sub_question_display.short_description = "Blank #"
-#
-#     def selected_option_display(self, obj):
-#         return obj.selected_option.option_text if obj.selected_option else '-'
-#     selected_option_display.short_description = "Selected Option"
-#
-#     def text_response_short(self, obj):
-#         return (obj.text_response[:50] + '...') if obj.text_response else '-'
-#     text_response_short.short_description = "Text Response"
-#
-#     def get_queryset(self, request):
-#         qs = super().get_queryset(request)
-#         # Optimize admin queries by prefetching related fields
-#         return qs.select_related(
-#             'user_session',
-#             'mock_test',
-#             'question',
-#             'sub_question',
-#             'selected_option',
-#         )
 
 @admin.register(UserResponse)
 class UserResponseAdmin(admin.ModelAdmin):

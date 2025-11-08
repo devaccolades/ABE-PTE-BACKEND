@@ -4,7 +4,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
-from .models import Question,MockTest,MockTestSection,UserResponse,UserMockTestSession
+from .models import Question, MockTest, MockTestSection, UserResponse, UserMockTestSession, SubQuestion
 from .serializers import UserMockTestSession,SingleQuestionSerializer,UserResponseSerializer
 
 
@@ -84,6 +84,7 @@ class UserResponseAPIView(APIView):
             session = UserMockTestSession.objects.get(session_id=session_id)
             mock_test = session.mock_test
             question = Question.objects.get(name=question_name)
+            sub_questions = SubQuestion.objects.filter(question=question)
             print("---------------------------------------------------------")
             print("testing for the datas",question_name,session_id)
 
@@ -95,20 +96,8 @@ class UserResponseAPIView(APIView):
         user_answer = UserResponse.objects.create(user_session=session, question=question, mock_test=mock_test,
                                                   answer_data=answer)
         user_answer.save()
-        is_correct = False
-        score_awarded = 0
-
-        if question.question_type == "fill_blank":
-            pass
         serializer = UserResponseSerializer(user_answer)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-    def evaluate_fill_blank(self, question, answer_data):
-        sub_questions = Question.objects.filter(question=question)
-        total_blanks = sub_questions.count()
-        correct_count = 0
-        for sub in sub_questions:
-            pass
 
 
 

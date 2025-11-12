@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import *
-
+from .forms import QuestionAdminForm
 
 class SubSectionInline(admin.TabularInline):
     model = SubSection
@@ -67,6 +67,7 @@ class SubSectionAdmin(admin.ModelAdmin):
 
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
+    # form = QuestionAdminForm
     list_display = (
         'name','id', 'question_type', 'subsection', 'reading_time', 'answering_time',
         'speaking_score_max', 'writing_score_max', 'reading_score_max', 'listening_score_max'

@@ -88,11 +88,11 @@ class Question(models.Model):
 
     """Question master table connected with subsection"""
     QUESTION_TYPES = [
-        ('general','General question'),
-        ('single', 'Single Choice'),
-        ('multiple', 'Multiple Choice'),
-        ('reorder', 'Reorder'),
-        ('fill_blank', 'Fill in the Blank'),
+        # ('general','General question'),
+        ('single_answer', 'Single Answer'),
+        ('multiple_answer', 'Multiple Answers'),
+        # ('reorder', 'Reorder'),
+        # ('fill_blank', 'Fill in the Blank'),
     ]
     question_type = models.CharField(max_length=20, choices=QUESTION_TYPES, default='single')
     subsection = models.ForeignKey(SubSection, on_delete=models.CASCADE, related_name='questions',null=True,blank=True)

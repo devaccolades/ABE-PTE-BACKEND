@@ -1,4 +1,5 @@
 import uuid
+import tempfile
 from django.db import DatabaseError
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -6,7 +7,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from .models import Question, MockTest, MockTestSection, UserResponse, UserMockTestSession, SubQuestion
 from .serializers import UserMockTestSession,SingleQuestionSerializer,UserResponseSerializer
-
+from .services.transcription import transcribe_analyse
 
 class StartMockTestAPIView(APIView):
     def post(self, request):
@@ -67,7 +68,7 @@ class GetQuestionAPIView(APIView):
 
         paginator = SingleQuestionPagination()
         paginated_qs = paginator.paginate_queryset(questions, request)
-        serializer = SingleQuestionSerializer(paginated_qs, many=True)
+        serializer = SingleQuestionSerializer(paginated_qs, many=True, context={'request': request})
 
         return paginator.get_paginated_response(serializer.data)
 
@@ -78,6 +79,9 @@ class UserResponseAPIView(APIView):
         session_id = request.data.get('session_id')
         question_name = request.data.get('question_name')
         answer = request.data.get('answer')
+        audio_path = answer.audio
+
+
         if not session_id:
             return Response({"error": "session_id is required"}, status=status.HTTP_400_BAD_REQUEST)
         try:
@@ -85,16 +89,18 @@ class UserResponseAPIView(APIView):
             mock_test = session.mock_test
             question = Question.objects.get(name=question_name)
             sub_questions = SubQuestion.objects.filter(question=question)
-            print("---------------------------------------------------------")
-            print("testing for the datas",question_name,session_id)
+
 
         except UserMockTestSession.DoesNotExist:
             return Response({"error": "Invalid session_id"}, status=status.HTTP_404_NOT_FOUND)
         except Question.DoesNotExist:
             return Response({"error": "Invalid question_name"}, status=status.HTTP_404_NOT_FOUND)
 
+        if audio_path:
+            result = transcribe_analyse(audio_path,question.text)
+
         user_answer = UserResponse.objects.create(user_session=session, question=question, mock_test=mock_test,
-                                                  answer_data=answer)
+                                                  answer_data=answer,transcribed_audio_data=result)
         user_answer.save()
         serializer = UserResponseSerializer(user_answer)
         return Response(serializer.data, status=status.HTTP_201_CREATED)

@@ -193,7 +193,7 @@ class UserResponse(models.Model):
     question = models.ForeignKey('Question', on_delete=models.CASCADE)
 
     answer_data = models.JSONField(default=dict)  # Store any type of answer here
-
+    transcribed_audio_data = models.JSONField(blank=True, null=True)
     is_correct = models.BooleanField(default=False)
     score_awarded = models.FloatField(default=0)
     evaluated = models.BooleanField(default=False)

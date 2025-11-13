@@ -1,7 +1,7 @@
 # serializers.py
 from rest_framework import serializers
 from .models import *
-
+from django.conf import settings
 
 class QuestionOptionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -36,6 +36,8 @@ class SingleQuestionSerializer(serializers.ModelSerializer):
     sub_questions = SubQuestionSerializer(many=True, read_only=True)
     subsection = serializers.CharField(source='subsection.name', read_only=True)
     section = serializers.CharField(source='subsection.section.name', read_only=True)
+    audio = serializers.SerializerMethodField()
+    image = serializers.SerializerMethodField()
 
     class Meta:
         model = Question
@@ -44,6 +46,23 @@ class SingleQuestionSerializer(serializers.ModelSerializer):
             'reading_time', 'answering_time', 'section', 'subsection',
             'options', 'sub_questions'
         ]
+
+    def get_audio(self, obj):
+        if obj.audio:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.audio.url)
+            return f"{settings.MEDIA_URL}{obj.audio.url}"
+        return None
+
+    def get_image(self, obj):
+        if obj.image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            return f"{settings.MEDIA_URL}{obj.image.url}"
+        return None
+
 
 class SubSectionSerializer(serializers.ModelSerializer):
     questions = QuestionSerializer(many=True, read_only=True)

@@ -79,6 +79,7 @@ TEMPLATES = [
 WSGI_APPLICATION = 'abe_pte.wsgi.application'
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_WHISPER_API_KEY = os.getenv("OPENAI_WHISPER_API_KEY")
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases

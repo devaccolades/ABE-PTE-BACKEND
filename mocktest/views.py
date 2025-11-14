@@ -73,37 +73,51 @@ class GetQuestionAPIView(APIView):
         return paginator.get_paginated_response(serializer.data)
 
 
-
 class UserResponseAPIView(APIView):
     def post(self, request):
         session_id = request.data.get('session_id')
         question_name = request.data.get('question_name')
         answer = request.data.get('answer')
-        audio_path = answer.audio
-
+        audio_file = request.FILES.get('answer_audio')
 
         if not session_id:
             return Response({"error": "session_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             session = UserMockTestSession.objects.get(session_id=session_id)
             mock_test = session.mock_test
             question = Question.objects.get(name=question_name)
             sub_questions = SubQuestion.objects.filter(question=question)
 
-
         except UserMockTestSession.DoesNotExist:
             return Response({"error": "Invalid session_id"}, status=status.HTTP_404_NOT_FOUND)
         except Question.DoesNotExist:
             return Response({"error": "Invalid question_name"}, status=status.HTTP_404_NOT_FOUND)
 
-        if audio_path:
-            result = transcribe_analyse(audio_path,question.text)
+        transcription_result = None
 
-        user_answer = UserResponse.objects.create(user_session=session, question=question, mock_test=mock_test,
-                                                  answer_data=answer,transcribed_audio_data=result)
-        user_answer.save()
+        # If audio uploaded, write chunks → temp file → pass path to function
+        # if audio_file:
+        #     import tempfile
+        #     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+        #         for chunk in audio_file.chunks():
+        #             temp_audio.write(chunk)
+        #         temp_audio_path = temp_audio.name
+        #
+        #     # Call transcribe
+        #     transcription_result = transcribe_analyse(
+        #         audio_path=temp_audio_path,
+        #         question_text=question.text
+        #     )
+
+        # Save
+        user_answer = UserResponse.objects.create(
+            user_session=session,
+            question=question,
+            mock_test=mock_test,
+            answer_data=answer,
+            # transcribed_audio_data=transcription_result
+        )
+
         serializer = UserResponseSerializer(user_answer)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-
-

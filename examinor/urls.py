@@ -1,5 +1,6 @@
 from django.urls import path
+from .views import TestManualEvaluationAPIView
 
 urlpatterns = [
-    # Define your examinor app URLs here
+    path("test/", TestManualEvaluationAPIView.as_view()),
 ]

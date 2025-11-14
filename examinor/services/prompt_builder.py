@@ -1,39 +1,50 @@
-def build_prompt(question, response_text):
+# examinor/services/prompt_builder.py
+
+import json
+import hashlib
+from django.utils.text import Truncator
+
+
+def build_prompt(task_type: str, question_text: str, answer_text: str, rubric: dict):
     """
-    Builds an AI evaluation prompt based on the question's subsection and rubric.
+    Build a minimal PTE evaluation prompt.
+    Uses ONLY task_type, question text, candidate answer, and rubric JSON.
     """
-    subsection = getattr(question, "subsection", None)
-    rubric = subsection.rubric if subsection and subsection.rubric else {}
 
-    rubric_text = ", ".join(
-        [f"{criterion} ({details.get('max_score', '?')} marks)" for criterion, details in rubric.items()]
-    ) if isinstance(rubric, dict) else "content, form, grammar, vocabulary"
+    answer_excerpt = Truncator(answer_text).chars(2000)
+    rubric_json = json.dumps(rubric, separators=(",", ":"))
 
-    return f"""
-You are a certified PTE examiner.
+    prompt = f"""
+You are a strict PTE examiner. Follow the rubric exactly.
+Return ONLY valid JSON.
 
-### Task Type:
-{subsection.name.replace("_", " ").title() if subsection else "General Task"}
+TASK TYPE:
+{task_type}
 
-### Question:
-{question.prompt}
+QUESTION:
+{question_text}
 
-### Candidate's Response:
-{response_text}
+CANDIDATE RESPONSE:
+\"\"\"{answer_excerpt}\"\"\"
 
-### Evaluation Rubric:
-Evaluate the response based on the following criteria:
-{rubric_text}.
+RUBRIC_JSON:
+{rubric_json}
 
-### Output:
-Return a valid JSON object with:
+REQUIRED OUTPUT FORMAT:
 {{
-  "overall_score": <numeric>,
-  "breakdown": {{
-    "criterion_1": <score>,
-    "criterion_2": <score>,
-    ...
+  "scores": {{
+      "<criterion_id>": {{
+          "score": <number>,
+          "max": <number>
+      }}
   }},
-  "feedback": "short summary of strengths and areas for improvement"
+  "weighted_score": <number>,
+  "max_score": <number>,
+  "feedback": "<short feedback>"
 }}
+
+Return ONLY the JSON.
 """
+
+    prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()
+    return prompt, prompt_hash

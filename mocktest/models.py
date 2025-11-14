@@ -192,7 +192,8 @@ class UserResponse(models.Model):
     mock_test = models.ForeignKey('MockTest', on_delete=models.CASCADE)
     question = models.ForeignKey('Question', on_delete=models.CASCADE)
 
-    answer_data = models.JSONField(default=dict)  # Store any type of answer here
+    answer_data = models.JSONField(default=dict, null=True, blank=True)  # Store any type of answer here
+    answer_audio = models.FileField(upload_to='response/audio/', blank=True, null=True)
     transcribed_audio_data = models.JSONField(blank=True, null=True)
     is_correct = models.BooleanField(default=False)
     score_awarded = models.FloatField(default=0)

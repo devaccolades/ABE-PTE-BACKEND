@@ -171,21 +171,7 @@ class UserMockTestSession(models.Model):
         return self.name
 
 
-# class UserResponse(models.Model):
-#     user_session = models.ForeignKey(UserMockTestSession, on_delete=models.CASCADE, related_name='responses')
-#     mock_test = models.ForeignKey(MockTest, on_delete=models.CASCADE)
-#     question = models.ForeignKey(Question, on_delete=models.CASCADE)
-#     text_response = models.TextField(blank=True, null=True)
-#     audio_response = models.FileField(blank=True, null=True)
-#     speaking_score_awarded = models.FloatField(default=0. )
-#     writing_score_awarded = models.FloatField(default=0)
-#     reading_score_awarded = models.FloatField(default=0)
-#     listening_score_awarded = models.FloatField(default=0)
-#     evaluated = models.BooleanField(default=False)
-#     submitted_at = models.DateTimeField(auto_now_add=True)
-#
-#     def __str__(self):
-#         return self.user_session.name
+
 
 class UserResponse(models.Model):
     user_session = models.ForeignKey('UserMockTestSession', on_delete=models.CASCADE)

@@ -7,7 +7,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from .models import Question, MockTest, MockTestSection, UserResponse, UserMockTestSession, SubQuestion
 from .serializers import UserMockTestSession,SingleQuestionSerializer,UserResponseSerializer
-from .services.transcription import transcribe_analyse
+from .services.transcription import transcribe_and_analyse
 
 class StartMockTestAPIView(APIView):
     def post(self, request):
@@ -95,28 +95,24 @@ class UserResponseAPIView(APIView):
             return Response({"error": "Invalid question_name"}, status=status.HTTP_404_NOT_FOUND)
 
         transcription_result = None
+        if audio_file:
+            temp_path = "/tmp/user_audio.wav"
 
-        # If audio uploaded, write chunks → temp file → pass path to function
-        # if audio_file:
-        #     import tempfile
-        #     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
-        #         for chunk in audio_file.chunks():
-        #             temp_audio.write(chunk)
-        #         temp_audio_path = temp_audio.name
-        #
-        #     # Call transcribe
-        #     transcription_result = transcribe_analyse(
-        #         audio_path=temp_audio_path,
-        #         question_text=question.text
-        #     )
+            with open(temp_path, "wb") as temp:
+                for chunk in audio_file.chunks():
+                    temp.write(chunk)
 
-        # Save
+            # Call the pipeline
+            transcription_result = transcribe_and_analyse(temp_path)
+
+
+        
         user_answer = UserResponse.objects.create(
             user_session=session,
             question=question,
             mock_test=mock_test,
             answer_data=answer,
-            # transcribed_audio_data=transcription_result
+            transcribed_audio_data=transcription_result
         )
 
         serializer = UserResponseSerializer(user_answer)

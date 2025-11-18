@@ -122,7 +122,7 @@ class MockTestAdmin(admin.ModelAdmin):
 
 @admin.register(MockTestSection)
 class MockTestSectionAdmin(admin.ModelAdmin):
-    list_display = ('mock_test', 'section', 'order')
+    list_display = ('id','mock_test', 'section', 'order')
     list_filter = ('mock_test',)
     ordering = ['mock_test', 'order']
 

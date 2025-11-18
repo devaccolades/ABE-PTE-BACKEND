@@ -19,11 +19,9 @@ class Section(models.Model):
     Main sections linked to both a Skill and an Exam Part.
     Example: Speaking section inside 'Part 1: Speaking & Writing'
     """
-    # exam_part = models.ForeignKey(ExamPart, on_delete=models.CASCADE, related_name='sections',null=True,blank=True)
-    # skill = models.ForeignKey(Skill, on_delete=models.CASCADE, related_name='sections',null=True,blank=True)
+  
     name = models.CharField(max_length=100,null=True,blank=True)
     description = models.TextField(null=True,blank=True)
-    # total_duration = models.PositiveIntegerField(blank=True,null=True)
 
     def __str__(self):
         return f"{self.name}"

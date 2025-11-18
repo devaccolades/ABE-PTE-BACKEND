@@ -57,7 +57,7 @@ class GetQuestionAPIView(APIView):
         # Order questions properly
         questions = (
             Question.objects.filter(subsection__section_id__in=section_ids)
-            .select_related('subsection', 'subsection__section')
+            .select_related('subsection', 'subsection__section',)
             .prefetch_related('options', 'sub_questions__options')
             .order_by(
                 'subsection__section__mock_test_sections__order',

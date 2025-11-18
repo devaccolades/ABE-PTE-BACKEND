@@ -34,18 +34,55 @@ class SingleQuestionSerializer(serializers.ModelSerializer):
     """Used when fetching questions one-by-one during the mock test."""
     options = QuestionOptionSerializer(many=True, read_only=True)
     sub_questions = SubQuestionSerializer(many=True, read_only=True)
+    mocktest_section = serializers.SerializerMethodField()
+
     subsection = serializers.CharField(source='subsection.name', read_only=True)
-    section = serializers.CharField(source='subsection.section.name', read_only=True)
+    # section = serializers.CharField(source='subsection.section.name', read_only=True)
     audio = serializers.SerializerMethodField()
     image = serializers.SerializerMethodField()
 
     class Meta:
         model = Question
+        # fields = [
+        #     'id', 'name', 'text', 'audio', 'image', 'question_type',
+        #     'reading_time', 'answering_time', 'section', 'subsection',
+        #     'options', 'sub_questions',
+        # ]
         fields = [
             'id', 'name', 'text', 'audio', 'image', 'question_type',
-            'reading_time', 'answering_time', 'section', 'subsection',
-            'options', 'sub_questions'
+            'reading_time', 'answering_time',
+            'mocktest_section',  # <-- add this
+            'subsection', 'options', 'sub_questions',
         ]
+    
+    def get_mocktest_section(self, obj):
+        request = self.context.get('request')
+        session_id = request.query_params.get('session_id')
+
+        if not session_id:
+            return None
+
+        try:
+            session = UserMockTestSession.objects.get(session_id=session_id)
+        except UserMockTestSession.DoesNotExist:
+            return None
+        
+        mts = MockTestSection.objects.filter(
+            mock_test=session.mock_test,
+            section=obj.subsection.section
+        ).first()
+
+        if not mts:
+            return None
+
+        return {
+            "id": mts.id,
+            "section_id": mts.section_id,
+            "section_name": mts.section.name,
+            "order": mts.order,
+            "total_duration": mts.total_duration
+        }
+
 
     def get_audio(self, obj):
         if obj.audio:

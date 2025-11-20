@@ -1,3 +1,4 @@
+import os
 import uuid
 import tempfile
 from django.db import DatabaseError
@@ -96,13 +97,13 @@ class UserResponseAPIView(APIView):
 
         transcription_result = None
         if audio_file:
+            
             temp_path = "/tmp/user_audio.wav"
 
             with open(temp_path, "wb") as temp:
                 for chunk in audio_file.chunks():
                     temp.write(chunk)
-
-            # Call the pipeline
+                    
             transcription_result = transcribe_and_analyse(temp_path)
 
 
@@ -112,6 +113,7 @@ class UserResponseAPIView(APIView):
             question=question,
             mock_test=mock_test,
             answer_data=answer,
+            answer_audio=audio_file,
             transcribed_audio_data=transcription_result
         )
 

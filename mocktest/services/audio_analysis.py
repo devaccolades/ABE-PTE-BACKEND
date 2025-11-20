@@ -1,9 +1,7 @@
 import re
 import numpy as np
 
-# --------------------------------------------
-#  UTILITY: Count vowels & consonants
-# --------------------------------------------
+
 def count_vowels(word):
     return sum(1 for ch in word.lower() if ch in "aeiou")
 
@@ -11,9 +9,7 @@ def count_consonants(word):
     return sum(1 for ch in word.lower() if ch.isalpha() and ch not in "aeiou")
 
 
-# --------------------------------------------
-#  MAIN: Analyse Pronunciation & Fluency
-# --------------------------------------------
+
 def analyse_speech(transcription_text: str, word_timestamps: list, audio_duration: float):
     """
     transcription_text: Full string
@@ -24,9 +20,6 @@ def analyse_speech(transcription_text: str, word_timestamps: list, audio_duratio
     words = transcription_text.split()
     num_words = len(words)
 
-    # ------------------------------
-    # PRONUNCIATION METRICS
-    # ------------------------------
     vowel_accuracy = estimate_vowel_accuracy(words)
     consonant_accuracy = estimate_consonant_accuracy(words)
     mispronounced = detect_mispronunciations(words)
@@ -37,9 +30,7 @@ def analyse_speech(transcription_text: str, word_timestamps: list, audio_duratio
         vowel_accuracy, consonant_accuracy, mispronounced, stress_data
     )
 
-    # ------------------------------
-    # FLUENCY METRICS
-    # ------------------------------
+
     fluency = analyse_fluency(word_timestamps, audio_duration)
 
     fluency_band, fluency_justification = map_fluency_band(
@@ -50,9 +41,7 @@ def analyse_speech(transcription_text: str, word_timestamps: list, audio_duratio
         fluency["speech_rate_wpm"]
     )
 
-    # ------------------------------
-    # FINAL JSON OUTPUT
-    # ------------------------------
+
     return {
         "audio_metadata": {
             "duration_seconds": audio_duration,
@@ -61,7 +50,7 @@ def analyse_speech(transcription_text: str, word_timestamps: list, audio_duratio
 
         "transcription": {
             "text": transcription_text,
-            "words": word_timestamps
+            # "words": word_timestamps
         },
 
         "pronunciation_analysis": {

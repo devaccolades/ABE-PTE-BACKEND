@@ -7,8 +7,52 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from .models import Question, MockTest, MockTestSection, UserResponse, UserMockTestSession, SubQuestion
-from .serializers import UserMockTestSession,SingleQuestionSerializer,UserResponseSerializer
+from .serializers import UserMockTestSession,SingleQuestionSerializer,UserResponseSerializer,MockTestListSerializer
 from .services.transcription import transcribe_and_analyse
+
+class MockTestListAPIView(APIView):
+
+    def get(self, request):
+        try:
+            # Fetch active mock tests
+            mocktests = MockTest.objects.filter(is_active=True).order_by('-created_at')
+
+            # Handle empty list
+            if not mocktests.exists():
+                return Response(
+                    {
+                        "message": "No mock tests found",
+                        "data": []
+                    },
+                    status=status.HTTP_200_OK
+                )
+
+            serializer = MockTestListSerializer(mocktests, many=True)
+
+            return Response(
+                {
+                    "message": "Mock tests fetched successfully",
+                    "data": serializer.data
+                },
+                status=status.HTTP_200_OK
+            )
+
+        except DatabaseError:
+            return Response(
+                {
+                    "error": "Database error occurred while fetching mock tests"
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        except Exception as e:
+            return Response(
+                {
+                    "error": f"Unexpected error: {str(e)}"
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class StartMockTestAPIView(APIView):
     def post(self, request):

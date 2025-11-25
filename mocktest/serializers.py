@@ -128,6 +128,11 @@ class MockTestSerializer(serializers.ModelSerializer):
         mocktest_sections = obj.sections.select_related('section').order_by('order')
         return SectionSerializer([m.section for m in mocktest_sections], many=True).data
 
+class MockTestListSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = MockTest
+        fields = "__all__"
 
 class UserMockTestSessionCreateSerializer(serializers.ModelSerializer):
     mock_test_details = MockTestSerializer(source='mock_test', read_only=True)

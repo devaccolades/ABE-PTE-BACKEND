@@ -32,7 +32,7 @@ DEBUG = True
 
 
 # ALLOWED_HOSTS = ['*']
-ALLOWED_HOSTS = ['82.112.226.176','admin.abepte.accoladesweb.com',]
+ALLOWED_HOSTS = ['82.112.226.176','admin.abepte.accoladesweb.com','localhost']
 
 
 # Application definition

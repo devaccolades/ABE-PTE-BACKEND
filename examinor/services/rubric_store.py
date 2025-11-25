@@ -92,7 +92,7 @@ RUBRICS = {
 },
 
     # ------------------------------------------------------------
-    # 4. Fill in the Blanks — Reading
+    # 4. Fill in the Blanks — Reading dropdown
     # ------------------------------------------------------------
     "fib_dropdown": {
         "rubric_version": 1,
@@ -114,6 +114,10 @@ RUBRICS = {
             }
         }
     },
+
+    # ------------------------------------------------------------
+    # 5. Fill in the Blanks — Reading drag and drop
+    # ------------------------------------------------------------
     "fib_drag_drop": {
         "rubric_version": 1,
         "communicative_skills": ["reading"],
@@ -137,7 +141,7 @@ RUBRICS = {
 
 
     # ------------------------------------------------------------
-    # 5. MCQ — Single Answer (Reading/Listening)
+    # 6. MCQ — Single Answer (Reading/Listening)
     # ------------------------------------------------------------
         "mc_single": {
         "rubric_version": 1,
@@ -161,7 +165,7 @@ RUBRICS = {
 
 
     # ------------------------------------------------------------
-    # 6. MCQ — Multiple Answers
+    # 7. MCQ — Multiple Answers
     # ------------------------------------------------------------
     "mc_multiple": {
         "rubric_version": 1,
@@ -185,7 +189,7 @@ RUBRICS = {
 
 
     # ------------------------------------------------------------
-    # 7. Summarize Spoken Text (SST)
+    # 8. Summarize Spoken Text (SST)
     # ------------------------------------------------------------
      "summarize_spoken_text": {
         "rubric_version": 1,
@@ -232,7 +236,7 @@ RUBRICS = {
     },
     
     # ------------------------------------------------------------
-    # 8. Read Aloud (Speaking)
+    # 9. Read Aloud (Speaking)
     # ------------------------------------------------------------
     "read_aloud": {
         "rubric_version": 1,

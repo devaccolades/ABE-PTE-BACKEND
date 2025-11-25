@@ -1,5 +1,4 @@
 # examinor/services/prompt_builder.py
-
 import json
 import hashlib
 from django.utils.text import Truncator

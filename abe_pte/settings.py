@@ -31,8 +31,8 @@ SECRET_KEY = 'django-insecure-kc&7(+$5aa0%zq!wj2&=)zkzuz^hpc!@_qx##w==-2jnh^&7_6
 DEBUG = True
 
 
-ALLOWED_HOSTS = ['*']
-# ALLOWED_HOSTS = ['82.112.226.176','admin.abepte.accoladesweb.com']
+# ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['82.112.226.176','admin.abepte.accoladesweb.com',]
 
 
 # Application definition
@@ -154,5 +154,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CSRF_TRUSTED_ORIGINS = [
     "https://admin.abepte.accoladesweb.com",
     "http://127.0.0.1:8000",
+    "http://localhost:8000",
+]
+CORS_ALLOWED_ORIGINS = [
     "http://localhost:8000",
 ]

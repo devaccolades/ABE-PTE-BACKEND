@@ -6,7 +6,6 @@ asgiref==3.10.0
 asteval==1.0.6
 astunparse==1.6.3
 attrs==25.4.0
-audioop-lts==0.2.2
 audioread==3.1.0
 billiard==4.2.3
 blinker==1.9.0

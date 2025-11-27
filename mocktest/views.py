@@ -6,6 +6,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
+from celery import chain
+from .tasks import transcribe_task
 from .models import Question, MockTest, MockTestSection, UserResponse, UserMockTestSession, SubQuestion
 from .serializers import UserMockTestSession,SingleQuestionSerializer,UserResponseSerializer,MockTestListSerializer
 from .services.transcription import transcribe_and_analyse
@@ -148,8 +150,8 @@ class UserResponseAPIView(APIView):
                 for chunk in audio_file.chunks():
                     temp.write(chunk)
                     
-            transcription_result = transcribe_and_analyse(temp_path)
-
+            # transcription_result = transcribe_and_analyse(temp_path)
+            chain(transcribe_task.s(user_response,temp_path))
 
         
         user_answer = UserResponse.objects.create(

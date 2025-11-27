@@ -108,6 +108,7 @@ randonneur==0.6.2
 randonneur_data==0.6.2
 RapidFuzz==3.14.1
 rdflib==7.2.1
+redis==7.1.0
 referencing==0.37.0
 regex==2025.11.3
 requests==2.32.5

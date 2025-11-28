@@ -15,7 +15,6 @@ class TestManualEvaluationAPIView(APIView):
         "answer": "The essay is about ..."
     }
     """
-
     def post(self, request, *args, **kwargs):
         task_type = request.data.get("task_type")
         question_text = request.data.get("question")

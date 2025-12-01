@@ -35,6 +35,14 @@ class MockTestSection(models.Model):
 
     def __str__(self):
         return f"{self.mock_test.title} - {self.section.name}"
+    
+
+class GlobalRubric(models.Model):
+    key = models.CharField(max_length=50, unique=True)  
+    rubric = models.JSONField()
+
+    def __str__(self):
+        return self.key
 
 
 class SubSection(models.Model):
@@ -77,6 +85,10 @@ class SubSection(models.Model):
     name = models.CharField(max_length=60, choices=SUBSECTION_CHOICES, default="read_aloud")
     order = models.PositiveIntegerField(default=1)
     rubric = models.JSONField(default=dict, blank=True, null=True)
+    
+    # NEW FIELDS
+    use_pronunciation = models.BooleanField(default=False)
+    use_fluency = models.BooleanField(default=False)
     
     def __str__(self):
         return f"{self.section.name} - {self.name}"

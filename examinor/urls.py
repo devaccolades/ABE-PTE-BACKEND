@@ -1,6 +1,6 @@
 from django.urls import path
-from .views import TestManualEvaluationAPIView
+from .views import evaluate_pte
 
 urlpatterns = [
-    path("test/", TestManualEvaluationAPIView.as_view()),
+    path("test/", evaluate_pte, name="evaluate_pte"),
 ]

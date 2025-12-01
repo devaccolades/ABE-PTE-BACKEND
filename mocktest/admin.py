@@ -50,6 +50,7 @@ class UserResponseInline(admin.TabularInline):
     ordering = ['submitted_at']
 
 
+
 @admin.register(Section)
 class SectionAdmin(admin.ModelAdmin):
     list_display = ('name',)
@@ -168,3 +169,7 @@ class UserResponseAdmin(admin.ModelAdmin):
     readonly_fields = ('submitted_at',)
     list_per_page = 25
 
+@admin.register(GlobalRubric)
+class GlobalRubricAdmin(admin.ModelAdmin):
+    list_display = ('key', 'rubric')
+    search_fields = ('key',)

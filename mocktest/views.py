@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from celery import chain
-from .tasks import transcribe_task
+from .tasks import transcribe_task,evaluate_user_response
 from .models import Question, MockTest, MockTestSection, UserResponse, UserMockTestSession, SubQuestion
 from .serializers import UserMockTestSession,SingleQuestionSerializer,UserResponseSerializer,MockTestListSerializer
 from .services.transcription import transcribe_and_analyse
@@ -141,7 +141,7 @@ class UserResponseAPIView(APIView):
         except Question.DoesNotExist:
             return Response({"error": "Invalid question_name"}, status=status.HTTP_404_NOT_FOUND)
 
-        transcription_result = None
+
         if audio_file:
             
             temp_path = "/tmp/user_audio.wav"
@@ -150,18 +150,24 @@ class UserResponseAPIView(APIView):
                 for chunk in audio_file.chunks():
                     temp.write(chunk)
                     
-            # transcription_result = transcribe_and_analyse(temp_path)
-            chain(transcribe_task.s(user_response,temp_path))
 
-        
         user_answer = UserResponse.objects.create(
             user_session=session,
             question=question,
             mock_test=mock_test,
             answer_data=answer,
             answer_audio=audio_file,
-            transcribed_audio_data=transcription_result
+            transcribed_audio_data=None
         )
+        
+        if audio_file:
+            chain(
+                transcribe_task.s(user_answer.id, temp_path),
+                evaluate_user_response.s(user_answer.id, question.id)
+            ).delay()
+
+        else:
+            evaluate_user_response.delay(user_answer.id, question.id)
 
         serializer = UserResponseSerializer(user_answer)
         return Response(serializer.data, status=status.HTTP_201_CREATED)

@@ -37,22 +37,18 @@ class SingleQuestionSerializer(serializers.ModelSerializer):
     mocktest_section = serializers.SerializerMethodField()
 
     subsection = serializers.CharField(source='subsection.name', read_only=True)
+    subsection_instruction = serializers.CharField(source='subsection.instructions')
     # section = serializers.CharField(source='subsection.section.name', read_only=True)
     audio = serializers.SerializerMethodField()
     image = serializers.SerializerMethodField()
 
     class Meta:
         model = Question
-        # fields = [
-        #     'id', 'name', 'text', 'audio', 'image', 'question_type',
-        #     'reading_time', 'answering_time', 'section', 'subsection',
-        #     'options', 'sub_questions',
-        # ]
         fields = [
             'id', 'name', 'text', 'audio', 'image', 'question_type',
             'reading_time', 'answering_time',
             'mocktest_section',  # <-- add this
-            'subsection', 'options', 'sub_questions',
+            'subsection','subsection_instruction', 'options', 'sub_questions',
         ]
     
     def get_mocktest_section(self, obj):

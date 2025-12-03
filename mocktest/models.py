@@ -85,6 +85,7 @@ class SubSection(models.Model):
     name = models.CharField(max_length=60, choices=SUBSECTION_CHOICES, default="read_aloud")
     order = models.PositiveIntegerField(default=1)
     rubric = models.JSONField(default=dict, blank=True, null=True)
+    instructions = models.TextField(blank=True,null=True)
     
     # NEW FIELDS
     use_pronunciation = models.BooleanField(default=False)
@@ -193,7 +194,9 @@ class UserResponse(models.Model):
     is_correct = models.BooleanField(default=False)
     score_awarded = models.FloatField(default=0)
     evaluated = models.BooleanField(default=False)
+    evaluation_result = models.JSONField(default=dict,null=True,blank=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
+    
 
     def __str__(self):
         return f"{self.user_session.name} - {self.mock_test} "

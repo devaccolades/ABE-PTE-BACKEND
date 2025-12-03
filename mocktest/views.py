@@ -163,7 +163,7 @@ class UserResponseAPIView(APIView):
         if audio_file:
             chain(
                 transcribe_task.s(user_answer.id, temp_path),
-                evaluate_user_response.s(user_answer.id, question.id)
+                evaluate_user_response.si(user_answer.id, question.id)
             ).delay()
 
         else:

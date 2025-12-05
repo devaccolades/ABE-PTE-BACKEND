@@ -1,6 +1,7 @@
 import os
 import uuid
 import tempfile
+from urllib.parse import urlencode
 from django.db import DatabaseError
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -8,9 +9,10 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from celery import chain
 from .tasks import transcribe_task,evaluate_user_response
-from .models import Question, MockTest, MockTestSection, UserResponse, UserMockTestSession, SubQuestion
+from .models import Question, MockTest, MockTestSection, UserResponse, UserMockTestSession, SubQuestion,Section,SubSection
 from .serializers import UserMockTestSession,SingleQuestionSerializer,UserResponseSerializer,MockTestListSerializer
 from .services.transcription import transcribe_and_analyse
+from django.shortcuts import get_object_or_404
 
 class MockTestListAPIView(APIView):
 
@@ -160,14 +162,90 @@ class UserResponseAPIView(APIView):
             transcribed_audio_data=None
         )
         
-        if audio_file:
-            chain(
-                transcribe_task.s(user_answer.id, temp_path),
-                evaluate_user_response.si(user_answer.id, question.id)
-            ).delay()
+        # if audio_file:
+        #     chain(
+        #         transcribe_task.s(user_answer.id, temp_path),
+        #         evaluate_user_response.si(user_answer.id, question.id)
+        #     ).delay()
 
-        else:
-            evaluate_user_response.delay(user_answer.id, question.id)
+        # else:
+        #     evaluate_user_response.delay(user_answer.id, question.id)
 
         serializer = UserResponseSerializer(user_answer)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+# class GetQuestionAPIView(APIView):
+#     def get(self, request, *args, **kwargs):
+
+#         # -----------------------------
+#         # 1) Read Query Params Safely
+#         # -----------------------------
+#         session_id = request.GET.get("session_id")
+#         question_id = request.GET.get("question_id")
+
+#         if not session_id:
+#             return Response({"error": "session_id is required"}, status=400)
+
+#         # -----------------------------
+#         # 2) Validate Session
+#         # -----------------------------
+#         try:
+#             session = UserMockTestSession.objects.get(session_id=session_id)
+#         except UserMockTestSession.DoesNotExist:
+#             return Response({"error": "Invalid session_id"}, status=404)
+
+#         # -----------------------------
+#         # 3) Validate Current Section
+#         # -----------------------------
+#         section = session.current_mocktest_section
+#         if not section:
+#             return Response({"error": "No mocktest section assigned"}, status=400)
+
+#         # -----------------------------
+#         # 4) Fetch Subsections and Questions
+#         # -----------------------------
+#         subsections = SubSection.objects.filter(section=section.section)
+
+#         questions = Question.objects.filter(
+#             subsection__in=subsections
+#         ).order_by("id")
+
+#         if not questions.exists():
+#             return Response({"error": "No questions found for this section"}, status=404)
+
+#         # -----------------------------
+#         # 5) CASE A: No question_id → Return FIRST question
+#         # -----------------------------
+#         if not question_id:
+#             question = questions.first()
+
+#         # -----------------------------
+#         # 6) CASE B: question_id provided
+#         # -----------------------------
+#         else:
+#             try:
+#                 question = questions.get(id=question_id)
+#             except Question.DoesNotExist:
+#                 return Response({"error": "Invalid question_id"}, status=404)
+
+#         # -----------------------------
+#         # 7) Calculate NEXT Question
+#         # -----------------------------
+#         next_q = questions.filter(id__gt=question.id).first()
+#         next_question_id = next_q.id if next_q else None
+
+#         # -----------------------------
+#         # 8) Serialize and return
+#         # -----------------------------
+#         serializer = SingleQuestionSerializer(question)
+
+#         return Response({
+#             "question": serializer.data,
+#             "next_question_id": next_question_id,
+#             "mocktest_section": {
+#                 "id": section.id,
+#                 "section_name": section.section.name,
+#                 "order": section.order,
+#                 "total_duration": section.total_duration
+#             }
+#         })

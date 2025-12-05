@@ -168,6 +168,17 @@ class UserMockTestSession(models.Model):
     name = models.CharField(max_length=255)
     session_id = models.CharField(max_length=255)
     mock_test = models.ForeignKey(MockTest, on_delete=models.CASCADE)
+    #new field required for pagination + skipping
+    current_mocktest_section = models.ForeignKey(
+    MockTestSection,
+    on_delete=models.SET_NULL,
+    null=True,
+    blank=True,
+    related_name="active_mocktest_sections")
+    current_question_order = models.IntegerField(default=1)
+    completed_sections = models.JSONField(default=list, blank=True)
+
+
     started_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(blank=True, null=True)
     is_completed = models.BooleanField(default=False)

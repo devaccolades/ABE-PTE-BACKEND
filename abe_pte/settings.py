@@ -31,8 +31,8 @@ SECRET_KEY = 'django-insecure-kc&7(+$5aa0%zq!wj2&=)zkzuz^hpc!@_qx##w==-2jnh^&7_6
 DEBUG = True
 
 
-ALLOWED_HOSTS = ['*']
-# ALLOWED_HOSTS = ['82.112.226.176','admin.abepte.accoladesweb.com','localhost']
+# ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['82.112.226.176','admin.abepte.accoladesweb.com','localhost']
 
 
 # Application definition

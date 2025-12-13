@@ -1,6 +1,7 @@
 
 import os
-import librosa
+# import librosa
+import soundfile as sf
 from openai import OpenAI
 from django.conf import settings
 
@@ -46,9 +47,17 @@ def transcribe_and_analyse(audio_file_path: str):
     - Return FINAL JSON REPORT
     """
 
-    # 1. Duration of audio
-    audio_data, sr = librosa.load(audio_file_path)
-    duration = librosa.get_duration(y=audio_data, sr=sr)
+    # 1. Duration of audio-librosa package
+    # audio_data, sr = librosa.load(audio_file_path)
+    # duration = librosa.get_duration(y=audio_data, sr=sr)
+
+    audio_data, samplerate = sf.read(audio_file_path)
+     # If stereo → convert to mono
+    if audio_data.ndim > 1:
+        audio_data = audio_data.mean(axis=1)
+
+    duration = len(audio_data) / samplerate
+
 
     # 2. Transcription
     text, timestamps = transcribe_audio(audio_file_path)

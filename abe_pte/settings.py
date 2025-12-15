@@ -31,8 +31,8 @@ SECRET_KEY = 'django-insecure-kc&7(+$5aa0%zq!wj2&=)zkzuz^hpc!@_qx##w==-2jnh^&7_6
 DEBUG = True
 
 
-# ALLOWED_HOSTS = ['*']
-ALLOWED_HOSTS = ['82.112.226.176','admin.abepte.accoladesweb.com','localhost']
+ALLOWED_HOSTS = ['*']
+# ALLOWED_HOSTS = ['82.112.226.176','admin.abepte.accoladesweb.com','localhost']
 
 
 # Application definition
@@ -140,7 +140,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 

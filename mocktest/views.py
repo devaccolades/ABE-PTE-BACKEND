@@ -163,14 +163,14 @@ class UserResponseAPIView(APIView):
             transcribed_audio_data=None
         )
         
-        # if audio_file:
-        #     chain(
-        #         transcribe_task.s(user_answer.id, temp_path),
-        #         evaluate_user_response.si(user_answer.id, question.id)
-        #     ).delay()
+        if audio_file:
+            chain(
+                transcribe_task.s(user_answer.id, temp_path),
+                evaluate_user_response.si(user_answer.id, question.id)
+            ).delay()
 
-        # else:
-        #     evaluate_user_response.delay(user_answer.id, question.id)
+        else:
+            evaluate_user_response.delay(user_answer.id, question.id)
 
         serializer = UserResponseSerializer(user_answer)
         return Response(serializer.data, status=status.HTTP_201_CREATED)

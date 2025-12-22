@@ -98,6 +98,8 @@ class SubSection(models.Model):
 class Question(models.Model):
 
     """Question master table connected with subsection"""
+
+    mock_test_section = models.ForeignKey(MockTestSection,on_delete=models.CASCADE,related_name="questions",null=True,blank=True)
     QUESTION_TYPES = [
         ('single_answer', 'Single Answer'),
         ('multiple_answer', 'Multiple Answers'),

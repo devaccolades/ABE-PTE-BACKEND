@@ -1,4 +1,5 @@
 import os
+import subprocess
 from celery import shared_task
 from .models import *
 from django.core.exceptions import ObjectDoesNotExist
@@ -8,56 +9,100 @@ from examinor.services.orchestrator import run_evaluation
 
 
 @shared_task
-def transcribe_task(user_response_id, temp_path):
+# def transcribe_task(user_response_id, temp_path):
+#     print("Running Whisper transcription...")
+
+#     try:
+#         if not os.path.exists(temp_path):
+#             return {
+#                 "error": "Audio file not found",
+#                 "details": f"Path '{temp_path}' does not exist",
+#                 "user_response_id": user_response_id
+#             }
+
+#         try:
+#             transcription = transcribe_and_analyse(temp_path)
+#         except Exception as e:
+#             return {
+#                 "error": "Failed to transcribe audio",
+#                 "details": str(e),
+#                 "user_response_id": user_response_id
+#             }
+
+#         try:
+#             user_response = UserResponse.objects.get(id=user_response_id)
+#         except UserResponse.DoesNotExist:
+#             return {
+#                 "error": "UserResponse not found",
+#                 "user_response_id": user_response_id
+#             }
+
+#         try:
+#             user_response.transcribed_audio_data = transcription
+#             user_response.save()
+#         except DatabaseError as db_err:
+#             return {
+#                 "error": "Failed to save transcription",
+#                 "details": str(db_err),
+#                 "user_response_id": user_response_id
+#             }
+
+#         return {
+#             "status": "success",
+#             "user_response_id": user_response_id,
+#             "transcribed_audio": transcription,
+#         }
+
+#     except Exception as e:
+#         return {
+#             "error": "Unexpected error occurred during transcription",
+#             "details": str(e),
+#             "user_response_id": user_response_id
+#         }
+def transcribe_task(user_response_id, input_path, output_path):
     print("Running Whisper transcription...")
 
+    if not os.path.exists(input_path):
+        return {"error": "Audio file not found", "path": input_path}
+
+    # ✅ Convert using FFmpeg
     try:
-        if not os.path.exists(temp_path):
-            return {
-                "error": "Audio file not found",
-                "details": f"Path '{temp_path}' does not exist",
-                "user_response_id": user_response_id
-            }
-
-        try:
-            transcription = transcribe_and_analyse(temp_path)
-        except Exception as e:
-            return {
-                "error": "Failed to transcribe audio",
-                "details": str(e),
-                "user_response_id": user_response_id
-            }
-
-        try:
-            user_response = UserResponse.objects.get(id=user_response_id)
-        except UserResponse.DoesNotExist:
-            return {
-                "error": "UserResponse not found",
-                "user_response_id": user_response_id
-            }
-
-        try:
-            user_response.transcribed_audio_data = transcription
-            user_response.save()
-        except DatabaseError as db_err:
-            return {
-                "error": "Failed to save transcription",
-                "details": str(db_err),
-                "user_response_id": user_response_id
-            }
-
-        return {
-            "status": "success",
-            "user_response_id": user_response_id,
-            "transcribed_audio": transcription,
-        }
-
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", input_path,
+                "-ar", "16000",
+                "-ac", "1",
+                output_path
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
     except Exception as e:
         return {
-            "error": "Unexpected error occurred during transcription",
-            "details": str(e),
-            "user_response_id": user_response_id
+            "error": "FFmpeg conversion failed",
+            "details": str(e)
         }
+
+    try:
+        transcription = transcribe_and_analyse(output_path)
+    except Exception as e:
+        return {
+            "error": "Failed to transcribe audio",
+            "details": str(e)
+        }
+
+    user_response = UserResponse.objects.get(id=user_response_id)
+    user_response.transcribed_audio_data = transcription
+    user_response.save()
+
+    # cleanup
+    os.remove(input_path)
+    os.remove(output_path)
+
+    return {"status": "success", "transcription": transcription}
+
 
 
 @shared_task

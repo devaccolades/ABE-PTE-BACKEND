@@ -199,9 +199,12 @@ class UserResponseAPIView(APIView):
 
         if audio_file:
             
-            temp_path = "/tmp/user_audio.wav"
+            # temp_path = "/tmp/user_audio.wav"
+            temp_input_path = f"/tmp/{uuid.uuid4()}_input_audio"
+            temp_output_path = f"/tmp/{uuid.uuid4()}_audio.wav"
 
-            with open(temp_path, "wb") as temp:
+
+            with open(temp_input_path, "wb") as temp:
                 for chunk in audio_file.chunks():
                     temp.write(chunk)
                     
@@ -217,7 +220,8 @@ class UserResponseAPIView(APIView):
         
         if audio_file:
             chain(
-                transcribe_task.s(user_answer.id, temp_path),
+                # transcribe_task.s(user_answer.id, temp_path),
+                transcribe_task.s(user_answer.id, temp_input_path, temp_output_path),
                 evaluate_user_response.si(user_answer.id, question.id)
             ).delay()
 

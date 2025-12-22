@@ -29,55 +29,83 @@ class QuestionSerializer(serializers.ModelSerializer):
         model = Question
         fields = ['id', 'name', 'text', 'reading_time', 'answering_time']
 
+class MockTestSectionMiniSerializer(serializers.ModelSerializer):
+    section_name = serializers.CharField(source='section.name', read_only=True)
+
+    class Meta:
+        model = MockTestSection
+        fields = [
+            'id',
+            'section_id',
+            'section_name',
+            'order',
+            'total_duration'
+        ]
+
 
 class SingleQuestionSerializer(serializers.ModelSerializer):
-    """Used when fetching questions one-by-one during the mock test."""
     options = QuestionOptionSerializer(many=True, read_only=True)
     sub_questions = SubQuestionSerializer(many=True, read_only=True)
-    mocktest_section = serializers.SerializerMethodField()
+
+    mocktest_section = MockTestSectionMiniSerializer(
+        source='mock_test_section',
+        read_only=True
+    )
 
     subsection = serializers.CharField(source='subsection.name', read_only=True)
-    subsection_instruction = serializers.CharField(source='subsection.instructions')
-    # section = serializers.CharField(source='subsection.section.name', read_only=True)
+    subsection_instruction = serializers.CharField(
+        source='subsection.instructions',
+        read_only=True
+    )
+
     audio = serializers.SerializerMethodField()
     image = serializers.SerializerMethodField()
 
     class Meta:
         model = Question
         fields = [
-            'id', 'name', 'text', 'audio', 'image', 'question_type',
-            'reading_time', 'answering_time',
-            'mocktest_section',  # <-- add this
-            'subsection','subsection_instruction', 'options', 'sub_questions',
+            'id',
+            'name',
+            'text',
+            'audio',
+            'image',
+            'question_type',
+            'reading_time',
+            'answering_time',
+            'mocktest_section',
+            'subsection',
+            'subsection_instruction',
+            'options',
+            'sub_questions',
         ]
-    
-    def get_mocktest_section(self, obj):
-        request = self.context.get('request')
-        session_id = request.query_params.get('session_id')
 
-        if not session_id:
-            return None
+    # def get_mocktest_section(self, obj):
+    #     request = self.context.get('request')
+    #     session_id = request.query_params.get('session_id')
 
-        try:
-            session = UserMockTestSession.objects.get(session_id=session_id)
-        except UserMockTestSession.DoesNotExist:
-            return None
+    #     if not session_id:
+    #         return None
+
+    #     try:
+    #         session = UserMockTestSession.objects.get(session_id=session_id)
+    #     except UserMockTestSession.DoesNotExist:
+    #         return None
         
-        mts = MockTestSection.objects.filter(
-            mock_test=session.mock_test,
-            section=obj.subsection.section
-        ).first()
+    #     mts = MockTestSection.objects.filter(
+    #         mock_test=session.mock_test,
+    #         section=obj.subsection.section
+    #     ).first()
 
-        if not mts:
-            return None
+    #     if not mts:
+    #         return None
 
-        return {
-            "id": mts.id,
-            "section_id": mts.section_id,
-            "section_name": mts.section.name,
-            "order": mts.order,
-            "total_duration": mts.total_duration
-        }
+    #     return {
+    #         "id": mts.id,
+    #         "section_id": mts.section_id,
+    #         "section_name": mts.section.name,
+    #         "order": mts.order,
+    #         "total_duration": mts.total_duration
+    #     }
 
 
     def get_audio(self, obj):

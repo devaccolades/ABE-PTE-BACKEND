@@ -88,29 +88,73 @@ class SingleQuestionPagination(PageNumberPagination):
     page_size = 1
     page_query_param = 'page'
 
+# class GetQuestionAPIView(APIView):
+#     def get(self, request):
+#         session_id = request.query_params.get('session_id')
+#         if not session_id:
+#             return Response({"error": "session_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+#         try:
+#             session = UserMockTestSession.objects.select_related('mock_test').get(session_id=session_id)
+#         except UserMockTestSession.DoesNotExist:
+#             return Response({"error": "Invalid session_id"}, status=status.HTTP_404_NOT_FOUND)
+
+#         section_ids = MockTestSection.objects.filter(
+#             mock_test=session.mock_test
+#         ).values_list('section_id', flat=True)
+
+#         # Order questions properly
+#         questions = (
+#             Question.objects.filter(subsection__section_id__in=section_ids)
+#             .select_related('subsection', 'subsection__section',)
+#             .prefetch_related('options', 'sub_questions__options')
+#             .order_by(
+#                 'subsection__section__mock_test_sections__order',
+#                 'subsection__order',
+#                 'id'
+#             )
+#         )
+
+#         paginator = SingleQuestionPagination()
+#         paginated_qs = paginator.paginate_queryset(questions, request)
+#         serializer = SingleQuestionSerializer(paginated_qs, many=True, context={'request': request})
+
+#         return paginator.get_paginated_response(serializer.data)
+
 class GetQuestionAPIView(APIView):
     def get(self, request):
         session_id = request.query_params.get('session_id')
         if not session_id:
-            return Response({"error": "session_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "session_id is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         try:
-            session = UserMockTestSession.objects.select_related('mock_test').get(session_id=session_id)
+            session = UserMockTestSession.objects.select_related('mock_test').get(
+                session_id=session_id
+            )
         except UserMockTestSession.DoesNotExist:
-            return Response({"error": "Invalid session_id"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Invalid session_id"},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
-        # Get all sections linked to this mock test
-        section_ids = MockTestSection.objects.filter(
-            mock_test=session.mock_test
-        ).values_list('section_id', flat=True)
-
-        # Order questions properly
         questions = (
-            Question.objects.filter(subsection__section_id__in=section_ids)
-            .select_related('subsection', 'subsection__section',)
-            .prefetch_related('options', 'sub_questions__options')
+            Question.objects.filter(
+                mock_test_section__mock_test=session.mock_test
+            )
+            .select_related(
+                'mock_test_section',
+                'mock_test_section__section',
+                'subsection'
+            )
+            .prefetch_related(
+                'options',
+                'sub_questions__options'
+            )
             .order_by(
-                'subsection__section__mock_test_sections__order',
+                'mock_test_section__order',
                 'subsection__order',
                 'id'
             )
@@ -118,7 +162,15 @@ class GetQuestionAPIView(APIView):
 
         paginator = SingleQuestionPagination()
         paginated_qs = paginator.paginate_queryset(questions, request)
-        serializer = SingleQuestionSerializer(paginated_qs, many=True, context={'request': request})
+
+        serializer = SingleQuestionSerializer(
+            paginated_qs,
+            many=True,
+            context={
+                'request': request,
+                'session': session
+            }
+        )
 
         return paginator.get_paginated_response(serializer.data)
 

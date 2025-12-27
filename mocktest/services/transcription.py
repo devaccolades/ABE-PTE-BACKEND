@@ -8,7 +8,6 @@ from django.conf import settings
 from .audio_analysis import analyse_speech
 
 
-whisper_client = OpenAI(api_key=settings.OPENAI_WHISPER_API_KEY)   # Whisper only
 
 
 # -----------------------------------------
@@ -20,7 +19,8 @@ def transcribe_audio(audio_file_path: str):
         text (str)
         word_timestamps: [{word,start,end}, ...]
     """
-
+    
+    whisper_client = OpenAI(api_key=settings.OPENAI_WHISPER_API_KEY)  
     with open(audio_file_path, "rb") as audio_file:
         response = whisper_client.audio.transcriptions.create(
             model="whisper-1",

@@ -196,18 +196,7 @@ class UserResponseAPIView(APIView):
         except Question.DoesNotExist:
             return Response({"error": "Invalid question_name"}, status=status.HTTP_404_NOT_FOUND)
 
-
-        # if audio_file:
-            
-        #     temp_input_path = f"/tmp/{uuid.uuid4()}_input_audio"
-        #     temp_output_path = f"/tmp/{uuid.uuid4()}_audio.wav"
-
-
-        #     with open(temp_input_path, "wb") as temp:
-        #         for chunk in audio_file.chunks():
-        #             temp.write(chunk)
                     
-
         user_answer = UserResponse.objects.create(
             user_session=session,
             question=question,

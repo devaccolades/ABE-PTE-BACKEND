@@ -105,7 +105,14 @@ class Question(models.Model):
         ('multiple_answer', 'Multiple Answers'),
 
     ]
+    DIFFICULTY_LEVELS = [
+        ('easy', 'Easy'),
+        ('medium', 'Medium'),
+        ('hard', 'Hard'),
+    ]
+
     question_type = models.CharField(max_length=20, choices=QUESTION_TYPES, default='single')
+    difficulty = models.CharField(max_length=10,choices=DIFFICULTY_LEVELS,default='medium')
     subsection = models.ForeignKey(SubSection, on_delete=models.CASCADE, related_name='questions',null=True,blank=True)
     name = models.CharField(max_length=100,null=True,blank=True)
     text = models.TextField(blank=True, null=True)

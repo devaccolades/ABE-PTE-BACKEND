@@ -85,6 +85,7 @@ class SubSection(models.Model):
     name = models.CharField(max_length=60, choices=SUBSECTION_CHOICES, default="read_aloud")
     order = models.PositiveIntegerField(default=1)
     rubric = models.JSONField(default=dict, blank=True, null=True)
+    trait_skill_map = models.JSONField(default=dict)
     instructions = models.TextField(blank=True,null=True)
     
     # NEW FIELDS

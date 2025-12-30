@@ -15,12 +15,29 @@ def build_prompt(task_type: str, question_text: str, answer_text: str, rubric: d
     # Keep model load small
     answer_excerpt = Truncator(answer_text or "").chars(1500)
 
-    # Rubric is dict: {criterion_id: {"max": X, "desc": "..."}}
+    # Compact rubric: {criterion_id: {"max": X}}
     compact_rubric = {}
     for key, value in rubric.items():
-        compact_rubric[key] = {
-            "max": value.get("max") or value.get("max_score") or 1
-        }
+        max_score = 1  # default
+
+        if isinstance(value, dict):
+            # 1. Check for explicit max / max_score
+            max_score = value.get("max") or value.get("max_score")
+            if max_score is None:
+                # 2. Derive max from numeric keys
+                numeric_keys = [int(k) for k in value.keys() if k.isdigit()]
+                if numeric_keys:
+                    max_score = max(numeric_keys)
+                else:
+                    max_score = 1  # fallback if keys are not numeric
+        elif isinstance(value, list):
+            # Optional: treat number of items as max, or default 1
+            max_score = len(value)  # or set to 1 if each list is a single level
+        else:
+            # string → default 1
+            max_score = 1
+
+        compact_rubric[key] = {"max": max_score}
 
     rubric_json = json.dumps(compact_rubric, separators=(",", ":"))
 

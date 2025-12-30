@@ -1,5 +1,6 @@
 # examinor/services/orchestrator.py
 
+from django.http import JsonResponse
 from mocktest.models import SubSection
 from mocktest.models import GlobalRubric
 from examinor.services.prompt_builder import build_prompt
@@ -27,7 +28,7 @@ def build_task_rubric(subsection: SubSection) -> dict:
 
     # add global oral fluency rubric if enabled
     if getattr(subsection, "use_fluency", False):
-        gr = GlobalRubric.objects.filter(key="fluency").first()
+        gr = GlobalRubric.objects.filter(key="oral_fluency").first()
         if gr:
             final_rubric["oral_fluency"] = gr.rubric
 
@@ -66,8 +67,8 @@ def run_evaluation(
 
     # --- Step 2: Build complete rubric ---
     rubric = build_task_rubric(subsection)
-
     # --- Step 3: Build prompt ---
+    return rubric
     prompt, p_hash = build_prompt(
         task_type=subsection.name,
         question_text=question_text,

@@ -152,13 +152,11 @@ class UserResponseAdmin(admin.ModelAdmin):
         'id',
         'mock_test',
         'question',
-        'is_correct',
         'evaluated',
         'submitted_at',
     )
     list_filter = (
         'mock_test',
-        'is_correct',
         'evaluated',
     )
     search_fields = (

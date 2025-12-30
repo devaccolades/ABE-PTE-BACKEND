@@ -153,7 +153,6 @@ class UserResponseAdmin(admin.ModelAdmin):
         'mock_test',
         'question',
         'is_correct',
-        'score_awarded',
         'evaluated',
         'submitted_at',
     )

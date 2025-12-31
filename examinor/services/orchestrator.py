@@ -38,7 +38,7 @@ def build_task_rubric(subsection: SubSection) -> dict:
 def run_evaluation(
     subsection_name: str,
     question_text: str,
-    answer_text: str,
+    evaluation_payload: dict,
 ):
     """
     MAIN PTE evaluation orchestrator.
@@ -64,14 +64,14 @@ def run_evaluation(
             "error": f"Invalid subsection '{subsection_name}'",
             "evaluation": None
         }
-
+    # return subsection.name
     # --- Step 2: Build complete rubric ---
     rubric = build_task_rubric(subsection)
     # --- Step 3: Build prompt ---
     prompt, p_hash = build_prompt(
         task_type=subsection.name,
         question_text=question_text,
-        answer_text=answer_text,
+        evaluation_payload=evaluation_payload,
         rubric=rubric
     )
 
@@ -92,7 +92,7 @@ def run_evaluation(
     result = evaluate_with_openai(
         task_type=subsection.name,
         question_text=question_text,
-        answer_text=answer_text,
+        evaluation_payload=evaluation_payload,
         rubric=rubric
     )
     if result["success"]:
@@ -118,4 +118,3 @@ def run_evaluation(
         "evaluation": result["data"],
         # "raw": result["raw"],
     }
-    

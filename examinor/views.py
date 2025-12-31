@@ -27,11 +27,15 @@ def evaluate_pte(request):
             {"error": "Missing required fields."},
             status=status.HTTP_400_BAD_REQUEST
         )
+    evaluation_payload = {}
+
+    if answer_text:
+            evaluation_payload["answer_data"] = answer_text
 
     result = run_evaluation(
         subsection_name=subsection_name,
         question_text=question_text,
-        answer_text=answer_text,
+        evaluation_payload=evaluation_payload,
     )
 
     return Response(result, status=200)

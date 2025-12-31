@@ -93,8 +93,17 @@ def evaluate_user_response(user_answer_id, question_id):
 
         if not question.subsection:
             return {"error": f"Question {question_id} has no subsection assigned"}
+        
+        evaluation_payload = {}
+
+        if user_answer.answer_data:
+            evaluation_payload["answer_data"] = user_answer.answer_data
 
         subsection = question.subsection.name
+        subsection_obj = question.subsection
+
+        if subsection_obj.ai_input_type == "audio":
+            evaluation_payload["transcribed_audio_data"] = user_answer.transcribed_audio_data
 
         if not user_answer.answer_data:
             return {"error": "No answer_data provided to evaluate"}
@@ -103,7 +112,7 @@ def evaluate_user_response(user_answer_id, question_id):
             evaluation_result = run_evaluation(
                 subsection,
                 question.text,
-                user_answer.answer_data
+                evaluation_payload
             )
         except Exception as e:
             return {"error": "Error during evaluation", "details": str(e)}

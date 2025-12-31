@@ -4,43 +4,58 @@ import hashlib
 from django.utils.text import Truncator
 
 
-def build_prompt(task_type: str, question_text: str, answer_text: str, rubric: dict):
+def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, rubric: dict):
     """
     Clean, deterministic, nano-friendly PTE evaluation prompt.
-    - Uses ONLY rubric keys + max values.
-    - Forces model to NOT interpret or expand rubric.
-    - Dynamic schema based on rubric dict.
     """
 
-    # Keep model load small
-    answer_excerpt = Truncator(answer_text or "").chars(1500)
+    # -----------------------------
+    # ANSWER + OPTIONAL METADATA
+    # -----------------------------
+    answer_text = evaluation_payload.get("answer_data") or ""
+    analytics_block = ""
 
-    # Compact rubric: {criterion_id: {"max": X}}
+    if evaluation_payload.get("transcribed_audio_data"):
+        ta = evaluation_payload["transcribed_audio_data"] or {}
+
+        # transcript is the actual answer
+        answer_text = (
+            ta.get("transcription", {})
+            .get("text", "")
+        )
+
+        # pass audio analytics AS-IS (may be empty / partial)
+        analytics_block = json.dumps(
+            ta,
+            separators=(",", ":"),
+        )
+
+    answer_excerpt = Truncator(answer_text).chars(1500)
+
+    # -----------------------------
+    # COMPACT RUBRIC
+    # -----------------------------
     compact_rubric = {}
+
     for key, value in rubric.items():
-        max_score = 1  # default
+        max_score = 1
 
         if isinstance(value, dict):
-            # 1. Check for explicit max / max_score
             max_score = value.get("max") or value.get("max_score")
             if max_score is None:
-                # 2. Derive max from numeric keys
-                numeric_keys = [int(k) for k in value.keys() if k.isdigit()]
-                if numeric_keys:
-                    max_score = max(numeric_keys)
-                else:
-                    max_score = 1  # fallback if keys are not numeric
+                numeric_keys = [int(k) for k in value.keys() if str(k).isdigit()]
+                max_score = max(numeric_keys) if numeric_keys else 1
+
         elif isinstance(value, list):
-            # Optional: treat number of items as max, or default 1
-            max_score = len(value)  # or set to 1 if each list is a single level
-        else:
-            # string → default 1
-            max_score = 1
+            max_score = len(value)
 
         compact_rubric[key] = {"max": max_score}
 
     rubric_json = json.dumps(compact_rubric, separators=(",", ":"))
 
+    # -----------------------------
+    # PROMPT
+    # -----------------------------
     prompt = f"""
 You are a strict, deterministic PTE examiner.
 You MUST follow rubric keys EXACTLY as given.
@@ -58,6 +73,9 @@ QUESTION_TEXT:
 
 CANDIDATE_RESPONSE:
 \"\"\"{answer_excerpt}\"\"\"
+
+ANALYTICS_METADATA (FOR ANALYSIS ONLY — NOT THE ANSWER):
+{analytics_block}
 
 RUBRIC_JSON (keys = criteria to score, each has a max):
 {rubric_json}

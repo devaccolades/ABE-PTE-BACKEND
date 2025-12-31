@@ -68,7 +68,6 @@ def run_evaluation(
     # --- Step 2: Build complete rubric ---
     rubric = build_task_rubric(subsection)
     # --- Step 3: Build prompt ---
-    return rubric
     prompt, p_hash = build_prompt(
         task_type=subsection.name,
         question_text=question_text,
@@ -119,3 +118,4 @@ def run_evaluation(
         "evaluation": result["data"],
         # "raw": result["raw"],
     }
+    

@@ -87,7 +87,24 @@ class SubSection(models.Model):
     rubric = models.JSONField(default=dict, blank=True, null=True)
     trait_skill_map = models.JSONField(default=dict)
     instructions = models.TextField(blank=True,null=True)
-    
+    evaluation_type = models.CharField(
+        max_length=10,
+        choices=[
+            ("rule", "Rule"),
+            ("ai", "AI"),
+            ("hybrid", "Hybrid"),
+        ],
+        default="ai"   
+    )
+
+    ai_input_type = models.CharField(
+        max_length=10,
+        choices=[
+            ("text", "Text only"),
+            ("audio", "transcription"),
+        ],
+        default="text"  
+    )
     # NEW FIELDS
     use_pronunciation = models.BooleanField(default=False)
     use_fluency = models.BooleanField(default=False)

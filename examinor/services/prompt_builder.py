@@ -8,7 +8,7 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
     """
     Clean, deterministic, nano-friendly PTE evaluation prompt.
     """
-
+    
     # -----------------------------
     # ANSWER + OPTIONAL METADATA
     # -----------------------------

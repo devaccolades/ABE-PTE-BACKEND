@@ -90,10 +90,8 @@ def run_evaluation(
 
     # --- Step 4: Evaluate with GPT ---
     result = evaluate_with_openai(
-        task_type=subsection.name,
-        question_text=question_text,
-        evaluation_payload=evaluation_payload,
-        rubric=rubric
+        prompt,
+        p_hash 
     )
     if result["success"]:
         EvaluationCache.objects.create(

@@ -24,13 +24,12 @@ def extract_json(text: str):
     return None
 
 
-def evaluate_with_openai(task_type, question_text, answer_text, rubric):
+def evaluate_with_openai(prompt, phash):
     """
     Original working version, with safety upgrades.
     NO response_format, NO chat API.
     Uses Responses API exactly like before.
     """
-    prompt, phash = build_prompt(task_type, question_text, answer_text, rubric)
 
     try:
         # Minimal valid call – same as your old working version

@@ -237,13 +237,10 @@ class UserMockTestSession(models.Model):
         self.reading_score_awarded = aggregates["reading"] or 0
         self.listening_score_awarded = aggregates["listening"] or 0
 
-        # optional overall total
-        self.total_score = (
-            self.speaking_score_awarded
-            + self.writing_score_awarded
-            + self.reading_score_awarded
-            + self.listening_score_awarded
-        )
+        overall_raw = self.calculate_overall_raw_score()
+
+        # Optional: scale here or later
+        self.total_score = overall_raw
 
         self.save(update_fields=[
             "speaking_score_awarded",
@@ -253,6 +250,23 @@ class UserMockTestSession(models.Model):
             "total_score",
         ])
 
+    def calculate_overall_raw_score(self):
+        qs = self.userresponse_set.filter(evaluated=True)
+
+        overall_raw = 0
+
+        for r in qs:
+            per_question_total = (
+                r.speaking_score_awarded +
+                r.writing_score_awarded +
+                r.reading_score_awarded +
+                r.listening_score_awarded
+            )
+
+            # Optional cap per question
+            overall_raw += min(per_question_total, 10)
+
+        return overall_raw
     def __str__(self):
         return self.name
 
@@ -278,13 +292,16 @@ class UserResponse(models.Model):
     def apply_skill_scores(self):
         """
         Aggregate evaluation_result into skill scores
-        using the question subsection's trait_skill map.
+        using the question subsection's trait_skill_map.
+
+        PTE RULE:
+        - If a gate trait (content/form) EXISTS and its score == 0
+        → entire question scores 0
         """
 
         if not self.evaluation_result:
             return
 
-        # 🔥 EXTRACT SCORES SAFELY
         scores = (
             self.evaluation_result
             .get("evaluation", {})
@@ -296,7 +313,34 @@ class UserResponse(models.Model):
 
         trait_skill = self.question.subsection.trait_skill_map or {}
 
-        # reset
+        # ----------------------------
+        # 1️⃣ GATE TRAIT SHORT-CIRCUIT
+        # ----------------------------
+        for gate_trait in ("content", "form"):
+            if gate_trait in scores:
+                gate_score = scores[gate_trait].get("score")
+                if gate_score == 0:
+                    # HARD STOP — model-safe
+                    self.speaking_score_awarded = 0
+                    self.writing_score_awarded = 0
+                    self.reading_score_awarded = 0
+                    self.listening_score_awarded = 0
+                    self.evaluated = True
+
+                    self.save(update_fields=[
+                        "speaking_score_awarded",
+                        "writing_score_awarded",
+                        "reading_score_awarded",
+                        "listening_score_awarded",
+                        "evaluated",
+                    ])
+                    return
+
+        # ----------------------------
+        # 2️⃣ NORMAL TRAIT → SKILL FLOW
+        # ----------------------------
+
+        # Reset AFTER gate check (important)
         self.speaking_score_awarded = 0
         self.writing_score_awarded = 0
         self.reading_score_awarded = 0
@@ -326,6 +370,5 @@ class UserResponse(models.Model):
             "listening_score_awarded",
             "evaluated",
         ])
-
     def __str__(self):
         return f"{self.user_session.name} - {self.mock_test} "

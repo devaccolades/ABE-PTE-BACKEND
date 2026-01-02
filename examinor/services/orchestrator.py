@@ -74,7 +74,7 @@ def  run_evaluation(
         evaluation_payload=evaluation_payload,
         rubric=rubric
     )
-
+    # return prompt
     # NEW: Cache check
     cached = EvaluationCache.objects.filter(prompt_hash=p_hash).first()
     if cached:

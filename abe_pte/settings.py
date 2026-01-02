@@ -169,7 +169,7 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:8000",
     "http://localhost:8000",
     "https://abepte.accoladesweb.com",
-    "72.61.246.182",
+    "http://72.61.246.182:3000",
     
 ]
 
@@ -177,7 +177,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:8000",
     "http://localhost:3000",
     "https://abepte.accoladesweb.com",
-    "72.61.246.182",
+    "http://72.61.246.182:3000",
 ]
 
 CELERY_BROKER_URL = "redis://localhost:6379/0"

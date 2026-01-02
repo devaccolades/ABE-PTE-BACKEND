@@ -284,7 +284,7 @@ class UserResponse(models.Model):
         if not self.evaluation_result:
             return
 
-        trait_skill = self.question.subsection.trait_skill
+        trait_skill = self.question.subsection.trait_skill_map
 
         # reset first (VERY IMPORTANT)
         self.speaking_score_awarded = 0

@@ -15,12 +15,14 @@ def evaluate_pte(request):
             "subsection_name": "read_aloud",
             "question_text": "Your question...",
             "answer_text": "User response..."
+            "audio_text": "Transcribed audio response..."
         }
     """
 
     subsection_name = request.data.get("subsection_name")
     question_text = request.data.get("question_text")
     answer_text = request.data.get("answer_text")
+    audio_text = request.data.get('audio_text')
 
     if not subsection_name or not question_text or not answer_text:
         return Response(
@@ -31,6 +33,8 @@ def evaluate_pte(request):
 
     if answer_text:
             evaluation_payload["answer_data"] = answer_text
+    if audio_text:
+            evaluation_payload["transcribed_audio_data"] = audio_text
 
     result = run_evaluation(
         subsection_name=subsection_name,

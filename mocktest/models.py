@@ -191,6 +191,8 @@ class QuestionOption(models.Model):
         return f"{self.question} - {self.option_text}"
 
 
+from django.db.models import Sum
+
 class UserMockTestSession(models.Model):
     name = models.CharField(max_length=255)
     session_id = models.CharField(max_length=255)
@@ -215,6 +217,42 @@ class UserMockTestSession(models.Model):
     reading_score_awarded = models.FloatField(default=0)
     listening_score_awarded = models.FloatField(default=0)
 
+
+    def aggregate_scores(self):
+        """
+        Aggregate all evaluated UserResponses into session-level skill scores.
+        """
+
+        qs = self.userresponse_set.filter(evaluated=True)
+
+        aggregates = qs.aggregate(
+            speaking=Sum("speaking_score_awarded"),
+            writing=Sum("writing_score_awarded"),
+            reading=Sum("reading_score_awarded"),
+            listening=Sum("listening_score_awarded"),
+        )
+
+        self.speaking_score_awarded = aggregates["speaking"] or 0
+        self.writing_score_awarded = aggregates["writing"] or 0
+        self.reading_score_awarded = aggregates["reading"] or 0
+        self.listening_score_awarded = aggregates["listening"] or 0
+
+        # optional overall total
+        self.total_score = (
+            self.speaking_score_awarded
+            + self.writing_score_awarded
+            + self.reading_score_awarded
+            + self.listening_score_awarded
+        )
+
+        self.save(update_fields=[
+            "speaking_score_awarded",
+            "writing_score_awarded",
+            "reading_score_awarded",
+            "listening_score_awarded",
+            "total_score",
+        ])
+
     def __str__(self):
         return self.name
 
@@ -237,6 +275,42 @@ class UserResponse(models.Model):
     evaluation_result = models.JSONField(default=dict,null=True,blank=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
     
+    def apply_skill_scores(self):
+        """
+        Aggregate evaluation_result into skill scores
+        using the question subsection's trait_skill map.
+        """
+
+        if not self.evaluation_result:
+            return
+
+        trait_skill = self.question.subsection.trait_skill
+
+        # reset first (VERY IMPORTANT)
+        self.speaking_score_awarded = 0
+        self.writing_score_awarded = 0
+        self.reading_score_awarded = 0
+        self.listening_score_awarded = 0
+
+        for component, value in self.evaluation_result.items():
+            for skill in trait_skill.get(component, []):
+                if skill == "speaking":
+                    self.speaking_score_awarded += value
+                elif skill == "writing":
+                    self.writing_score_awarded += value
+                elif skill == "reading":
+                    self.reading_score_awarded += value
+                elif skill == "listening":
+                    self.listening_score_awarded += value
+
+        self.evaluated = True
+        self.save(update_fields=[
+            "speaking_score_awarded",
+            "writing_score_awarded",
+            "reading_score_awarded",
+            "listening_score_awarded",
+            "evaluated",
+        ])
 
     def __str__(self):
         return f"{self.user_session.name} - {self.mock_test} "

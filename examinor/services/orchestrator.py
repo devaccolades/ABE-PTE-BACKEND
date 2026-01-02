@@ -35,7 +35,7 @@ def build_task_rubric(subsection: SubSection) -> dict:
     return final_rubric
 
 
-def run_evaluation(
+def  run_evaluation(
     subsection_name: str,
     question_text: str,
     evaluation_payload: dict,

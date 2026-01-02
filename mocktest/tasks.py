@@ -105,6 +105,7 @@ def evaluate_user_response(user_answer_id, question_id):
         if subsection_obj.ai_input_type == "audio":
             evaluation_payload["transcribed_audio_data"] = user_answer.transcribed_audio_data
 
+        print("Running evaluation orchestrator...", evaluation_payload)
         # if not user_answer.answer_data:
         #     return {"error": "No answer_data provided to evaluate"}
 

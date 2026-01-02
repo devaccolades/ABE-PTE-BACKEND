@@ -284,15 +284,30 @@ class UserResponse(models.Model):
         if not self.evaluation_result:
             return
 
-        trait_skill = self.question.subsection.trait_skill_map
+        # 🔥 EXTRACT SCORES SAFELY
+        scores = (
+            self.evaluation_result
+            .get("evaluation", {})
+            .get("scores", {})
+        )
 
-        # reset first (VERY IMPORTANT)
+        if not scores:
+            return
+
+        trait_skill = self.question.subsection.trait_skill_map or {}
+
+        # reset
         self.speaking_score_awarded = 0
         self.writing_score_awarded = 0
         self.reading_score_awarded = 0
         self.listening_score_awarded = 0
 
-        for component, value in self.evaluation_result.items():
+        for component, payload in scores.items():
+            value = payload.get("score")
+
+            if value is None:
+                continue
+
             for skill in trait_skill.get(component, []):
                 if skill == "speaking":
                     self.speaking_score_awarded += value

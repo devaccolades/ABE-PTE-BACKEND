@@ -24,7 +24,7 @@ def evaluate_pte(request):
     answer_text = request.data.get("answer_text")
     audio_text = request.data.get('audio_text')
 
-    if not subsection_name or not question_text or not answer_text:
+    if not subsection_name or not question_text:
         return Response(
             {"error": "Missing required fields."},
             status=status.HTTP_400_BAD_REQUEST

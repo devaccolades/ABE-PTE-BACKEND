@@ -2,6 +2,8 @@ import os
 import uuid
 import subprocess
 from celery import shared_task
+
+from examinor.services.rule_evaluator import run_rule_evaluation
 from .models import *
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import DatabaseError
@@ -108,18 +110,28 @@ def evaluate_user_response(user_answer_id, question_id):
                 raise Exception("Audio transcription not completed yet")
             evaluation_payload["transcribed_audio_data"] = user_answer.transcribed_audio_data
 
-        print("Running evaluation orchestrator...", evaluation_payload)
-        # if not user_answer.answer_data:
-        #     return {"error": "No answer_data provided to evaluate"}
-
-        try:
-            evaluation_result = run_evaluation(
-                subsection,
-                question.text,
-                evaluation_payload
+        # -------------------------
+        # RULE-BASED SHORT CIRCUIT
+        # -------------------------
+        if subsection_obj.evaluation_type == "rule":
+            evaluation_result = run_rule_evaluation(
+                user_answer=user_answer,
+                question=question,
+                subsection=subsection_obj,
             )
-        except Exception as e:
-            return {"error": "Error during evaluation", "details": str(e)}
+        else:
+            # -------------------------
+            # AI-BASED EVALUATION
+            # -------------------------
+
+            try:
+                evaluation_result = run_evaluation(
+                    subsection,
+                    question.text,
+                    evaluation_payload
+                )
+            except Exception as e:
+                return {"error": "Error during evaluation", "details": str(e)}
 
         with transaction.atomic():
 

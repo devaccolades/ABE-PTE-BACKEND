@@ -75,6 +75,7 @@ def transcribe_task(self,user_response_id,):
 
     return user_response_id
 
+from django.db import transaction
 
 @shared_task
 def evaluate_user_response(user_answer_id, question_id):
@@ -120,11 +121,17 @@ def evaluate_user_response(user_answer_id, question_id):
         except Exception as e:
             return {"error": "Error during evaluation", "details": str(e)}
 
-        try:
+        with transaction.atomic():
+
+            # 1️⃣ Save raw evaluation output
             user_answer.evaluation_result = evaluation_result
-            user_answer.save()
-        except DatabaseError as db_err:
-            return {"error": "Failed to save evaluation result", "details": str(db_err)}
+            user_answer.save(update_fields=["evaluation_result"])
+
+            # 2️⃣ Apply trait → skill routing (UserResponse)
+            user_answer.apply_skill_scores()
+
+            # 3️⃣ Aggregate to session totals (UserMockTestSession)
+            user_answer.user_session.aggregate_scores()
 
         return {
             "status": "success",

@@ -76,7 +76,11 @@ def transcribe_task(self,user_response_id,):
     return user_response_id
 
 
-@shared_task
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_kwargs={"max_retries": 3, "countdown": 2}
+)
 def evaluate_user_response(user_answer_id, question_id):
     print("Evaluation begins...")
 
@@ -103,6 +107,8 @@ def evaluate_user_response(user_answer_id, question_id):
         subsection_obj = question.subsection
 
         if subsection_obj.ai_input_type == "audio":
+            if not user_answer.transcribed_audio_data:
+                raise Exception("Audio transcription not completed yet")
             evaluation_payload["transcribed_audio_data"] = user_answer.transcribed_audio_data
 
         print("Running evaluation orchestrator...", evaluation_payload)

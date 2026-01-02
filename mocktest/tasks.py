@@ -76,11 +76,7 @@ def transcribe_task(self,user_response_id,):
     return user_response_id
 
 
-@shared_task(
-    bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3, "countdown": 2}
-)
+@shared_task
 def evaluate_user_response(user_answer_id, question_id):
     print("Evaluation begins...")
 

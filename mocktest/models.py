@@ -92,7 +92,6 @@ class SubSection(models.Model):
         choices=[
             ("rule", "Rule"),
             ("ai", "AI"),
-            ("hybrid", "Hybrid"),
         ],
         default="ai"   
     )

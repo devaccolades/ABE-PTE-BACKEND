@@ -240,4 +240,7 @@ def run_rule_evaluation(*, user_answer, question, subsection):
     # Imported AI evaluator
     evaluation_result = evaluate_with_ai(prompt)
 
-    return evaluation_result
+    return {
+        "ok": True,
+        "evaluation": evaluation_result["data"],
+    }

@@ -190,24 +190,29 @@ def evaluate_with_ai(prompt: str):
         # Same as old version: responses.create() → output_text
         raw_output = (completion.output_text or "").strip()
 
-        # Try direct JSON parse (old behavior)
         try:
             parsed = json.loads(raw_output)
         except:
-            # Fallback: regex extraction
             parsed = extract_json(raw_output)
 
-        if parsed is None:
+        if not isinstance(parsed, dict):
             return {
                 "success": False,
-                "error": "Failed to parse JSON.",
+                "error": "Invalid JSON structure",
                 "raw": raw_output,
-
             }
+
+        # 🔒 CANONICAL NORMALIZATION (THIS IS THE FIX)
+        normalized = {
+            "evaluation": {
+                "scores": parsed.get("scores", {}),
+                "feedback": parsed.get("feedback", "")
+            }
+        }
 
         return {
             "success": True,
-            "data": parsed,
+            "data": normalized,
             "raw": raw_output,
         }
 
@@ -221,6 +226,8 @@ def evaluate_with_ai(prompt: str):
 # -------------------------------------------------
 # MAIN ENTRY POINT
 # -------------------------------------------------
+
+
 
 def run_rule_evaluation(*, user_answer, question, subsection):
     """

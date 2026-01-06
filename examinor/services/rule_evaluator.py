@@ -204,10 +204,8 @@ def evaluate_with_ai(prompt: str):
 
         # 🔒 CANONICAL NORMALIZATION (THIS IS THE FIX)
         normalized = {
-            "evaluation": {
                 "scores": parsed.get("scores", {}),
                 "feedback": parsed.get("feedback", "")
-            }
         }
 
         return {

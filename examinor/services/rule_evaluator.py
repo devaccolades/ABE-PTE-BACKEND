@@ -158,18 +158,26 @@ def build_rule_ai_prompt(*, user_answer, question, subsection):
         # Rubric is the sole authority
         "rubric": subsection.rubric,
 
-        # 🔒 NEW STRICT OUTPUT FORMAT
+        # 🔒 OUTPUT FORMAT (MODEL MUST FOLLOW TYPES)
         "output_format": {
             "scores": {
                 "<criterion_id>": {
-                    "score": "number",
-                    "max": "number"
+                    "score": 0,   # MUST be a NUMBER, not a string
+                    "max": 0      # MUST be a NUMBER, not a string
                 }
             },
-            "feedback": "short 1 sentence"
-        }
-    }
+            "feedback": ""
+        },
 
+        # 🔒 STRICT RULES (THIS IS THE FIX)
+        "rules": [
+            "Return ONLY valid JSON",
+            "Do NOT wrap the response",
+            "Do NOT stringify numbers",
+            "Values for score and max MUST be numbers, not strings",
+            "Use ONLY rubric keys as criterion_id"
+        ]
+    }
     return json.dumps(payload, separators=(",", ":"))
 
 

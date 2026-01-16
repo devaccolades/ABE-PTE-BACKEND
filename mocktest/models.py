@@ -288,6 +288,13 @@ class UserResponse(models.Model):
     evaluation_result = models.JSONField(default=dict,null=True,blank=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
     
+
+    def _normalize(self, raw, max_value):
+        if max_value is None or max_value == 0:
+            return raw
+        return min(raw, max_value)
+
+
     def apply_skill_scores(self):
         """
         Aggregate evaluation_result into skill scores
@@ -361,6 +368,31 @@ class UserResponse(models.Model):
                 elif skill == "listening":
                     self.listening_score_awarded += value
 
+        # ----------------------------
+        # 3️⃣ NORMALISATION STEP (NEW)
+        # ----------------------------
+
+        q = self.question
+
+        self.speaking_score_awarded = self._normalize(
+            self.speaking_score_awarded,
+            q.speaking_score_max
+        )
+
+        self.writing_score_awarded = self._normalize(
+            self.writing_score_awarded,
+            q.writing_score_max
+        )
+
+        self.reading_score_awarded = self._normalize(
+            self.reading_score_awarded,
+            q.reading_score_max
+        )
+
+        self.listening_score_awarded = self._normalize(
+            self.listening_score_awarded,
+            q.listening_score_max
+        )
         self.evaluated = True
         self.save(update_fields=[
             "speaking_score_awarded",

@@ -1,5 +1,8 @@
 import uuid
 from django.db import models
+import logging
+
+logger = logging.getLogger(__name__)
 
 class MockTest(models.Model):
     test_id = models.UUIDField(primary_key=True, default=uuid.uuid4)
@@ -289,11 +292,27 @@ class UserResponse(models.Model):
     submitted_at = models.DateTimeField(auto_now_add=True)
     
 
-    def _normalize(self, raw, max_value):
-        if max_value is None or max_value == 0:
-            return raw
-        return min(raw, max_value)
+    def _normalize(self, raw, max_value, skill_name=None):
+        """
+        Skill normalization per-question.
 
+        Rules:
+        - NULL / 0 max  → skill not evaluated → force 0 (log warning)
+        - Else          → cap raw score to max
+        """
+        if not max_value:
+            if raw > 0:
+                logger.warning(
+                    "[SCORING-IGNORE] "
+                    f"Question={self.question.id} | "
+                    f"Subsection={self.question.subsection.name} | "
+                    f"Skill={skill_name} | "
+                    f"RawScore={raw} | "
+                    f"MaxScore={max_value}"
+                )
+            return 0
+
+        return min(raw, max_value)
 
     def apply_skill_scores(self):
         """
@@ -375,24 +394,29 @@ class UserResponse(models.Model):
         q = self.question
 
         self.speaking_score_awarded = self._normalize(
-            self.speaking_score_awarded,
-            q.speaking_score_max
-        )
+        self.speaking_score_awarded,
+                q.speaking_score_max,
+                "speaking"
+            )
 
         self.writing_score_awarded = self._normalize(
             self.writing_score_awarded,
-            q.writing_score_max
+            q.writing_score_max,
+            "writing"
         )
 
         self.reading_score_awarded = self._normalize(
             self.reading_score_awarded,
-            q.reading_score_max
+            q.reading_score_max,
+            "reading"
         )
 
         self.listening_score_awarded = self._normalize(
             self.listening_score_awarded,
-            q.listening_score_max
+            q.listening_score_max,
+            "listening"
         )
+
         self.evaluated = True
         self.save(update_fields=[
             "speaking_score_awarded",

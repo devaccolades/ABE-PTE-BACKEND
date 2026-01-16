@@ -185,3 +185,19 @@ CELERY_RESULT_BACKEND = "redis://localhost:6379/1"
 
 # CORS_ALLOW_ALL_ORIGINS = True
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "loggers": {
+        "": {  # root logger
+            "handlers": ["console"],
+            "level": "WARNING",
+        },
+    },
+}

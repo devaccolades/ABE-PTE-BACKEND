@@ -16,8 +16,16 @@ from django.shortcuts import get_object_or_404
 from rest_framework.generics import ListAPIView
 from rest_framework.exceptions import NotFound
 
+
+class QuestionPagination(PageNumberPagination):
+    page_size = 10                    # default
+    page_size_query_param = "page_size"
+    max_page_size = 50
+
+
 class SubSectionQuestionListAPIView(ListAPIView):
     serializer_class = QuestionSerializer
+    # pagination_class = QuestionPagination
 
     def get_queryset(self):
         subsection_name = self.kwargs.get("subsection_name")
@@ -30,7 +38,7 @@ class SubSectionQuestionListAPIView(ListAPIView):
         return (
             Question.objects
             .filter(subsection=subsection)
-            .order_by("id")
+            .order_by("id")[:20]
         )
 
 class MockTestListAPIView(APIView):

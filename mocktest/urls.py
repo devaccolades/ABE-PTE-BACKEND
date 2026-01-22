@@ -1,6 +1,6 @@
 # urls.py
 from django.urls import path
-from .views import StartMockTestAPIView, GetQuestionAPIView, UserResponseAPIView,MockTestListAPIView,APIListingQuestions
+from .views import StartMockTestAPIView, GetQuestionAPIView, UserResponseAPIView,MockTestListAPIView,APIListingQuestions,SubSectionQuestionListAPIView
 
 urlpatterns = [
    
@@ -9,5 +9,9 @@ urlpatterns = [
     path('question/', APIListingQuestions.as_view(), name='question'),
     path('user-response/', UserResponseAPIView.as_view(), name='user-response'),
     path('mocktest-list/', MockTestListAPIView.as_view(), name='mock-test'),
-
+    path(
+        "questions/<str:subsection_name>/",
+        SubSectionQuestionListAPIView.as_view(),
+        name="questions-by-subsection-name",
+    ),
 ]

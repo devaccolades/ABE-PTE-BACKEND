@@ -10,9 +10,28 @@ from rest_framework import status
 from celery import chain
 from .tasks import transcribe_task,evaluate_user_response
 from .models import Question, MockTest, MockTestSection, UserResponse, UserMockTestSession, SubQuestion,Section,SubSection
-from .serializers import UserMockTestSession,SingleQuestionSerializer,UserResponseSerializer,MockTestListSerializer
+from .serializers import UserMockTestSession,SingleQuestionSerializer,UserResponseSerializer,MockTestListSerializer,QuestionSerializer
 from .services.transcription import transcribe_and_analyse
 from django.shortcuts import get_object_or_404
+from rest_framework.generics import ListAPIView
+from rest_framework.exceptions import NotFound
+
+class SubSectionQuestionListAPIView(ListAPIView):
+    serializer_class = QuestionSerializer
+
+    def get_queryset(self):
+        subsection_name = self.kwargs.get("subsection_name")
+
+        try:
+            subsection = SubSection.objects.get(name=subsection_name)
+        except SubSection.DoesNotExist:
+            raise NotFound("Invalid subsection name")
+
+        return (
+            Question.objects
+            .filter(subsection=subsection)
+            .order_by("id")
+        )
 
 class MockTestListAPIView(APIView):
 

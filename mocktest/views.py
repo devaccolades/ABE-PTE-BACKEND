@@ -38,6 +38,20 @@ class SubSectionQuestionListAPIView(ListAPIView):
         return (
             Question.objects
             .filter(subsection=subsection)
+             .select_related(
+                'mock_test_section',
+                'mock_test_section__section',
+                'subsection'
+            )
+            .prefetch_related(
+                'options',
+                'sub_questions__options'
+            )
+            .order_by(
+                'mock_test_section__order',
+                'subsection__order',
+                'id'
+            )
             .order_by("id")[:20]
         )
 

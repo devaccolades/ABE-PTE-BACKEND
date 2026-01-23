@@ -433,6 +433,7 @@ class UserResponse(models.Model):
 
 
 class SingleResponse(models.Model):
+    name= models.CharField(max_length=255,default="Single Response")
     question = models.ForeignKey('Question', on_delete=models.CASCADE)
 
     answer_data = models.JSONField(default=dict, null=True, blank=True)  # Store any type of answer here

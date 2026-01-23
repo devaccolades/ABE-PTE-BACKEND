@@ -57,6 +57,7 @@ class SubSectionQuestionListAPIView(ListAPIView):
 class SingleAPIView(APIView):
     def post(self, request):
         question_name = request.data.get('question_name')
+        name = request.data.get('name')
         answer = request.data.get('answer')
         audio_file = request.FILES.get('answer_audio')
 
@@ -68,6 +69,7 @@ class SingleAPIView(APIView):
 
                     
         user_answer = SingleResponse.objects.create(
+            name= name,
             question=question,
             answer_data=answer,
             answer_audio=audio_file,

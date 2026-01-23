@@ -8,9 +8,9 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from celery import chain
-from .tasks import transcribe_task,evaluate_user_response
-from .models import Question, MockTest, MockTestSection, UserResponse, UserMockTestSession, SubQuestion,Section,SubSection
-from .serializers import UserMockTestSession,SingleQuestionSerializer,UserResponseSerializer,MockTestListSerializer,QuestionSerializer
+from .tasks import transcribe_task,evaluate_user_response,evaluate_single_response,transcribe_single_task
+from .models import Question, MockTest, MockTestSection, UserResponse, UserMockTestSession, SubQuestion,Section,SubSection,SingleResponse
+from .serializers import UserMockTestSession,SingleQuestionSerializer,UserResponseSerializer,MockTestListSerializer,QuestionSerializer,SingleResponseSerializer 
 from .services.transcription import transcribe_and_analyse
 from django.shortcuts import get_object_or_404
 from rest_framework.generics import ListAPIView
@@ -53,6 +53,41 @@ class SubSectionQuestionListAPIView(ListAPIView):
                 'id'
             )[:20]
         )
+
+class SingleAPIView(APIView):
+    def post(self, request):
+        question_name = request.data.get('question_name')
+        answer = request.data.get('answer')
+        audio_file = request.FILES.get('answer_audio')
+
+        try:
+            question = Question.objects.get(name=question_name)
+
+        except Question.DoesNotExist:
+            return Response({"error": "Invalid question_name"}, status=status.HTTP_404_NOT_FOUND)
+
+                    
+        user_answer = SingleResponse.objects.create(
+            question=question,
+            answer_data=answer,
+            answer_audio=audio_file,
+            transcribed_audio_data=None
+        )
+        
+        if audio_file:
+            chain(
+                # transcribe_task.s(user_answer.id, temp_path),
+                transcribe_single_task.s(user_answer.id),
+                evaluate_single_response.si(user_answer.id, question.id)
+            ).delay()
+
+        else:
+            evaluate_single_response.delay(user_answer.id, question.id)
+
+        serializer = SingleResponseSerializer(user_answer)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+###starts here
 
 class MockTestListAPIView(APIView):
 

@@ -170,3 +170,8 @@ class UserResponseSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserResponse
         fields = "__all__"
+
+class SingleResponseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SingleResponse
+        fields = "__all__"

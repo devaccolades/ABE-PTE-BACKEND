@@ -51,7 +51,7 @@ class SubSectionQuestionListAPIView(ListAPIView):
                 'mock_test_section__order',
                 'subsection__order',
                 'id'
-            )[:20]
+            )[:10]
         )
 
 class SingleAPIView(APIView):

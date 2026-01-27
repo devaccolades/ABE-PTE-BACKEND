@@ -170,3 +170,10 @@ class UserResponseAdmin(admin.ModelAdmin):
 class GlobalRubricAdmin(admin.ModelAdmin):
     list_display = ('key', 'rubric')
     search_fields = ('key',)
+
+@admin.register(SingleResponse)
+class SingleResponseAdmin(admin.ModelAdmin):
+    list_display = ('question', 'text_response', 'audio_response', 'submitted_at')
+    list_filter = ('question__question_type',)
+    readonly_fields = ('submitted_at',)
+    ordering = ['-submitted_at']

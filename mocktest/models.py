@@ -609,4 +609,4 @@ class SingleResponse(models.Model):
         )
 
     def __str__(self):
-        return f"{self.name} - {self.mock_test} "
+        return f"{self.name} - {self.question} "

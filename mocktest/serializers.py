@@ -25,9 +25,33 @@ class SubQuestionSerializer(serializers.ModelSerializer):
 
 
 class QuestionSerializer(serializers.ModelSerializer):
+    audio = serializers.SerializerMethodField()
+    image = serializers.SerializerMethodField()
+
     class Meta:
         model = Question
-        fields = ['id', 'name', 'text', 'reading_time', 'answering_time']
+        fields = [
+            'id',
+            'name',
+            'text',
+            'audio',
+            'image',
+            'reading_time',
+            'answering_time',
+        ]
+
+    def get_audio(self, obj):
+        request = self.context.get('request')
+        if obj.audio:
+            return request.build_absolute_uri(obj.audio.url)
+        return None
+
+    def get_image(self, obj):
+        request = self.context.get('request')
+        if obj.image:
+            return request.build_absolute_uri(obj.image.url)
+        return None
+
 
 class MockTestSectionMiniSerializer(serializers.ModelSerializer):
     section_name = serializers.CharField(source='section.name', read_only=True)

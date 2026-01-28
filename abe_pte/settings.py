@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from corsheaders.defaults import default_headers
 
 # Load environment variables from .env file
 load_dotenv()
@@ -25,60 +26,60 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-kc&7(+$5aa0%zq!wj2&=)zkzuz^hpc!@_qx##w==-2jnh^&7_6'
+SECRET_KEY = "django-insecure-kc&7(+$5aa0%zq!wj2&=)zkzuz^hpc!@_qx##w==-2jnh^&7_6"
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ["*"]
 # ALLOWED_HOSTS = ['82.112.226.176','admin.abepte.accoladesweb.com','localhost']
 
 
 # Application definition
 
 INSTALLED_APPS = [
-    'corsheaders',
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'rest_framework',
-    'mocktest',
-    'examinor'
+    "corsheaders",
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "rest_framework",
+    "mocktest",
+    "examinor",
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = 'abe_pte.urls'
+ROOT_URLCONF = "abe_pte.urls"
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
 ]
 
-WSGI_APPLICATION = 'abe_pte.wsgi.application'
+WSGI_APPLICATION = "abe_pte.wsgi.application"
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_WHISPER_API_KEY = os.getenv("OPENAI_WHISPER_API_KEY")
@@ -91,6 +92,7 @@ if not OPENAI_WHISPER_API_KEY:
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 import os
+
 # DATABASES = {
 #     'default': {
 #         'ENGINE': 'django.db.backends.sqlite3',
@@ -109,22 +111,22 @@ DATABASES = {
         "PORT": os.getenv("DB_PORT", ""),
     }
 }
- 
+
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
 
@@ -132,9 +134,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = "UTC"
 
 USE_I18N = True
 
@@ -151,40 +153,43 @@ USE_TZ = True
 # MEDIA_URL = '/media/'
 # MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-STATIC_URL = '/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATIC_URL = "/static/"
+STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_URL = "/media/"
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-#csrf
+# csrf
 CSRF_TRUSTED_ORIGINS = [
     "https://admin.abepte.accoladesweb.com",
     "http://127.0.0.1:8000",
     "http://localhost:8000",
     "https://abepte.accoladesweb.com",
-    "https://pte.abeedu.com"
-    
+    "https://pte.abeedu.com",
 ]
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:8000",
     "http://localhost:3000",
     "https://abepte.accoladesweb.com",
-    "https://pte.abeedu.com"
+    "https://pte.abeedu.com",
 ]
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "timer-exceeded",
+]
+CORS_ALLOW_CREDENTIALS = True
 
 CELERY_BROKER_URL = "redis://localhost:6379/0"
 CELERY_RESULT_BACKEND = "redis://localhost:6379/1"
 
 # CORS_ALLOW_ALL_ORIGINS = True
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 LOGGING = {
     "version": 1,

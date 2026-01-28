@@ -4,12 +4,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class MockTest(models.Model):
     test_id = models.UUIDField(primary_key=True, default=uuid.uuid4)
     title = models.CharField(max_length=255)
-    description = models.TextField(null=True,blank=True)
-    total_score = models.PositiveIntegerField(default=0, help_text="Maximum total score for the test")
-    total_duration = models.PositiveIntegerField(help_text="Duration in seconds",null=True,blank=True)
+    description = models.TextField(null=True, blank=True)
+    total_score = models.PositiveIntegerField(
+        default=0, help_text="Maximum total score for the test"
+    )
+    total_duration = models.PositiveIntegerField(
+        help_text="Duration in seconds", null=True, blank=True
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
 
@@ -22,26 +27,38 @@ class Section(models.Model):
     Main sections linked to both a Skill and an Exam Part.
     Example: Speaking section inside 'Part 1: Speaking & Writing'
     """
-  
-    name = models.CharField(max_length=100,null=True,blank=True)
-    description = models.TextField(null=True,blank=True)
+
+    name = models.CharField(max_length=100, null=True, blank=True)
+    description = models.TextField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.name}"
 
 
 class MockTestSection(models.Model):
-    mock_test = models.ForeignKey(MockTest, on_delete=models.CASCADE, related_name="sections",null=True,blank=True)
-    section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name="mock_test_sections",null=True,blank=True)
+    mock_test = models.ForeignKey(
+        MockTest,
+        on_delete=models.CASCADE,
+        related_name="sections",
+        null=True,
+        blank=True,
+    )
+    section = models.ForeignKey(
+        Section,
+        on_delete=models.CASCADE,
+        related_name="mock_test_sections",
+        null=True,
+        blank=True,
+    )
     order = models.PositiveIntegerField(default=1)
     total_duration = models.PositiveIntegerField(blank=True, null=True)
 
     def __str__(self):
         return f"{self.mock_test.title} - {self.section.name}"
-    
+
 
 class GlobalRubric(models.Model):
-    key = models.CharField(max_length=50, unique=True)  
+    key = models.CharField(max_length=50, unique=True)
     rubric = models.JSONField()
 
     def __str__(self):
@@ -52,6 +69,7 @@ class SubSection(models.Model):
     """
     Detailed subsections like 'Read Aloud', 'Describe Image', etc.
     """
+
     SUBSECTION_CHOICES = [
         # Speaking
         ("read_aloud", "Read Aloud"),
@@ -61,18 +79,15 @@ class SubSection(models.Model):
         ("answer_short_question", "Answer Short Question"),
         ("summarise_group_discussion", "Summarise Group Discussion"),
         ("respond_to_a_situation", "Respond to a Situation"),
-
         # Writing
         ("summarize_written_text", "Summarize Written Text"),
         ("write_essay", "Write Essay"),
-
         # Reading
         ("fib_dropdown", "Fill in the Blanks – Dropdown"),
         ("mc_multiple", "MCQ – Multiple Answers (Reading)"),
         ("reorder_paragraphs", "Reorder Paragraphs"),
         ("fib_drag_drop", "Fill in the Blanks – Drag & Drop"),
         ("mc_single", "MCQ – Single Answer (Reading)"),
-
         # Listening
         ("summarize_spoken_text", "Summarize Spoken Text"),
         ("l_mc_multiple", "MCQ – Multiple Answers (Listening)"),
@@ -84,19 +99,27 @@ class SubSection(models.Model):
         ("write_from_dictation", "Write from Dictation"),
     ]
 
-    section = models.ForeignKey('Section', on_delete=models.CASCADE, related_name='subsections',null=True,blank=True)
-    name = models.CharField(max_length=60, choices=SUBSECTION_CHOICES, default="read_aloud")
+    section = models.ForeignKey(
+        "Section",
+        on_delete=models.CASCADE,
+        related_name="subsections",
+        null=True,
+        blank=True,
+    )
+    name = models.CharField(
+        max_length=60, choices=SUBSECTION_CHOICES, default="read_aloud"
+    )
     order = models.PositiveIntegerField(default=1)
     rubric = models.JSONField(default=dict, blank=True, null=True)
     trait_skill_map = models.JSONField(default=dict)
-    instructions = models.TextField(blank=True,null=True)
+    instructions = models.TextField(blank=True, null=True)
     evaluation_type = models.CharField(
         max_length=10,
         choices=[
             ("rule", "Rule"),
             ("ai", "AI"),
         ],
-        default="ai"   
+        default="ai",
     )
 
     ai_input_type = models.CharField(
@@ -105,57 +128,74 @@ class SubSection(models.Model):
             ("text", "Text only"),
             ("audio", "transcription"),
         ],
-        default="text"  
+        default="text",
     )
     # NEW FIELDS
     use_pronunciation = models.BooleanField(default=False)
     use_fluency = models.BooleanField(default=False)
-    
+
     def __str__(self):
         return f"{self.section.name} - {self.name}"
-    
+
 
 class Question(models.Model):
-
     """Question master table connected with subsection"""
 
-    mock_test_section = models.ForeignKey(MockTestSection,on_delete=models.CASCADE,related_name="questions",null=True,blank=True)
+    mock_test_section = models.ForeignKey(
+        MockTestSection,
+        on_delete=models.CASCADE,
+        related_name="questions",
+        null=True,
+        blank=True,
+    )
     QUESTION_TYPES = [
-        ('single_answer', 'Single Answer'),
-        ('multiple_answer', 'Multiple Answers'),
-
+        ("single_answer", "Single Answer"),
+        ("multiple_answer", "Multiple Answers"),
     ]
     DIFFICULTY_LEVELS = [
-        ('easy', 'Easy'),
-        ('medium', 'Medium'),
-        ('hard', 'Hard'),
+        ("easy", "Easy"),
+        ("medium", "Medium"),
+        ("hard", "Hard"),
     ]
 
-    question_type = models.CharField(max_length=20, choices=QUESTION_TYPES, default='single')
-    difficulty = models.CharField(max_length=10,choices=DIFFICULTY_LEVELS,default='medium')
-    subsection = models.ForeignKey(SubSection, on_delete=models.CASCADE, related_name='questions',null=True,blank=True)
-    name = models.CharField(max_length=100,null=True,blank=True)
+    question_type = models.CharField(
+        max_length=20, choices=QUESTION_TYPES, default="single"
+    )
+    difficulty = models.CharField(
+        max_length=10, choices=DIFFICULTY_LEVELS, default="medium"
+    )
+    subsection = models.ForeignKey(
+        SubSection,
+        on_delete=models.CASCADE,
+        related_name="questions",
+        null=True,
+        blank=True,
+    )
+    name = models.CharField(max_length=100, null=True, blank=True)
     text = models.TextField(blank=True, null=True)
-    audio = models.FileField(upload_to='questions/audio/', blank=True, null=True)
-    image = models.FileField(upload_to='questions/images/', blank=True, null=True)
+    audio = models.FileField(upload_to="questions/audio/", blank=True, null=True)
+    image = models.FileField(upload_to="questions/images/", blank=True, null=True)
     correct_answer = models.TextField(blank=True, null=True)
-    reading_time = models.PositiveIntegerField(help_text="Time allowed to read question in seconds", default=0)
-    answering_time = models.PositiveIntegerField(help_text="Time allowed to answer in seconds", default=0)
-    speaking_score_max = models.FloatField(null=True,blank=True)
-    writing_score_max = models.FloatField(null=True,blank=True)
-    reading_score_max = models.FloatField(null=True,blank=True)
-    listening_score_max = models.FloatField(null=True,blank=True)
+    reading_time = models.PositiveIntegerField(
+        help_text="Time allowed to read question in seconds", default=0
+    )
+    answering_time = models.PositiveIntegerField(
+        help_text="Time allowed to answer in seconds", default=0
+    )
+    speaking_score_max = models.FloatField(null=True, blank=True)
+    writing_score_max = models.FloatField(null=True, blank=True)
+    reading_score_max = models.FloatField(null=True, blank=True)
+    listening_score_max = models.FloatField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.subsection.name} - Q{self.id}"
 
 
 class SubQuestion(models.Model):
-
     """Represents each blank (or sub-question) in a fill-in-the-blank type question."""
 
     question = models.ForeignKey(
-        Question, on_delete=models.CASCADE, related_name='sub_questions'
+        Question, on_delete=models.CASCADE, related_name="sub_questions"
     )
     blank_number = models.PositiveIntegerField(help_text="Blank number (1,2,3...)")
     text_before_blank = models.TextField(blank=True, null=True)
@@ -168,22 +208,23 @@ class SubQuestion(models.Model):
 
 class QuestionOption(models.Model):
     """Represents the options available for a question or a sub-question."""
+
     question = models.ForeignKey(
         Question,
         on_delete=models.CASCADE,
-        related_name='options',
+        related_name="options",
         null=True,
-        blank=True
+        blank=True,
     )
     sub_question = models.ForeignKey(
         SubQuestion,
         on_delete=models.CASCADE,
-        related_name='options',
+        related_name="options",
         null=True,
         blank=True,
-        help_text="Used only for fill-in-the-blank type questions"
+        help_text="Used only for fill-in-the-blank type questions",
     )
-    option_text = models.CharField(max_length=255, null=True, blank=True)
+    option_text = models.TextField(null=True, blank=True)
     is_correct = models.BooleanField(default=False)
     order_position = models.PositiveIntegerField(null=True, blank=True)
 
@@ -195,20 +236,21 @@ class QuestionOption(models.Model):
 
 from django.db.models import Sum
 
+
 class UserMockTestSession(models.Model):
     name = models.CharField(max_length=255)
     session_id = models.CharField(max_length=255)
     mock_test = models.ForeignKey(MockTest, on_delete=models.CASCADE)
-    #new field required for pagination + skipping
+    # new field required for pagination + skipping
     current_mocktest_section = models.ForeignKey(
-    MockTestSection,
-    on_delete=models.SET_NULL,
-    null=True,
-    blank=True,
-    related_name="active_mocktest_sections")
+        MockTestSection,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="active_mocktest_sections",
+    )
     current_question_order = models.IntegerField(default=1)
     completed_sections = models.JSONField(default=list, blank=True)
-
 
     started_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(blank=True, null=True)
@@ -218,7 +260,6 @@ class UserMockTestSession(models.Model):
     writing_score_awarded = models.FloatField(default=0)
     reading_score_awarded = models.FloatField(default=0)
     listening_score_awarded = models.FloatField(default=0)
-
 
     def aggregate_scores(self):
         """
@@ -244,13 +285,15 @@ class UserMockTestSession(models.Model):
         # Optional: scale here or later
         self.total_score = overall_raw
 
-        self.save(update_fields=[
-            "speaking_score_awarded",
-            "writing_score_awarded",
-            "reading_score_awarded",
-            "listening_score_awarded",
-            "total_score",
-        ])
+        self.save(
+            update_fields=[
+                "speaking_score_awarded",
+                "writing_score_awarded",
+                "reading_score_awarded",
+                "listening_score_awarded",
+                "total_score",
+            ]
+        )
 
     def calculate_overall_raw_score(self):
         qs = self.userresponse_set.filter(evaluated=True)
@@ -259,38 +302,38 @@ class UserMockTestSession(models.Model):
 
         for r in qs:
             per_question_total = (
-                r.speaking_score_awarded +
-                r.writing_score_awarded +
-                r.reading_score_awarded +
-                r.listening_score_awarded
+                r.speaking_score_awarded
+                + r.writing_score_awarded
+                + r.reading_score_awarded
+                + r.listening_score_awarded
             )
 
             # Optional cap per question
             overall_raw += min(per_question_total, 10)
 
         return overall_raw
+
     def __str__(self):
         return self.name
 
 
-
-
 class UserResponse(models.Model):
-    user_session = models.ForeignKey('UserMockTestSession', on_delete=models.CASCADE)
-    mock_test = models.ForeignKey('MockTest', on_delete=models.CASCADE)
-    question = models.ForeignKey('Question', on_delete=models.CASCADE)
+    user_session = models.ForeignKey("UserMockTestSession", on_delete=models.CASCADE)
+    mock_test = models.ForeignKey("MockTest", on_delete=models.CASCADE)
+    question = models.ForeignKey("Question", on_delete=models.CASCADE)
 
-    answer_data = models.JSONField(default=dict, null=True, blank=True)  # Store any type of answer here
-    answer_audio = models.FileField(upload_to='response/audio/', blank=True, null=True)
+    answer_data = models.JSONField(
+        default=dict, null=True, blank=True
+    )  # Store any type of answer here
+    answer_audio = models.FileField(upload_to="response/audio/", blank=True, null=True)
     transcribed_audio_data = models.JSONField(blank=True, null=True)
     speaking_score_awarded = models.FloatField(default=0)
     writing_score_awarded = models.FloatField(default=0)
     reading_score_awarded = models.FloatField(default=0)
     listening_score_awarded = models.FloatField(default=0)
     evaluated = models.BooleanField(default=False)
-    evaluation_result = models.JSONField(default=dict,null=True,blank=True)
+    evaluation_result = models.JSONField(default=dict, null=True, blank=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
-    
 
     def _normalize(self, raw, max_value, skill_name=None):
         """
@@ -327,11 +370,7 @@ class UserResponse(models.Model):
         if not self.evaluation_result:
             return
 
-        scores = (
-            self.evaluation_result
-            .get("evaluation", {})
-            .get("scores", {})
-        )
+        scores = self.evaluation_result.get("evaluation", {}).get("scores", {})
 
         if not scores:
             return
@@ -352,13 +391,15 @@ class UserResponse(models.Model):
                     self.listening_score_awarded = 0
                     self.evaluated = True
 
-                    self.save(update_fields=[
-                        "speaking_score_awarded",
-                        "writing_score_awarded",
-                        "reading_score_awarded",
-                        "listening_score_awarded",
-                        "evaluated",
-                    ])
+                    self.save(
+                        update_fields=[
+                            "speaking_score_awarded",
+                            "writing_score_awarded",
+                            "reading_score_awarded",
+                            "listening_score_awarded",
+                            "evaluated",
+                        ]
+                    )
                     return
 
         # ----------------------------
@@ -394,59 +435,52 @@ class UserResponse(models.Model):
         q = self.question
 
         self.speaking_score_awarded = self._normalize(
-        self.speaking_score_awarded,
-                q.speaking_score_max,
-                "speaking"
-            )
+            self.speaking_score_awarded, q.speaking_score_max, "speaking"
+        )
 
         self.writing_score_awarded = self._normalize(
-            self.writing_score_awarded,
-            q.writing_score_max,
-            "writing"
+            self.writing_score_awarded, q.writing_score_max, "writing"
         )
 
         self.reading_score_awarded = self._normalize(
-            self.reading_score_awarded,
-            q.reading_score_max,
-            "reading"
+            self.reading_score_awarded, q.reading_score_max, "reading"
         )
 
         self.listening_score_awarded = self._normalize(
-            self.listening_score_awarded,
-            q.listening_score_max,
-            "listening"
+            self.listening_score_awarded, q.listening_score_max, "listening"
         )
 
         self.evaluated = True
-        self.save(update_fields=[
-            "speaking_score_awarded",
-            "writing_score_awarded",
-            "reading_score_awarded",
-            "listening_score_awarded",
-            "evaluated",
-        ])
+        self.save(
+            update_fields=[
+                "speaking_score_awarded",
+                "writing_score_awarded",
+                "reading_score_awarded",
+                "listening_score_awarded",
+                "evaluated",
+            ]
+        )
+
     def __str__(self):
         return f"{self.user_session.name} - {self.mock_test} "
 
 
-
-
-
 class SingleResponse(models.Model):
-    name= models.CharField(max_length=255,default="Single Response")
-    question = models.ForeignKey('Question', on_delete=models.CASCADE)
+    name = models.CharField(max_length=255, default="Single Response")
+    question = models.ForeignKey("Question", on_delete=models.CASCADE)
 
-    answer_data = models.JSONField(default=dict, null=True, blank=True)  # Store any type of answer here
-    answer_audio = models.FileField(upload_to='response/audio/', blank=True, null=True)
+    answer_data = models.JSONField(
+        default=dict, null=True, blank=True
+    )  # Store any type of answer here
+    answer_audio = models.FileField(upload_to="response/audio/", blank=True, null=True)
     transcribed_audio_data = models.JSONField(blank=True, null=True)
     speaking_score_awarded = models.FloatField(default=0)
     writing_score_awarded = models.FloatField(default=0)
     reading_score_awarded = models.FloatField(default=0)
     listening_score_awarded = models.FloatField(default=0)
     evaluated = models.BooleanField(default=False)
-    evaluation_result = models.JSONField(default=dict,null=True,blank=True)
+    evaluation_result = models.JSONField(default=dict, null=True, blank=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
-    
 
     def _normalize(self, raw, max_value, skill_name=None):
         """
@@ -483,11 +517,7 @@ class SingleResponse(models.Model):
         if not self.evaluation_result:
             return
 
-        scores = (
-            self.evaluation_result
-            .get("evaluation", {})
-            .get("scores", {})
-        )
+        scores = self.evaluation_result.get("evaluation", {}).get("scores", {})
 
         if not scores:
             return
@@ -508,13 +538,15 @@ class SingleResponse(models.Model):
                     self.listening_score_awarded = 0
                     self.evaluated = True
 
-                    self.save(update_fields=[
-                        "speaking_score_awarded",
-                        "writing_score_awarded",
-                        "reading_score_awarded",
-                        "listening_score_awarded",
-                        "evaluated",
-                    ])
+                    self.save(
+                        update_fields=[
+                            "speaking_score_awarded",
+                            "writing_score_awarded",
+                            "reading_score_awarded",
+                            "listening_score_awarded",
+                            "evaluated",
+                        ]
+                    )
                     return
 
         # ----------------------------
@@ -550,36 +582,31 @@ class SingleResponse(models.Model):
         q = self.question
 
         self.speaking_score_awarded = self._normalize(
-        self.speaking_score_awarded,
-                q.speaking_score_max,
-                "speaking"
-            )
+            self.speaking_score_awarded, q.speaking_score_max, "speaking"
+        )
 
         self.writing_score_awarded = self._normalize(
-            self.writing_score_awarded,
-            q.writing_score_max,
-            "writing"
+            self.writing_score_awarded, q.writing_score_max, "writing"
         )
 
         self.reading_score_awarded = self._normalize(
-            self.reading_score_awarded,
-            q.reading_score_max,
-            "reading"
+            self.reading_score_awarded, q.reading_score_max, "reading"
         )
 
         self.listening_score_awarded = self._normalize(
-            self.listening_score_awarded,
-            q.listening_score_max,
-            "listening"
+            self.listening_score_awarded, q.listening_score_max, "listening"
         )
 
         self.evaluated = True
-        self.save(update_fields=[
-            "speaking_score_awarded",
-            "writing_score_awarded",
-            "reading_score_awarded",
-            "listening_score_awarded",
-            "evaluated",
-        ])
+        self.save(
+            update_fields=[
+                "speaking_score_awarded",
+                "writing_score_awarded",
+                "reading_score_awarded",
+                "listening_score_awarded",
+                "evaluated",
+            ]
+        )
+
     def __str__(self):
         return f"{self.user_session.name} - {self.mock_test} "

@@ -23,8 +23,33 @@ class SubQuestionSerializer(serializers.ModelSerializer):
             "options"
         ]
 
+class MockTestSectionMiniSerializer(serializers.ModelSerializer):
+    section_name = serializers.CharField(source='section.name', read_only=True)
+
+    class Meta:
+        model = MockTestSection
+        fields = [
+            'id',
+            'section_id',
+            'section_name',
+            'order',
+            'total_duration'
+        ]
 
 class QuestionSerializer(serializers.ModelSerializer):
+    options = QuestionOptionSerializer(many=True, read_only=True)
+    sub_questions = SubQuestionSerializer(many=True, read_only=True)
+
+    mocktest_section = MockTestSectionMiniSerializer(
+        source='mock_test_section',
+        read_only=True
+    )
+
+    subsection = serializers.CharField(source='subsection.name', read_only=True)
+    subsection_instruction = serializers.CharField(
+        source='subsection.instructions',
+        read_only=True
+    )
     audio = serializers.SerializerMethodField()
     image = serializers.SerializerMethodField()
 
@@ -36,8 +61,14 @@ class QuestionSerializer(serializers.ModelSerializer):
             'text',
             'audio',
             'image',
+            'question_type',
             'reading_time',
             'answering_time',
+            'mocktest_section',
+            'subsection',
+            'subsection_instruction',
+            'options',
+            'sub_questions',
         ]
 
     def get_audio(self, obj):
@@ -53,18 +84,6 @@ class QuestionSerializer(serializers.ModelSerializer):
         return None
 
 
-class MockTestSectionMiniSerializer(serializers.ModelSerializer):
-    section_name = serializers.CharField(source='section.name', read_only=True)
-
-    class Meta:
-        model = MockTestSection
-        fields = [
-            'id',
-            'section_id',
-            'section_name',
-            'order',
-            'total_duration'
-        ]
 
 
 class SingleQuestionSerializer(serializers.ModelSerializer):

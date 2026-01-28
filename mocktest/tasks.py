@@ -143,7 +143,7 @@ def evaluate_user_response(user_answer_id, question_id):
             user_answer.apply_skill_scores()
 
             # 3️⃣ Aggregate to session totals (UserMockTestSession)
-            user_answer.user_session.aggregate_scores()
+            # user_answer.user_session.aggregate_scores()
 
         return {
             "status": "success",

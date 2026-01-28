@@ -173,7 +173,7 @@ class GlobalRubricAdmin(admin.ModelAdmin):
 
 @admin.register(SingleResponse)
 class SingleResponseAdmin(admin.ModelAdmin):
-    list_display = ('question','submitted_at')
-    list_filter = ('question__question_type',)
+    list_display = ('name','question','submitted_at')
+    list_filter = ('question__question_type','name')
     readonly_fields = ('submitted_at',)
     ordering = ['-submitted_at']

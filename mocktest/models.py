@@ -204,7 +204,9 @@ class SubQuestion(models.Model):
 
     def __str__(self):
         return f"{self.question.name} - Blank {self.blank_number}"
-
+    
+    class Meta:
+        ordering = ['blank_number']
 
 class QuestionOption(models.Model):
     """Represents the options available for a question or a sub-question."""

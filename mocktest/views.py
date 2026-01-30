@@ -24,7 +24,7 @@ class QuestionPagination(PageNumberPagination):
 
 
 class SubSectionQuestionListAPIView(ListAPIView):
-    serializer_class = QuestionSerializer
+    serializer_class = SingleQuestionSerializer
     # pagination_class = QuestionPagination
 
     def get_queryset(self):

@@ -300,23 +300,29 @@ class UserMockTestSession(models.Model):
     def calculate_overall_raw_score(self):
         qs = self.userresponse_set.filter(evaluated=True)
 
-        overall_raw = 0
+        speaking = sum(r.speaking_score_awarded for r in qs)
+        writing = sum(r.writing_score_awarded for r in qs)
+        reading = sum(r.reading_score_awarded for r in qs)
+        listening = sum(r.listening_score_awarded for r in qs)
 
-        for r in qs:
-            per_question_total = (
-                r.speaking_score_awarded
-                + r.writing_score_awarded
-                + r.reading_score_awarded
-                + r.listening_score_awarded
-            )
+        raw_total = speaking + writing + reading + listening
 
-            # Optional cap per question
-            overall_raw += min(per_question_total, 10)
+        max_speaking = sum(r.question.speaking_score_max or 0 for r in qs)
+        max_writing = sum(r.question.writing_score_max or 0 for r in qs)
+        max_reading = sum(r.question.reading_score_max or 0 for r in qs)
+        max_listening = sum(r.question.listening_score_max or 0 for r in qs)
 
-        return overall_raw
+        max_total = max_speaking + max_writing + max_reading + max_listening
 
-    def __str__(self):
-        return self.name
+        if max_total == 0:
+            return 0
+
+        normalized = (raw_total / max_total) * 90
+
+        # tiny improvement
+        normalized = min(normalized, 90)
+
+        return round(normalized, 2)
 
 
 class UserResponse(models.Model):

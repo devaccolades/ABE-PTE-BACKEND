@@ -15,6 +15,22 @@ from .services.transcription import transcribe_and_analyse
 from django.shortcuts import get_object_or_404
 from rest_framework.generics import ListAPIView
 from rest_framework.exceptions import NotFound
+from .services.pdf_service import generate_session_pdf
+from django.http import FileResponse
+
+class SessionPDFView(APIView):
+    def get(self, request, pk):
+        session = get_object_or_404(UserMockTestSession, pk=pk)
+
+        file_path = f"/tmp/session_{session.id}.pdf"
+
+        generate_session_pdf(session, file_path)
+
+        return FileResponse(
+            open(file_path, "rb"),
+            as_attachment=True,
+            filename=f"session_{session.id}.pdf"
+        )
 
 
 class QuestionPagination(PageNumberPagination):

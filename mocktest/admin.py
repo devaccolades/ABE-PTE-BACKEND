@@ -1,6 +1,12 @@
 from django.contrib import admin
 from .models import *
 from .forms import QuestionAdminForm
+from django.urls import path
+from django.http import FileResponse
+from django.utils.html import format_html
+import os
+
+from .services.pdf_service import generate_session_pdf
 
 class SubSectionInline(admin.TabularInline):
     model = SubSection
@@ -131,19 +137,60 @@ class MockTestSectionAdmin(admin.ModelAdmin):
 @admin.register(UserMockTestSession)
 class UserMockTestSessionAdmin(admin.ModelAdmin):
     list_display = (
-        'name', 'mock_test', 'session_id',
-        'started_at', 'completed_at', 'is_completed', 'total_score'
+        'name',
+        'mock_test',
+        'session_id',
+        'started_at',
+        'completed_at',
+        'is_completed',
+        'total_score',
+        'download_pdf_button'
     )
+
     list_filter = ('mock_test', 'is_completed')
     search_fields = ('name', 'session_id', 'mock_test__title')
-    readonly_fields = (
-        'started_at', 'completed_at',
-        'speaking_score_awarded', 'writing_score_awarded',
-        'reading_score_awarded', 'listening_score_awarded',
-        'total_score'
-    )
     ordering = ['-started_at']
 
+    # -----------------------------
+    # PDF BUTTON IN LIST VIEW
+    # -----------------------------
+    def download_pdf_button(self, obj):
+        return format_html(
+            '<a class="button" href="download-pdf/{}/">Download PDF</a>',
+            obj.pk
+        )
+
+    download_pdf_button.short_description = "PDF"
+
+    # -----------------------------
+    # CUSTOM ADMIN URL
+    # -----------------------------
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "download-pdf/<int:session_id>/",
+                self.admin_site.admin_view(self.download_pdf_view),
+                name="download-session-pdf",
+            ),
+        ]
+        return custom_urls + urls
+
+    # -----------------------------
+    # PDF VIEW
+    # -----------------------------
+    def download_pdf_view(self, request, session_id):
+        session = UserMockTestSession.objects.get(pk=session_id)
+
+        file_path = f"/tmp/session_{session.id}.pdf"
+
+        generate_session_pdf(session, file_path)
+
+        return FileResponse(
+            open(file_path, "rb"),
+            as_attachment=True,
+            filename=f"session_{session.id}.pdf",
+        )
 
 @admin.register(UserResponse)
 class UserResponseAdmin(admin.ModelAdmin):

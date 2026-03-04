@@ -1,6 +1,6 @@
 # urls.py
 from django.urls import path
-from .views import StartMockTestAPIView, GetQuestionAPIView, UserResponseAPIView,MockTestListAPIView,APIListingQuestions,SubSectionQuestionListAPIView,SingleAPIView
+from .views import StartMockTestAPIView, GetQuestionAPIView, UserResponseAPIView,MockTestListAPIView,APIListingQuestions,SubSectionQuestionListAPIView,SingleAPIView,SessionPDFView
 
 urlpatterns = [
    
@@ -16,5 +16,7 @@ urlpatterns = [
         SubSectionQuestionListAPIView.as_view(),
         name="questions-by-subsection-name",
     ),
-    path('single-response/', SingleAPIView.as_view(), name='user-response')
+    path('single-response/', SingleAPIView.as_view(), name='user-response'),
+
+    path("sessions/<int:pk>/pdf/", SessionPDFView.as_view()),
 ]

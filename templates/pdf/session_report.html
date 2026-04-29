@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            color: #333;
+        }
+
+        h1,
+        h2,
+        h3 {
+            margin: 0;
+        }
+
+        .header {
+            border-bottom: 2px solid #ddd;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        .meta {
+            margin-top: 5px;
+            color: #555;
+        }
+
+        /* SKILL CARDS */
+        .skills {
+            margin: 20px 0;
+        }
+
+        .card-container {
+            display: flex;
+            gap: 10px;
+        }
+
+        .card {
+            flex: 1;
+            padding: 10px;
+            border-radius: 6px;
+            color: white;
+        }
+
+        .speaking {
+            background: #f28c52;
+        }
+
+        .writing {
+            background: #5aa3e6;
+        }
+
+        .reading {
+            background: #4cc96b;
+        }
+
+        .listening {
+            background: #3b6ea5;
+        }
+
+        .card h3 {
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+
+        .card .score {
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        /* SECTIONS */
+        .section {
+            margin-top: 25px;
+        }
+
+        .section-title {
+            padding: 8px;
+            color: white;
+            border-radius: 5px;
+        }
+
+        .section-speaking {
+            background: #f28c52;
+        }
+
+        .section-writing {
+            background: #5aa3e6;
+        }
+
+        .section-reading {
+            background: #4cc96b;
+        }
+
+        .section-listening {
+            background: #3b6ea5;
+        }
+
+        .subsection {
+            margin-top: 10px;
+            padding: 8px;
+            border: 1px solid #eee;
+            border-radius: 5px;
+        }
+
+        /* PROGRESS BAR */
+        .bar {
+            height: 8px;
+            background: #eee;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+
+        .fill {
+            height: 100%;
+            background: #333;
+        }
+
+        .score-text {
+            float: right;
+            font-size: 11px;
+            color: #555;
+        }
+
+        .answer {
+            white-space: pre-wrap;
+        }
+
+        .empty-section {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 5px;
+            color: #555;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- HEADER -->
+    <div class="header">
+        <h1>{{ meta.test }}</h1>
+        <div class="meta">
+            <strong>Name:</strong> {{ meta.name }}<br>
+            <strong>Started:</strong> {{ meta.started_at }}
+        </div>
+    </div>
+
+    <!-- SKILL CARDS -->
+    <div class="skills">
+        <div class="card-container">
+            <div class="card speaking">
+                <h3>Speaking</h3>
+                <div class="score">{{ skills.speaking }}</div>
+            </div>
+
+            <div class="card writing">
+                <h3>Writing</h3>
+                <div class="score">{{ skills.writing }}</div>
+            </div>
+
+            <div class="card reading">
+                <h3>Reading</h3>
+                <div class="score">{{ skills.reading }}</div>
+            </div>
+
+            <div class="card listening">
+                <h3>Listening</h3>
+                <div class="score">{{ skills.listening }}</div>
+            </div>
+        </div>
+
+        <p style="margin-top:10px;"><strong>Overall Score:</strong> {{ skills.overall }}</p>
+    </div>
+
+    <!-- SECTIONS -->
+    {% for section in sections %}
+
+    <div class="section-title {{ section.css_class }}">{{ section.title }}</div>
+
+    <div class="section">
+
+        {% for subsection in section.subsections %}
+
+        <div class="subsection">
+            <div style="display:flex; justify-content:space-between;">
+                <strong>{{ subsection.title }}</strong>
+                <strong>{{ subsection.avg_score|floatformat:0 }}</strong>
+            </div>
+
+            <div class="bar">
+                <div class="fill" style="width: {{ subsection.avg_percent }}%;"></div>
+            </div>
+
+            <!-- QUESTIONS -->
+            {% for r in subsection.responses %}
+
+            <div style="margin-top:10px; padding:8px; border:1px solid #eee; border-radius:5px;">
+
+                <!-- QUESTION -->
+                <div style="font-size:11px;">
+                    <strong>Q:</strong> {{ r.question|default:"-" }}
+                </div>
+
+                <!-- ANSWER -->
+                {% if r.answer %}
+                <div class="answer" style="font-size:10px; color:#555; margin-top:4px;">
+                    <strong>Answer:</strong> {{ r.answer }}
+                </div>
+                {% endif %}
+
+                <!-- TOTAL SCORE -->
+                <div style="font-size:10px; margin-top:4px;">
+                    <strong>Score:</strong> {{ r.total_score|floatformat:0 }}
+                </div>
+
+                <!-- SKILL SCORES -->
+                <div style="font-size:10px; margin-top:4px;">
+                    <strong>Skill Scores:</strong>
+                    Speaking: {{ r.skill_scores.speaking|floatformat:1 }} |
+                    Writing: {{ r.skill_scores.writing|floatformat:1 }} |
+                    Reading: {{ r.skill_scores.reading|floatformat:1 }} |
+                    Listening: {{ r.skill_scores.listening|floatformat:1 }}
+                </div>
+
+                <!-- TRAIT SCORES -->
+                {% if r.scores %}
+                <div style="margin-top:4px; font-size:10px;">
+                    <strong>Breakdown:</strong><br>
+                    {% for score in r.scores %}
+                    {{ score.label }}: {{ score.score }}<br>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <!-- FEEDBACK -->
+                {% if r.feedback %}
+                <div style="margin-top:4px; font-size:10px; color:#444;">
+                    <strong>Feedback:</strong>
+                    {% for feedback in r.feedback %}
+                    <div>{{ feedback.text }}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+            </div>
+
+            {% endfor %}
+
+        </div>
+
+        {% endfor %}
+
+    </div>
+
+    {% empty %}
+    <div class="empty-section">
+        No question responses were found for this session.
+    </div>
+
+    {% endfor %}
+
+</body>
+
+</html>

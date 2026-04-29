@@ -1,3 +1,6 @@
+import json
+from collections import OrderedDict
+
 from reportlab.platypus import (
     SimpleDocTemplate, Spacer, Paragraph, Table, TableStyle, Flowable
 )
@@ -118,72 +121,177 @@ def section(title, content):
 # ======================
 # MAIN GENERATOR
 # ======================
-def generate_session_pdf(session, file_path):
-    styles = getSampleStyleSheet()
+from django.template.loader import render_to_string
+from weasyprint import HTML
+from django.utils.timezone import localtime
+from mocktest.models import UserResponse
 
-    doc = SimpleDocTemplate(
-        file_path,
-        leftMargin=40,
-        rightMargin=40,
-        topMargin=60,
-        bottomMargin=40
+
+def _as_display_text(value):
+    if value in (None, ""):
+        return ""
+
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, indent=2)
+
+    return str(value)
+
+
+def _section_css_class(section_name):
+    section_name = (section_name or "").lower()
+
+    if "speaking" in section_name:
+        return "section-speaking"
+    if "writing" in section_name:
+        return "section-writing"
+    if "reading" in section_name:
+        return "section-reading"
+
+    return "section-listening"
+
+
+def _score_percent(score):
+    try:
+        return min(max(float(score or 0), 0), 100)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _score_items(scores):
+    if not isinstance(scores, dict):
+        return []
+
+    items = []
+    for key, value in scores.items():
+        score = value.get("score") if isinstance(value, dict) else value
+        items.append({
+            "label": str(key).replace("_", " ").title(),
+            "score": score,
+        })
+
+    return items
+
+
+def _feedback_items(feedback):
+    if not isinstance(feedback, dict):
+        return []
+
+    return [
+        {
+            "label": str(key).replace("_", " ").title(),
+            "text": _as_display_text(value),
+        }
+        for key, value in feedback.items()
+        if value not in (None, "")
+    ]
+
+
+def build_session_pdf_context(session):
+    responses = (
+        UserResponse.objects
+        .filter(user_session_id=session.pk)
+        .select_related("question__subsection__section")
+        .order_by(
+            "question__mock_test_section__order",
+            "question__subsection__order",
+            "question__id",
+            "submitted_at",
+        )
     )
 
-    elements = []
+    structured = OrderedDict()
 
-    # ======================
-    # TOP SECTION (INFO + SCORE)
-    # ======================
-    info = [
-        Paragraph(f"<b>{session.name}</b>", styles["Heading2"]),
-        Paragraph(session.mock_test.title, styles["Normal"]),
-        Spacer(1, 10),
-        Paragraph(f"Session ID: {session.session_id}", styles["Normal"]),
-    ]
+    for r in responses:
+        question = r.question
+        subsection_obj = question.subsection
+        section_obj = subsection_obj.section if subsection_obj else None
 
-    top = Table([
-        [info, ScoreBlock(session.total_score)]
-    ], colWidths=[LEFT_COL, RIGHT_COL])
+        section_title = (
+            section_obj.name
+            if section_obj and section_obj.name
+            else "Other"
+        )
 
-    elements.append(top)
-    elements.append(Spacer(1, 25))
+        subsection_title = (
+            subsection_obj.get_name_display()
+            if subsection_obj
+            else "Other"
+        )
 
-    # ======================
-    # SKILLS
-    # ======================
-    skills = [
-        ("Listening", session.listening_score_awarded),
-        ("Reading", session.reading_score_awarded),
-        ("Speaking", session.speaking_score_awarded),
-        ("Writing", session.writing_score_awarded),
-    ]
+        section_data = structured.setdefault(section_title, {
+            "title": section_title,
+            "css_class": _section_css_class(section_title),
+            "subsections": OrderedDict(),
+        })
+        subsection_data = section_data["subsections"].setdefault(subsection_title, {
+            "title": subsection_title,
+            "responses": [],
+            "avg_score": 0,
+            "avg_percent": 0,
+        })
 
-    skill_elements = []
-    for label, score in skills:
-        skill_elements.append(SkillRow(label, score))
-        skill_elements.append(Spacer(1, 12))
+        eval_data = r.evaluation_result or {}
+        evaluation = (
+            eval_data.get("evaluation", {})
+            if isinstance(eval_data, dict)
+            else {}
+        )
+        scores = evaluation.get("scores", {})
+        feedback = evaluation.get("feedback", {})
 
-    elements.append(section("Communicative Skills", skill_elements))
-    elements.append(Spacer(1, 20))
+        subsection_data["responses"].append({
+            "question": question.text or question.name or f"Question {question.pk}",
+            "answer": _as_display_text(r.answer_data),
+            "skill_scores": {
+                "speaking": r.speaking_score_awarded or 0,
+                "writing": r.writing_score_awarded or 0,
+                "reading": r.reading_score_awarded or 0,
+                "listening": r.listening_score_awarded or 0,
+            },
+            "scores": _score_items(scores),
+            "feedback": _feedback_items(feedback),
+            "total_score": (
+                (r.speaking_score_awarded or 0) +
+                (r.writing_score_awarded or 0) +
+                (r.reading_score_awarded or 0) +
+                (r.listening_score_awarded or 0)
+            )
+        })
 
-    # ======================
-    # SESSION INFO
-    # ======================
-    session_info = [
-        Paragraph(
-            f"Started: {session.started_at.strftime('%d %b %Y')}",
-            styles["Normal"]
-        ),
-        Paragraph(
-            f"Completed: {session.completed_at.strftime('%d %b %Y') if session.completed_at else 'In Progress'}",
-            styles["Normal"]
-        ),
-        Paragraph(
-            f"Status: {'Completed' if session.is_completed else 'In Progress'}",
-            styles["Normal"]
-        ),
-    ]
+    # avg calculation
+    sections = []
+    for section_data in structured.values():
+        subsections = []
+        for subsection_data in section_data["subsections"].values():
+            items = subsection_data["responses"]
+            total = sum(i["total_score"] for i in items)
+            count = len(items) or 1
+            avg_score = round(total / count, 2)
+            subsection_data["avg_score"] = avg_score
+            subsection_data["avg_percent"] = _score_percent(avg_score)
+            subsections.append(subsection_data)
 
-    elements.append(section("Session Information", session_info))
+        section_data["subsections"] = subsections
+        sections.append(section_data)
 
-    doc.build(elements, onFirstPage=draw_header)
+    return {
+        "meta": {
+            "name": session.name,
+            "test": session.mock_test.title,
+            "started_at": localtime(session.started_at),
+        },
+        "skills": {
+            "speaking": session.speaking_score_awarded,
+            "writing": session.writing_score_awarded,
+            "reading": session.reading_score_awarded,
+            "listening": session.listening_score_awarded,
+            "overall": session.total_score,
+        },
+        "sections": sections,
+    }
+
+
+def generate_session_pdf(session, file_path):
+    context = build_session_pdf_context(session)
+    html = render_to_string("pdf/session_report.html", context)
+    HTML(string=html).write_pdf(file_path)

@@ -312,6 +312,90 @@ class UserResponseAPIView(APIView):
         serializer = UserResponseSerializer(user_answer)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+
+
+# class APIListingQuestions(APIView):
+#     """
+#     Fetch questions one by one with pagination,
+#     skipping sections whose timer has expired.
+#     """
+
+#     def get(self, request):
+
+#         session_id = request.query_params.get('session_id')
+#         skip_section = request.headers.get('timer-exceeded', 'false').lower() == 'true'
+
+#         if not session_id:
+#             return Response({"error": "session_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+#         # Load session
+#         try:
+#             session = UserMockTestSession.objects.select_related(
+#                 'mock_test', 'current_mocktest_section'
+#             ).get(session_id=session_id)
+#         except UserMockTestSession.DoesNotExist:
+#             return Response({"error": "Invalid session_id"}, status=status.HTTP_404_NOT_FOUND)
+
+#         # All sections of this mock test
+#         mocktest_sections = MockTestSection.objects.filter(
+#             mock_test=session.mock_test
+#         ).order_by('order')
+
+#         # Find current section
+#         current_section = session.current_mocktest_section
+#         if not current_section:
+#             current_section = mocktest_sections.first()
+#             session.current_mocktest_section = current_section
+#             session.save(update_fields=['current_mocktest_section'])
+
+#         # Handle timer exceeded → move to next section
+#         if skip_section:
+#             next_section = mocktest_sections.filter(order__gt=current_section.order).first()
+#             if next_section:
+#                 current_section = next_section
+#                 session.current_mocktest_section = current_section
+#                 session.save(update_fields=['current_mocktest_section'])
+#             else:
+#                 return Response({"message": "All sections completed"}, status=status.HTTP_200_OK)
+
+#         # 🔥 GLOBAL QUESTION QUERYSET (covers ALL sections)
+#         questions = Question.objects.filter(
+#             subsection__section__in=mocktest_sections.values_list('section', flat=True)
+#         ).select_related(
+#             'subsection', 'subsection__section'
+#         ).prefetch_related(
+#             'options', 'sub_questions__options'
+#         ).order_by(
+#         'subsection__section__mock_test_sections__order',
+#         'subsection__order',
+#         'id')
+
+
+#         # 🔥 If timer exceeded → jump paginator to next section start
+#         if skip_section:
+#             first_question_in_next_section = Question.objects.filter(
+#                 subsection__section=current_section.section
+#             ).order_by('subsection__order', 'id').first()
+
+#             if first_question_in_next_section:
+#                 all_ids = list(questions.values_list('id', flat=True))
+#                 start_index = all_ids.index(first_question_in_next_section.id)
+
+#                 # Force paginator to start from correct page number
+#                 request._request.GET._mutable = True
+#                 request._request.GET['page'] = str(start_index + 1)
+#                 request._request.GET._mutable = False
+
+#         # PAGINATE OVER GLOBAL QUERYSET
+#         paginator = SingleQuestionPagination()
+#         paginated_qs = paginator.paginate_queryset(questions, request)
+#         serializer = SingleQuestionSerializer(paginated_qs, many=True, context={'request': request})
+
+#         return paginator.get_paginated_response(serializer.data)
+
+
+
+
 class APIListingQuestions(APIView):
     """
     Fetch questions one by one with pagination,
@@ -333,211 +417,85 @@ class APIListingQuestions(APIView):
             ).get(session_id=session_id)
         except UserMockTestSession.DoesNotExist:
             return Response({"error": "Invalid session_id"}, status=status.HTTP_404_NOT_FOUND)
-
-        # All sections of this mock test
-        mocktest_sections = MockTestSection.objects.filter(
+        
+        sections = MockTestSection.objects.filter(
             mock_test=session.mock_test
         ).order_by('order')
 
+        current_section = session.current_mocktest_section
+
         # Find current section
         current_section = session.current_mocktest_section
+
         if not current_section:
-            current_section = mocktest_sections.first()
+            current_section = sections.first()
             session.current_mocktest_section = current_section
             session.save(update_fields=['current_mocktest_section'])
 
+        questions = Question.objects.filter(
+            mock_test_section__mock_test=session.mock_test
+        ).select_related(
+            'subsection',
+            'subsection__section',
+            'mock_test_section'
+        ).prefetch_related(
+            'options',
+            'sub_questions__options'
+        ).order_by(
+            'mock_test_section__order',   # ✅ correct section order
+            'subsection__order',          # subsection order
+            'id'                          # question order
+        )
+
+
+        paginator = SingleQuestionPagination()
+
+
         # Handle timer exceeded → move to next section
         if skip_section:
-            next_section = mocktest_sections.filter(order__gt=current_section.order).first()
-            if next_section:
-                current_section = next_section
-                session.current_mocktest_section = current_section
-                session.save(update_fields=['current_mocktest_section'])
-            else:
-                return Response({"message": "All sections completed"}, status=status.HTTP_200_OK)
+            next_section = sections.filter(order__gt=current_section.order).first()
+            
+            if not next_section:
+                return Response({"message": "All sections completed"}, status=200)
+            
+            session.current_mocktest_section = next_section
+            session.save(update_fields=['current_mocktest_section'])
 
-        # 🔥 GLOBAL QUESTION QUERYSET (covers ALL sections)
-        questions = Question.objects.filter(
-            subsection__section__in=mocktest_sections.values_list('section', flat=True)
-        ).select_related(
-            'subsection', 'subsection__section'
-        ).prefetch_related(
-            'options', 'sub_questions__options'
-        ).order_by(
-        'subsection__section__mock_test_sections__order',
-        'subsection__order',
-        'id')
+            first_q = Question.objects.filter(subsection__section=next_section.section).order_by('subsection__order', 'id').first()
+
+            if not first_q:
+                return Response({"message": "No questions in next section"}, status=404)
+
+            # find its index in global queryset
+            all_ids = list(questions.values_list('id', flat=True))
+
+            if first_q.id not in all_ids:
+                return Response({"error": "Question not found in sequence"}, status=500)
+
+            start_index = all_ids.index(first_q.id)
+
+            page_size = paginator.page_size or 1
+            page_number = (start_index // page_size) + 1
+
+            # override page safely
+            request._request.GET = request.GET.copy()
+            request._request.GET['page'] = str(page_number)
 
 
-        # 🔥 If timer exceeded → jump paginator to next section start
-        if skip_section:
-            first_question_in_next_section = Question.objects.filter(
-                subsection__section=current_section.section
-            ).order_by('subsection__order', 'id').first()
 
-            if first_question_in_next_section:
-                all_ids = list(questions.values_list('id', flat=True))
-                start_index = all_ids.index(first_question_in_next_section.id)
-
-                # Force paginator to start from correct page number
-                request._request.GET._mutable = True
-                request._request.GET['page'] = str(start_index + 1)
-                request._request.GET._mutable = False
-
-        # PAGINATE OVER GLOBAL QUERYSET
-        paginator = SingleQuestionPagination()
         paginated_qs = paginator.paginate_queryset(questions, request)
+
+        if not paginated_qs:
+            return Response({"message": "All sections completed"},status=200)
         serializer = SingleQuestionSerializer(paginated_qs, many=True, context={'request': request})
 
-        return paginator.get_paginated_response(serializer.data)
+        response = paginator.get_paginated_response(serializer.data)
 
-# class APIListingQuestions(APIView):
-#     """
-#     Fetch questions one by one with pagination.
-#     Supports:
-#     - Section timer expiry & auto jump
-#     - Section & subsection total counts
-#     - Current question position (X/Y format)
-#     """
+        # -----------------------------------
+        # FINAL CHECK: last question reached
+        # -----------------------------------
+        if response.data.get("next") is None:
+            response.data["completed"] = True
+            response.data["message"] = "All sections completed"
 
-#     def get(self, request):
-
-#         session_id = request.query_params.get('session_id')
-#         skip_section = request.headers.get('timer-exceeded', 'false').lower() == 'true'
-
-#         if not session_id:
-#             return Response(
-#                 {"error": "session_id is required"},
-#                 status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         # 🔹 Load session
-#         try:
-#             session = UserMockTestSession.objects.select_related(
-#                 'mock_test',
-#                 'current_mocktest_section'
-#             ).get(session_id=session_id)
-#         except UserMockTestSession.DoesNotExist:
-#             return Response(
-#                 {"error": "Invalid session_id"},
-#                 status=status.HTTP_404_NOT_FOUND
-#             )
-
-#         # 🔹 All sections (ordered)
-#         mocktest_sections = MockTestSection.objects.filter(
-#             mock_test=session.mock_test
-#         ).order_by('order')
-
-#         # 🔹 Initialize section
-#         current_mock_section = session.current_mocktest_section or mocktest_sections.first()
-
-#         if session.current_mocktest_section != current_mock_section:
-#             session.current_mocktest_section = current_mock_section
-#             session.save(update_fields=['current_mocktest_section'])
-
-#         # 🔹 Handle timer exceeded → move to next section
-#         if skip_section:
-#             next_section = mocktest_sections.filter(
-#                 order__gt=current_mock_section.order
-#             ).first()
-
-#             if not next_section:
-#                 return Response(
-#                     {"message": "All sections completed"},
-#                     status=status.HTTP_200_OK
-#                 )
-
-#             current_mock_section = next_section
-#             session.current_mocktest_section = current_mock_section
-#             session.save(update_fields=['current_mocktest_section'])
-
-#         # 🔥 GLOBAL ordered questions (for pagination only)
-#         questions = Question.objects.filter(
-#             subsection__section__in=mocktest_sections.values_list('section', flat=True)
-#         ).select_related(
-#             'subsection',
-#             'subsection__section'
-#         ).prefetch_related(
-#             'options',
-#             'sub_questions__options'
-#         ).order_by(
-#             'subsection__section__mock_test_sections__order',
-#             'subsection__order',
-#             'id'
-#         )
-
-#         # 🔥 Jump paginator to FIRST question of the new section
-#         if skip_section:
-#             first_question_id = Question.objects.filter(
-#                 subsection__section=current_mock_section.section
-#             ).order_by(
-#                 'subsection__order', 'id'
-#             ).values_list('id', flat=True).first()
-
-#             if first_question_id:
-#                 request._request.GET._mutable = True
-#                 request._request.GET['page'] = str(
-#                     questions.filter(id__lte=first_question_id).count()
-#                 )
-#                 request._request.GET._mutable = False
-
-#         # 🔹 Pagination (1 question per page)
-#         paginator = SingleQuestionPagination()
-#         paginated_qs = paginator.paginate_queryset(questions, request)
-
-#         serializer = SingleQuestionSerializer(
-#             paginated_qs,
-#             many=True,
-#             context={'request': request}
-#         )
-
-#         current_question = paginated_qs[0] if paginated_qs else None
-
-#         # 🔹 PROGRESS CALCULATIONS (SECTION-LOCAL)
-#         if current_question:
-#             current_section = current_question.subsection.section
-#             current_subsection = current_question.subsection
-
-#             # SECTION & SUBSECTION QUERYSETS
-#             section_questions = Question.objects.filter(
-#                 subsection__section=current_section
-#             )
-
-#             subsection_questions = Question.objects.filter(
-#                 subsection=current_subsection
-#             )
-
-#             # TOTALS
-#             total_questions_in_section = section_questions.count()
-#             total_questions_in_subsection = subsection_questions.count()
-
-#             # CURRENT POSITIONS
-#             current_question_in_section = section_questions.filter(
-#                 Q(subsection__order__lt=current_subsection.order) |
-#                 Q(
-#                     subsection=current_subsection,
-#                     id__lte=current_question.id
-#                 )
-#             ).count()
-
-#             current_question_in_subsection = subsection_questions.filter(
-#                 id__lte=current_question.id
-#             ).count()
-#         else:
-#             total_questions_in_section = 0
-#             total_questions_in_subsection = 0
-#             current_question_in_section = 0
-#             current_question_in_subsection = 0
-
-#         # 🔹 Response
-#         response = paginator.get_paginated_response(serializer.data)
-#         response.data['total questions'] = {
-#             "total_questions_in_section": total_questions_in_section,
-#             "total_questions_in_subsection": total_questions_in_subsection,
-#             "current_question_in_section": current_question_in_section,
-#             "current_question_in_subsection": current_question_in_subsection,
-#             "section_progress": f"{current_question_in_section}/{total_questions_in_section}",
-#             "subsection_progress": f"{current_question_in_subsection}/{total_questions_in_subsection}",
-#         }
-
-#         return response
+        return response

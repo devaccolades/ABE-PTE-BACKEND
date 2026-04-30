@@ -186,6 +186,8 @@ class UserMockTestSessionAdmin(admin.ModelAdmin):
 
     readonly_fields = (
         'session_id',
+        'current_question_order',
+        'completed_sections',
         'started_at',
         'completed_at',
         'total_score'
@@ -196,7 +198,7 @@ class UserMockTestSessionAdmin(admin.ModelAdmin):
             "fields": ("name", "mock_test", "session_id")
         }),
         ("Progress", {
-            "fields": ("started_at", "completed_at", "is_completed")
+            "fields": ('current_mocktest_section','current_question_order','completed_sections',"started_at", "completed_at", "is_completed")
         }),
         ("Result", {
             "fields": ("total_score",)

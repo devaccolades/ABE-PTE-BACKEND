@@ -280,8 +280,14 @@ class UserResponseAPIView(APIView):
         serializer = UserResponseSerializer(user_answer)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     
-
 class APIListingQuestions(APIView):
+    """
+    Fetch questions one by one with pagination,
+    supports:
+    - normal flow across sections
+    - timer-based section skipping
+    - empty section handling
+    """
 
     def get(self, request):
 
@@ -304,24 +310,27 @@ class APIListingQuestions(APIView):
 
         current_section = session.current_mocktest_section
 
+        # ✅ INITIAL SETUP
         if not current_section:
             current_section = sections.first()
             session.current_mocktest_section = current_section
             session.save(update_fields=['current_mocktest_section'])
 
-        # ✅ HANDLE TIMER SKIP
+        # ✅ TIMER SKIP (STRICT — overrides page)
         if skip_section:
+            request._request.GET = request.GET.copy()
+            request._request.GET.pop('page', None)
+
             next_section = sections.filter(order__gt=current_section.order).first()
 
             if not next_section:
                 return Response({"message": "All sections completed"}, status=200)
 
-            session.current_mocktest_section = next_section
+            current_section = next_section
+            session.current_mocktest_section = current_section
             session.save(update_fields=['current_mocktest_section'])
 
-            current_section = next_section
-
-        # ✅ GLOBAL QUERYSET (CRITICAL)
+        # ✅ GLOBAL QUERYSET (continuous flow)
         questions = Question.objects.filter(
             mock_test_section__mock_test=session.mock_test
         ).select_related(
@@ -339,24 +348,39 @@ class APIListingQuestions(APIView):
 
         paginator = SingleQuestionPagination()
 
-        # ✅ FORCE JUMP TO CURRENT SECTION START
+        # ✅ FORCE START POSITION (skip OR first load)
         if skip_section or 'page' not in request.GET:
 
             first_q = Question.objects.filter(
                 mock_test_section=current_section
             ).order_by('subsection__order', 'id').first()
 
-            if first_q:
-                all_ids = list(questions.values_list('id', flat=True))
+            # 🔥 HANDLE EMPTY SECTIONS
+            while not first_q:
+                next_section = sections.filter(order__gt=current_section.order).first()
 
-                if first_q.id in all_ids:
-                    start_index = all_ids.index(first_q.id)
+                if not next_section:
+                    return Response({"message": "All sections completed"}, status=200)
 
-                    page_size = paginator.page_size or 1
-                    page_number = (start_index // page_size) + 1
+                current_section = next_section
+                session.current_mocktest_section = current_section
+                session.save(update_fields=['current_mocktest_section'])
 
-                    request._request.GET = request.GET.copy()
-                    request._request.GET['page'] = str(page_number)
+                first_q = Question.objects.filter(
+                    mock_test_section=current_section
+                ).order_by('subsection__order', 'id').first()
+
+            # ✅ FIND PAGE INDEX
+            all_ids = list(questions.values_list('id', flat=True))
+
+            if first_q.id in all_ids:
+                start_index = all_ids.index(first_q.id)
+
+                page_size = paginator.page_size or 1
+                page_number = (start_index // page_size) + 1
+
+                request._request.GET = request.GET.copy()
+                request._request.GET['page'] = str(page_number)
 
         # ✅ PAGINATE
         paginated_qs = paginator.paginate_queryset(questions, request)
@@ -370,8 +394,14 @@ class APIListingQuestions(APIView):
 
         response = paginator.get_paginated_response(serializer.data)
 
-        # ❌ REMOVE THIS (WRONG LOGIC)
-        # if response.data.get("next") is None:
-        #     response.data["completed"] = True
+        # ✅ SYNC SECTION DURING NORMAL FLOW
+        current_question = paginated_qs[0] if paginated_qs else None
+
+        if current_question:
+            question_section = current_question.mock_test_section
+
+            if session.current_mocktest_section_id != question_section.id:
+                session.current_mocktest_section = question_section
+                session.save(update_fields=['current_mocktest_section'])
 
         return response

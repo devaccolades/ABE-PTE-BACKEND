@@ -461,7 +461,8 @@ class APIListingQuestions(APIView):
             session.current_mocktest_section = next_section
             session.save(update_fields=['current_mocktest_section'])
 
-            first_q = Question.objects.filter(subsection__section=next_section.section).order_by('subsection__order', 'id').first()
+            # first_q = Question.objects.filter(subsection__section=next_section.section).order_by('subsection__order', 'id').first()
+            first_q = Question.objects.filter(mock_test_section=next_section).order_by('subsection__order', 'id').first()
 
             if not first_q:
                 return Response({"message": "No questions in next section"}, status=404)

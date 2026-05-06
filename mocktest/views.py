@@ -422,8 +422,6 @@ class APIListingQuestions(APIView):
             mock_test=session.mock_test
         ).order_by('order')
 
-        current_section = session.current_mocktest_section
-
         # Find current section
         current_section = session.current_mocktest_section
 
@@ -432,26 +430,26 @@ class APIListingQuestions(APIView):
             session.current_mocktest_section = current_section
             session.save(update_fields=['current_mocktest_section'])
 
-        questions = Question.objects.filter(
-            mock_test_section__mock_test=session.mock_test
-        ).select_related(
-            'subsection',
-            'subsection__section',
-            'mock_test_section'
-        ).prefetch_related(
-            'options',
-            'sub_questions__options'
-        ).order_by(
-            'mock_test_section__order',   # ✅ correct section order
-            'subsection__order',          # subsection order
-            'id'                          # question order
-        )
+        # questions = Question.objects.filter(
+        #     mock_test_section__mock_test=session.mock_test
+        # ).select_related(
+        #     'subsection',
+        #     'subsection__section',
+        #     'mock_test_section'
+        # ).prefetch_related(
+        #     'options',
+        #     'sub_questions__options'
+        # ).order_by(
+        #     'mock_test_section__order',   
+        #     'subsection__order',         
+        #     'id'                        
+        # )
 
 
-        paginator = SingleQuestionPagination()
+        # paginator = SingleQuestionPagination()
 
 
-        # Handle timer exceeded → move to next section
+        # skip logic
         if skip_section:
             next_section = sections.filter(order__gt=current_section.order).first()
             
@@ -461,33 +459,28 @@ class APIListingQuestions(APIView):
             session.current_mocktest_section = next_section
             session.save(update_fields=['current_mocktest_section'])
 
-            # first_q = Question.objects.filter(subsection__section=next_section.section).order_by('subsection__order', 'id').first()
-            first_q = Question.objects.filter(mock_test_section=next_section).order_by('subsection__order', 'id').first()
+            current_section = next_section
 
-            if not first_q:
-                return Response({"message": "No questions in next section"}, status=404)
+        questions = Question.objects.filter(
+            mock_test_section=current_section
+        ).select_related(
+            'subsection',
+            'subsection__section',
+            'mock_test_section'
+        ).prefetch_related(
+            'options',
+            'sub_questions__options'
+        ).order_by(
+            'subsection__order',
+            'id'
+        )
 
-            # find its index in global queryset
-            all_ids = list(questions.values_list('id', flat=True))
-
-            if first_q.id not in all_ids:
-                return Response({"error": "Question not found in sequence"}, status=500)
-
-            start_index = all_ids.index(first_q.id)
-
-            page_size = paginator.page_size or 1
-            page_number = (start_index // page_size) + 1
-
-            # override page safely
-            request._request.GET = request.GET.copy()
-            request._request.GET['page'] = str(page_number)
-
-
-
+        paginator = SingleQuestionPagination()
         paginated_qs = paginator.paginate_queryset(questions, request)
 
+
         if not paginated_qs:
-            return Response({"message": "All sections completed"},status=200)
+            return Response({"message": "Sections completed"},status=200)
         serializer = SingleQuestionSerializer(paginated_qs, many=True, context={'request': request})
 
         response = paginator.get_paginated_response(serializer.data)

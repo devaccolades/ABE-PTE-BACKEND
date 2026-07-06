@@ -5,6 +5,7 @@ import soundfile as sf
 from openai import OpenAI
 from django.conf import settings
 
+from examinor.services.openai_errors import format_openai_error
 from .audio_analysis import analyse_speech
 
 
@@ -19,15 +20,26 @@ def transcribe_audio(audio_file_path: str):
         text (str)
         word_timestamps: [{word,start,end}, ...]
     """
-    
-    whisper_client = OpenAI(api_key=settings.OPENAI_WHISPER_API_KEY)  
-    with open(audio_file_path, "rb") as audio_file:
-        response = whisper_client.audio.transcriptions.create(
-            model="whisper-1",
-            file=audio_file,
-            response_format="verbose_json",
-            timestamp_granularities=["word"]
+    if not settings.OPENAI_WHISPER_API_KEY:
+        raise RuntimeError(
+            "OPENAI_WHISPER_API_KEY is missing. Set it in the Django and Celery worker environment."
         )
+
+    whisper_client = OpenAI(
+        api_key=settings.OPENAI_WHISPER_API_KEY,
+        timeout=settings.OPENAI_TIMEOUT_SECONDS,
+        max_retries=settings.OPENAI_MAX_RETRIES,
+    )
+    try:
+        with open(audio_file_path, "rb") as audio_file:
+            response = whisper_client.audio.transcriptions.create(
+                model=settings.OPENAI_TRANSCRIPTION_MODEL,
+                file=audio_file,
+                response_format="verbose_json",
+                timestamp_granularities=["word"]
+            )
+    except Exception as e:
+        raise RuntimeError(f"{format_openai_error(e)}: {e}") from e
 
     transcription_text = response.text
     word_timestamps = response.words  # list of word-level timestamps

@@ -83,10 +83,10 @@ WSGI_APPLICATION = "abe_pte.wsgi.application"
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_WHISPER_API_KEY = os.getenv("OPENAI_WHISPER_API_KEY")
-
-if not OPENAI_WHISPER_API_KEY:
-    raise RuntimeError("OPENAI_WHISPER_API_KEY is missing")
-
+OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "60"))
+OPENAI_MAX_RETRIES = int(os.getenv("OPENAI_MAX_RETRIES", "2"))
+OPENAI_EVALUATION_MODEL = os.getenv("OPENAI_EVALUATION_MODEL", "gpt-5-nano")
+OPENAI_TRANSCRIPTION_MODEL = os.getenv("OPENAI_TRANSCRIPTION_MODEL", "whisper-1")
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
@@ -185,8 +185,17 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
 ]
 CORS_ALLOW_CREDENTIALS = True
 
-CELERY_BROKER_URL = "redis://localhost:6379/0"
-CELERY_RESULT_BACKEND = "redis://localhost:6379/1"
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
+CELERY_TASK_DEFAULT_QUEUE = os.getenv("CELERY_TASK_DEFAULT_QUEUE", "default")
+CELERY_EVALUATION_QUEUE = os.getenv("CELERY_EVALUATION_QUEUE", "evaluation")
+CELERY_TRANSCRIPTION_QUEUE = os.getenv("CELERY_TRANSCRIPTION_QUEUE", "transcription")
+CELERY_TASK_ROUTES = {
+    "mocktest.tasks.evaluate_user_response": {"queue": CELERY_EVALUATION_QUEUE},
+    "mocktest.tasks.evaluate_single_response": {"queue": CELERY_EVALUATION_QUEUE},
+    "mocktest.tasks.transcribe_task": {"queue": CELERY_TRANSCRIPTION_QUEUE},
+    "mocktest.tasks.transcribe_single_task": {"queue": CELERY_TRANSCRIPTION_QUEUE},
+}
 
 # CORS_ALLOW_ALL_ORIGINS = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

@@ -4,6 +4,40 @@ import hashlib
 from django.utils.text import Truncator
 
 
+TEXT_ANSWER_KEYS = (
+    "text",
+    "answer_text",
+    "response_text",
+    "answer",
+    "response",
+    "value",
+)
+
+
+def normalize_answer_text(answer_data):
+    if answer_data is None:
+        return ""
+
+    if isinstance(answer_data, str):
+        return answer_data
+
+    if isinstance(answer_data, (int, float, bool)):
+        return str(answer_data)
+
+    if isinstance(answer_data, list):
+        return "\n".join(normalize_answer_text(item) for item in answer_data)
+
+    if isinstance(answer_data, dict):
+        for key in TEXT_ANSWER_KEYS:
+            value = answer_data.get(key)
+            if value not in (None, ""):
+                return normalize_answer_text(value)
+
+        return json.dumps(answer_data, ensure_ascii=False, sort_keys=True)
+
+    return str(answer_data)
+
+
 def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, rubric: dict):
     """
     Clean, deterministic, nano-friendly PTE evaluation prompt.
@@ -12,7 +46,7 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
     # -----------------------------
     # ANSWER + OPTIONAL METADATA
     # -----------------------------
-    answer_text = evaluation_payload.get("answer_data") or ""
+    answer_text = normalize_answer_text(evaluation_payload.get("answer_data"))
     analytics_block = ""
 
     if evaluation_payload.get("transcribed_audio_data"):

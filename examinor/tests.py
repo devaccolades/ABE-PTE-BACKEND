@@ -1,3 +1,352 @@
-from django.test import TestCase
+from unittest.mock import patch
 
-# Create your tests here.
+from django.test import SimpleTestCase, TestCase
+from django.test import override_settings
+
+from examinor.scoring.validators import validate_and_normalize_evaluation_result
+from examinor.models import EvaluationCache
+from examinor.services.evaluator import evaluate_with_openai
+from examinor.services.orchestrator import (
+    run_evaluation,
+    run_evaluation_for_subsection,
+    save_evaluation_cache,
+)
+from examinor.services.prompt_builder import build_prompt, normalize_answer_text
+from examinor.services.rule_evaluator import run_rule_evaluation
+from mocktest.services.transcription import transcribe_audio
+from mocktest.models import Question, QuestionOption, Section, SubQuestion, SubSection
+
+
+class EvaluationResultValidatorTests(SimpleTestCase):
+    def test_accepts_and_normalizes_valid_scores(self):
+        result = {
+            "ok": True,
+            "evaluation": {
+                "scores": {
+                    "content": {"score": "2", "max": "3"},
+                    "form": {"score": 1, "max": 2},
+                }
+            },
+        }
+        rubric = {
+            "content": {"max": 3},
+            "form": {"max": 2},
+        }
+
+        is_valid, normalized, error = validate_and_normalize_evaluation_result(result, rubric)
+
+        self.assertTrue(is_valid)
+        self.assertIsNone(error)
+        self.assertEqual(normalized["evaluation"]["scores"]["content"]["score"], 2.0)
+        self.assertEqual(normalized["evaluation"]["scores"]["content"]["max"], 3.0)
+        self.assertEqual(normalized["evaluation"]["weighted_score"], 3.0)
+        self.assertEqual(normalized["evaluation"]["max_score"], 5.0)
+
+    def test_rejects_missing_rubric_key(self):
+        result = {
+            "ok": True,
+            "evaluation": {
+                "scores": {
+                    "content": {"score": 2, "max": 3},
+                }
+            },
+        }
+        rubric = {
+            "content": {"max": 3},
+            "form": {"max": 2},
+        }
+
+        is_valid, normalized, error = validate_and_normalize_evaluation_result(result, rubric)
+
+        self.assertFalse(is_valid)
+        self.assertIsNone(normalized)
+        self.assertIn("missing rubric score keys", error)
+
+    def test_rejects_score_above_max(self):
+        result = {
+            "ok": True,
+            "evaluation": {
+                "scores": {
+                    "content": {"score": 4, "max": 3},
+                }
+            },
+        }
+        rubric = {
+            "content": {"max": 3},
+        }
+
+        is_valid, normalized, error = validate_and_normalize_evaluation_result(result, rubric)
+
+        self.assertFalse(is_valid)
+        self.assertIsNone(normalized)
+        self.assertIn("exceeds max", error)
+
+
+class OpenAIServiceConfigurationTests(SimpleTestCase):
+    @override_settings(OPENAI_API_KEY="")
+    def test_evaluator_returns_structured_error_when_key_missing(self):
+        result = evaluate_with_openai("prompt", "hash-1")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "OPENAI_API_KEY is missing")
+        self.assertEqual(result["prompt_hash"], "hash-1")
+
+    @override_settings(OPENAI_WHISPER_API_KEY="")
+    def test_transcription_raises_clear_error_when_key_missing(self):
+        with self.assertRaisesRegex(RuntimeError, "OPENAI_WHISPER_API_KEY is missing"):
+            transcribe_audio("/tmp/nonexistent-audio.wav")
+
+
+class EvaluationOrchestratorTests(TestCase):
+    def test_name_based_evaluation_rejects_duplicate_subsections(self):
+        section = Section.objects.create(name="Writing")
+        SubSection.objects.create(
+            section=section,
+            name="write_essay",
+            rubric={"content": {"max": 3}},
+        )
+        SubSection.objects.create(
+            section=section,
+            name="write_essay",
+            rubric={"content": {"max": 5}},
+        )
+
+        result = run_evaluation(
+            "write_essay",
+            "Question text",
+            {"answer_data": "Answer text"},
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertIn("Duplicate subsection name", result["error"])
+
+    @patch("examinor.services.orchestrator.evaluate_with_openai")
+    def test_object_based_evaluation_uses_linked_subsection_rubric(self, mock_evaluate):
+        section = Section.objects.create(name="Writing")
+        SubSection.objects.create(
+            section=section,
+            name="write_essay",
+            rubric={"content": {"max": 3}},
+        )
+        linked_subsection = SubSection.objects.create(
+            section=section,
+            name="write_essay",
+            rubric={"content": {"max": 5}},
+        )
+        mock_evaluate.return_value = {
+            "success": True,
+            "data": {
+                "scores": {"content": {"score": 4, "max": 5}},
+                "weighted_score": 4,
+                "max_score": 5,
+            },
+        }
+
+        result = run_evaluation_for_subsection(
+            linked_subsection,
+            "Question text",
+            {"answer_data": "Answer text"},
+        )
+
+        self.assertTrue(result["ok"])
+        prompt = mock_evaluate.call_args.args[0]
+        self.assertIn('"content":{"max":5}', prompt)
+
+    @override_settings(OPENAI_EVALUATION_MODEL="new-model")
+    @patch("examinor.services.orchestrator.evaluate_with_openai")
+    def test_cache_is_scoped_by_evaluation_model(self, mock_evaluate):
+        section = Section.objects.create(name="Writing")
+        subsection = SubSection.objects.create(
+            section=section,
+            name="write_essay",
+            rubric={"content": {"max": 5}},
+        )
+        prompt, prompt_hash = build_prompt(
+            "write_essay",
+            "Question text",
+            {"answer_data": "Answer text"},
+            {"content": {"max": 5}},
+        )
+        EvaluationCache.objects.create(
+            prompt_hash=prompt_hash,
+            model="old-model",
+            result={
+                "scores": {"content": {"score": 1, "max": 5}},
+                "weighted_score": 1,
+                "max_score": 5,
+            },
+        )
+        mock_evaluate.return_value = {
+            "success": True,
+            "data": {
+                "scores": {"content": {"score": 4, "max": 5}},
+                "weighted_score": 4,
+                "max_score": 5,
+            },
+        }
+
+        result = run_evaluation_for_subsection(
+            subsection,
+            "Question text",
+            {"answer_data": "Answer text"},
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["model"], "new-model")
+        self.assertFalse(result.get("cached", False))
+        self.assertEqual(result["evaluation"]["weighted_score"], 4)
+        self.assertEqual(mock_evaluate.call_args.args[0], prompt)
+        self.assertTrue(
+            EvaluationCache.objects.filter(
+                prompt_hash=prompt_hash,
+                model="new-model",
+            ).exists()
+        )
+
+    def test_cache_write_race_reuses_existing_result(self):
+        EvaluationCache.objects.create(
+            prompt_hash="hash-1",
+            model="model-1",
+            result={"weighted_score": 2},
+        )
+        from django.db import IntegrityError
+
+        with patch(
+            "examinor.services.orchestrator.EvaluationCache.objects.create",
+            side_effect=IntegrityError("duplicate"),
+        ):
+            result = save_evaluation_cache(
+                "hash-1",
+                "model-1",
+                {"weighted_score": 5},
+            )
+
+        self.assertEqual(result, {"weighted_score": 2})
+
+
+class PromptBuilderTests(SimpleTestCase):
+    def test_normalizes_common_text_answer_payloads(self):
+        self.assertEqual(
+            normalize_answer_text({"text": "Candidate answer"}),
+            "Candidate answer",
+        )
+        self.assertEqual(
+            normalize_answer_text({"answer": {"text": "Nested answer"}}),
+            "Nested answer",
+        )
+        self.assertEqual(
+            normalize_answer_text(["one", {"text": "two"}]),
+            "one\ntwo",
+        )
+
+    def test_prompt_uses_candidate_text_not_raw_python_dict(self):
+        prompt, _ = build_prompt(
+            "write_essay",
+            "Question text",
+            {"answer_data": {"text": "Candidate answer"}},
+            {"content": {"max": 3}},
+        )
+
+        self.assertIn('"""Candidate answer"""', prompt)
+        self.assertNotIn("{'text': 'Candidate answer'}", prompt)
+
+    def test_structured_answer_fallback_is_stable_json(self):
+        first = normalize_answer_text({"b": 2, "a": 1})
+        second = normalize_answer_text({"a": 1, "b": 2})
+
+        self.assertEqual(first, second)
+        self.assertEqual(first, '{"a": 1, "b": 2}')
+
+
+class RuleEvaluatorTests(TestCase):
+    def setUp(self):
+        self.section = Section.objects.create(name="Reading")
+
+    def test_scores_single_choice_without_openai(self):
+        subsection = SubSection.objects.create(
+            section=self.section,
+            name="mc_single",
+            evaluation_type="rule",
+            rubric={"reading": {"max": 1}},
+        )
+        question = Question.objects.create(subsection=subsection, text="Choose one.")
+        wrong = QuestionOption.objects.create(question=question, option_text="Wrong")
+        correct = QuestionOption.objects.create(
+            question=question,
+            option_text="Correct",
+            is_correct=True,
+        )
+
+        class Answer:
+            answer_data = {"selected_option_id": correct.id}
+
+        result = run_rule_evaluation(
+            user_answer=Answer(),
+            question=question,
+            subsection=subsection,
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["evaluation"]["scores"]["reading"]["score"], 1.0)
+
+        Answer.answer_data = {"selected_option_id": wrong.id}
+        result = run_rule_evaluation(
+            user_answer=Answer(),
+            question=question,
+            subsection=subsection,
+        )
+
+        self.assertEqual(result["evaluation"]["scores"]["reading"]["score"], 0.0)
+
+    def test_scores_fib_dropdown_by_blank_mapping(self):
+        subsection = SubSection.objects.create(
+            section=self.section,
+            name="fib_dropdown",
+            evaluation_type="rule",
+            rubric={"reading": {"max": 2}},
+        )
+        question = Question.objects.create(subsection=subsection, text="Fill blanks.")
+        blank_one = SubQuestion.objects.create(question=question, blank_number=1)
+        blank_two = SubQuestion.objects.create(question=question, blank_number=2)
+        correct_one = QuestionOption.objects.create(
+            sub_question=blank_one,
+            option_text="alpha",
+            is_correct=True,
+        )
+        wrong_two = QuestionOption.objects.create(
+            sub_question=blank_two,
+            option_text="wrong",
+        )
+        correct_two = QuestionOption.objects.create(
+            sub_question=blank_two,
+            option_text="beta",
+            is_correct=True,
+        )
+
+        class Answer:
+            answer_data = {
+                "1": correct_one.id,
+                "2": wrong_two.id,
+            }
+
+        result = run_rule_evaluation(
+            user_answer=Answer(),
+            question=question,
+            subsection=subsection,
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["evaluation"]["scores"]["reading"]["score"], 1.0)
+        self.assertEqual(result["evaluation"]["scores"]["reading"]["max"], 2.0)
+
+        Answer.answer_data = {
+            "1": correct_one.id,
+            "2": correct_two.id,
+        }
+        result = run_rule_evaluation(
+            user_answer=Answer(),
+            question=question,
+            subsection=subsection,
+        )
+
+        self.assertEqual(result["evaluation"]["scores"]["reading"]["score"], 2.0)

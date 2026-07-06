@@ -257,7 +257,7 @@ class UserMockTestSession(models.Model):
     started_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(blank=True, null=True)
     is_completed = models.BooleanField(default=False)
-    total_score = models.PositiveIntegerField(default=0)
+    total_score = models.FloatField(default=0)
     speaking_score_awarded = models.FloatField(default=0)
     writing_score_awarded = models.FloatField(default=0)
     reading_score_awarded = models.FloatField(default=0)
@@ -326,6 +326,14 @@ class UserMockTestSession(models.Model):
 
 
 class UserResponse(models.Model):
+    EVALUATION_STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("transcribing", "Transcribing"),
+        ("evaluating", "Evaluating"),
+        ("completed", "Completed"),
+        ("failed", "Failed"),
+    ]
+
     user_session = models.ForeignKey("UserMockTestSession", on_delete=models.CASCADE)
     mock_test = models.ForeignKey("MockTest", on_delete=models.CASCADE)
     question = models.ForeignKey("Question", on_delete=models.CASCADE)
@@ -340,6 +348,16 @@ class UserResponse(models.Model):
     reading_score_awarded = models.FloatField(default=0)
     listening_score_awarded = models.FloatField(default=0)
     evaluated = models.BooleanField(default=False)
+    evaluation_status = models.CharField(
+        max_length=20,
+        choices=EVALUATION_STATUS_CHOICES,
+        default="pending",
+        db_index=True,
+    )
+    evaluation_stage = models.CharField(max_length=50, blank=True, default="")
+    evaluation_error = models.TextField(blank=True, default="")
+    evaluation_attempts = models.PositiveIntegerField(default=0)
+    last_evaluation_attempt_at = models.DateTimeField(blank=True, null=True)
     evaluation_result = models.JSONField(default=dict, null=True, blank=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
 
@@ -398,6 +416,9 @@ class UserResponse(models.Model):
                     self.reading_score_awarded = 0
                     self.listening_score_awarded = 0
                     self.evaluated = True
+                    self.evaluation_status = "completed"
+                    self.evaluation_stage = "scoring"
+                    self.evaluation_error = ""
 
                     self.save(
                         update_fields=[
@@ -406,6 +427,9 @@ class UserResponse(models.Model):
                             "reading_score_awarded",
                             "listening_score_awarded",
                             "evaluated",
+                            "evaluation_status",
+                            "evaluation_stage",
+                            "evaluation_error",
                         ]
                     )
                     return
@@ -459,6 +483,9 @@ class UserResponse(models.Model):
         )
 
         self.evaluated = True
+        self.evaluation_status = "completed"
+        self.evaluation_stage = "scoring"
+        self.evaluation_error = ""
         self.save(
             update_fields=[
                 "speaking_score_awarded",
@@ -466,14 +493,39 @@ class UserResponse(models.Model):
                 "reading_score_awarded",
                 "listening_score_awarded",
                 "evaluated",
+                "evaluation_status",
+                "evaluation_stage",
+                "evaluation_error",
             ]
         )
 
     def __str__(self):
         return f"{self.user_session.name} - {self.mock_test} "
 
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["evaluation_status", "submitted_at"],
+                name="userresp_status_submitted_idx",
+            ),
+            models.Index(
+                fields=["evaluation_status", "last_evaluation_attempt_at"],
+                name="userresp_status_attempt_idx",
+            ),
+            models.Index(
+                fields=["mock_test", "submitted_at"],
+                name="userresp_mock_submitted_idx",
+            ),
+            models.Index(
+                fields=["user_session", "submitted_at"],
+                name="userresp_session_submitted_idx",
+            ),
+        ]
+
 
 class SingleResponse(models.Model):
+    EVALUATION_STATUS_CHOICES = UserResponse.EVALUATION_STATUS_CHOICES
+
     name = models.CharField(max_length=255, default="Single Response")
     question = models.ForeignKey("Question", on_delete=models.CASCADE)
 
@@ -487,6 +539,16 @@ class SingleResponse(models.Model):
     reading_score_awarded = models.FloatField(default=0)
     listening_score_awarded = models.FloatField(default=0)
     evaluated = models.BooleanField(default=False)
+    evaluation_status = models.CharField(
+        max_length=20,
+        choices=EVALUATION_STATUS_CHOICES,
+        default="pending",
+        db_index=True,
+    )
+    evaluation_stage = models.CharField(max_length=50, blank=True, default="")
+    evaluation_error = models.TextField(blank=True, default="")
+    evaluation_attempts = models.PositiveIntegerField(default=0)
+    last_evaluation_attempt_at = models.DateTimeField(blank=True, null=True)
     evaluation_result = models.JSONField(default=dict, null=True, blank=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
 
@@ -545,6 +607,9 @@ class SingleResponse(models.Model):
                     self.reading_score_awarded = 0
                     self.listening_score_awarded = 0
                     self.evaluated = True
+                    self.evaluation_status = "completed"
+                    self.evaluation_stage = "scoring"
+                    self.evaluation_error = ""
 
                     self.save(
                         update_fields=[
@@ -553,6 +618,9 @@ class SingleResponse(models.Model):
                             "reading_score_awarded",
                             "listening_score_awarded",
                             "evaluated",
+                            "evaluation_status",
+                            "evaluation_stage",
+                            "evaluation_error",
                         ]
                     )
                     return
@@ -606,6 +674,9 @@ class SingleResponse(models.Model):
         )
 
         self.evaluated = True
+        self.evaluation_status = "completed"
+        self.evaluation_stage = "scoring"
+        self.evaluation_error = ""
         self.save(
             update_fields=[
                 "speaking_score_awarded",
@@ -613,8 +684,23 @@ class SingleResponse(models.Model):
                 "reading_score_awarded",
                 "listening_score_awarded",
                 "evaluated",
+                "evaluation_status",
+                "evaluation_stage",
+                "evaluation_error",
             ]
         )
 
     def __str__(self):
         return f"{self.name} - {self.question} "
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["evaluation_status", "submitted_at"],
+                name="singleresp_status_submit_idx",
+            ),
+            models.Index(
+                fields=["evaluation_status", "last_evaluation_attempt_at"],
+                name="singleresp_status_attempt_idx",
+            ),
+        ]

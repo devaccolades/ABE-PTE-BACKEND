@@ -16,7 +16,70 @@ from django.shortcuts import get_object_or_404
 from rest_framework.generics import ListAPIView
 from rest_framework.exceptions import NotFound
 from .services.pdf_service import generate_session_pdf
+from .services.evaluation_status import build_session_evaluation_status
 from django.http import FileResponse
+
+
+def normalize_question_lookup(question_id=None, question_name=None):
+    if question_id:
+        try:
+            return int(question_id), None, None
+        except (TypeError, ValueError):
+            return None, None, "invalid_id"
+
+    if question_name:
+        return None, question_name, None
+
+    return None, None, "missing"
+
+
+def get_session_question(mock_test, question_id=None, question_name=None):
+    question_id, question_name, lookup_error = normalize_question_lookup(
+        question_id=question_id,
+        question_name=question_name,
+    )
+    if lookup_error:
+        return None, lookup_error
+
+    questions = Question.objects.filter(mock_test_section__mock_test=mock_test)
+
+    if question_id:
+        questions = questions.filter(id=question_id)
+    else:
+        questions = questions.filter(name=question_name)
+
+    count = questions.count()
+
+    if count == 0:
+        return None, "not_found"
+    if count > 1:
+        return None, "duplicate"
+
+    return questions.select_related("subsection").first(), None
+
+
+def get_single_question(question_id=None, question_name=None):
+    question_id, question_name, lookup_error = normalize_question_lookup(
+        question_id=question_id,
+        question_name=question_name,
+    )
+    if lookup_error:
+        return None, lookup_error
+
+    if question_id:
+        questions = Question.objects.filter(id=question_id)
+    else:
+        questions = Question.objects.filter(name=question_name)
+
+    count = questions.count()
+
+    if count == 0:
+        return None, "not_found"
+    if count > 1:
+        return None, "duplicate"
+
+    return questions.select_related("subsection").first(), None
+
 
 class SessionPDFView(APIView):
     def get(self, request, pk):
@@ -30,6 +93,38 @@ class SessionPDFView(APIView):
             open(file_path, "rb"),
             as_attachment=True,
             filename=f"session_{session.id}.pdf"
+        )
+
+
+class SessionEvaluationStatusAPIView(APIView):
+    def get(self, request):
+        session_id = request.query_params.get("session_id")
+        include_responses = (
+            request.query_params.get("include_responses", "false").lower() == "true"
+        )
+
+        if not session_id:
+            return Response(
+                {"error": "session_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            session = UserMockTestSession.objects.select_related("mock_test").get(
+                session_id=session_id,
+            )
+        except UserMockTestSession.DoesNotExist:
+            return Response(
+                {"error": "Invalid session_id"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            build_session_evaluation_status(
+                session,
+                include_responses=include_responses,
+            ),
+            status=status.HTTP_200_OK,
         )
 
 
@@ -72,16 +167,28 @@ class SubSectionQuestionListAPIView(ListAPIView):
 
 class SingleAPIView(APIView):
     def post(self, request):
+        question_id = request.data.get('question_id')
         question_name = request.data.get('question_name')
         name = request.data.get('name')
         answer = request.data.get('answer')
         audio_file = request.FILES.get('answer_audio')
 
-        try:
-            question = Question.objects.get(name=question_name)
+        question, question_error = get_single_question(
+            question_id=question_id,
+            question_name=question_name,
+        )
 
-        except Question.DoesNotExist:
-            return Response({"error": "Invalid question_name"}, status=status.HTTP_404_NOT_FOUND)
+        if question_error == "not_found":
+            return Response({"error": "Invalid question"}, status=status.HTTP_404_NOT_FOUND)
+        if question_error == "invalid_id":
+            return Response({"error": "question_id must be a valid integer"}, status=status.HTTP_400_BAD_REQUEST)
+        if question_error == "missing":
+            return Response({"error": "question_id or question_name is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if question_error == "duplicate":
+            return Response(
+                {"error": "Duplicate question_name. Use question_id."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
                     
         user_answer = SingleResponse.objects.create(
@@ -103,7 +210,14 @@ class SingleAPIView(APIView):
             evaluate_single_response.delay(user_answer.id, question.id)
 
         serializer = SingleResponseSerializer(user_answer)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        data = serializer.data
+        data["evaluation"] = {
+            "queued": True,
+            "status": user_answer.evaluation_status,
+            "stage": user_answer.evaluation_stage or "queued",
+            "message": "Evaluation queued. Poll evaluation status for results.",
+        }
+        return Response(data, status=status.HTTP_201_CREATED)
 
 ###starts here
 
@@ -239,6 +353,7 @@ class GetQuestionAPIView(APIView):
 class UserResponseAPIView(APIView):
     def post(self, request):
         session_id = request.data.get('session_id')
+        question_id = request.data.get('question_id')
         question_name = request.data.get('question_name')
         answer = request.data.get('answer')
         audio_file = request.FILES.get('answer_audio')
@@ -249,13 +364,41 @@ class UserResponseAPIView(APIView):
         try:
             session = UserMockTestSession.objects.get(session_id=session_id)
             mock_test = session.mock_test
-            question = Question.objects.get(name=question_name)
-            sub_questions = SubQuestion.objects.filter(question=question)
 
         except UserMockTestSession.DoesNotExist:
             return Response({"error": "Invalid session_id"}, status=status.HTTP_404_NOT_FOUND)
-        except Question.DoesNotExist:
-            return Response({"error": "Invalid question_name"}, status=status.HTTP_404_NOT_FOUND)
+
+        question, question_error = get_session_question(
+            mock_test,
+            question_id=question_id,
+            question_name=question_name,
+        )
+
+        if question_error == "not_found":
+            return Response({"error": "Invalid question"}, status=status.HTTP_404_NOT_FOUND)
+        if question_error == "invalid_id":
+            return Response({"error": "question_id must be a valid integer"}, status=status.HTTP_400_BAD_REQUEST)
+        if question_error == "missing":
+            return Response({"error": "question_id or question_name is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if question_error == "duplicate":
+            return Response(
+                {"error": "Duplicate question_name in this mock test. Use unique question names."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        existing_response = UserResponse.objects.filter(
+            user_session=session,
+            question=question,
+        ).first()
+        if existing_response:
+            return Response(
+                {
+                    "error": "Response already submitted for this session and question.",
+                    "response_id": existing_response.id,
+                    "evaluation_status": existing_response.evaluation_status,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
                     
         user_answer = UserResponse.objects.create(
@@ -278,7 +421,14 @@ class UserResponseAPIView(APIView):
             evaluate_user_response.delay(user_answer.id, question.id)
 
         serializer = UserResponseSerializer(user_answer)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        data = serializer.data
+        data["evaluation"] = {
+            "queued": True,
+            "status": user_answer.evaluation_status,
+            "stage": user_answer.evaluation_stage or "queued",
+            "message": "Evaluation queued. Poll session evaluation status for results.",
+        }
+        return Response(data, status=status.HTTP_201_CREATED)
     
 class APIListingQuestions(APIView):
     """

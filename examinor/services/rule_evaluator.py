@@ -1,24 +1,5 @@
-import json
 import re
-from django.conf import settings
-from openai import OpenAI
-
-client = OpenAI(api_key=settings.OPENAI_API_KEY)
-
-
-def extract_json(text: str):
-    """
-    Extract FIRST JSON object from the model output.
-    Usually not needed because gpt-5-nano outputs clean JSON,
-    but kept for safety.
-    """
-    try:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            return json.loads(match.group(0))
-    except:
-        pass
-    return None
+from examinor.scoring.validators import rubric_maxima
 
 # -------------------------------------------------
 # RULE QUESTION CONFIG (SOURCE OF TRUTH)
@@ -127,133 +108,242 @@ def extract_correct_data(*, question, subsection_name):
     return {}
 
 
-# -------------------------------------------------
-# PROMPT BUILDER (RULE-BASED, AI-EXECUTED)
-# -------------------------------------------------
+def _unwrap_answer(answer_data):
+    if not isinstance(answer_data, dict):
+        return answer_data
 
-def build_rule_ai_prompt(*, user_answer, question, subsection):
-    cfg = RULE_QUESTION_CONFIG.get(subsection.name)
+    for key in (
+        "answer",
+        "value",
+        "selected",
+        "selected_id",
+        "selected_option",
+        "selected_option_id",
+        "selected_options",
+        "selected_ids",
+        "option_id",
+        "option_ids",
+        "choices",
+        "text",
+    ):
+        if key in answer_data:
+            return answer_data[key]
 
-    if not cfg:
-        raise ValueError(
-            f"No RULE_QUESTION_CONFIG defined for {subsection.name}"
-        )
-
-    payload = {
-        "task_type": "rule_based",
-        "question_type": subsection.name,
-        "question_text": question.text,
-
-        "answer_schema": cfg,
-
-        # IMPORTANT: pass answer EXACTLY as stored
-        "user_answer": user_answer.answer_data,
-
-        # Explicit correctness data (no ORM concepts)
-        "correct_data": extract_correct_data(
-            question=question,
-            subsection_name=subsection.name,
-        ),
-
-        # Rubric is the sole authority
-        "rubric": subsection.rubric,
-
-        # 🔒 OUTPUT FORMAT (MODEL MUST FOLLOW TYPES)
-        "output_format": {
-            "scores": {
-                "<criterion_id>": {
-                    "score": 0,   # MUST be a NUMBER, not a string
-                    "max": 0      # MUST be a NUMBER, not a string
-                }
-            },
-            "feedback": ""
-        },
-
-        # 🔒 STRICT RULES (THIS IS THE FIX)
-        "rules": [
-            "Return ONLY valid JSON",
-            "Do NOT wrap the response",
-            "Do NOT stringify numbers",
-            "Values for score and max MUST be numbers, not strings",
-            "Use ONLY rubric keys as criterion_id"
-        ]
-    }
-    return json.dumps(payload, separators=(",", ":"))
+    return answer_data
 
 
-def evaluate_with_ai(prompt: str):
-    """
-    Original working version, with safety upgrades.
-    NO response_format, NO chat API.
-    Uses Responses API exactly like before.
-    """
-
+def _to_int(value):
     try:
-        # Minimal valid call – same as your old working version
-        completion = client.responses.create(
-            model="gpt-5-nano",
-            input=prompt
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _as_id_set(answer_data):
+    answer = _unwrap_answer(answer_data)
+
+    if isinstance(answer, dict):
+        answer = list(answer.values())
+
+    if isinstance(answer, (list, tuple, set)):
+        return {item for item in (_to_int(value) for value in answer) if item is not None}
+
+    value = _to_int(answer)
+    return {value} if value is not None else set()
+
+
+def _as_mapping(answer_data):
+    answer = _unwrap_answer(answer_data)
+
+    if isinstance(answer, dict):
+        return answer
+
+    return {}
+
+
+def _split_text_answer(answer_data):
+    answer = _unwrap_answer(answer_data)
+
+    if isinstance(answer, (list, tuple)):
+        return [str(value).strip().lower() for value in answer if str(value).strip()]
+
+    if answer is None:
+        return []
+
+    text = str(answer)
+    parts = re.split(r"[,|\n;]+", text)
+    return [part.strip().lower() for part in parts if part.strip()]
+
+
+def _score_from_ratio(ratio, rubric):
+    maxima = rubric_maxima(rubric)
+
+    if not maxima:
+        return {
+            "score": {
+                "score": round(ratio, 2),
+                "max": 1.0,
+            }
+        }
+
+    return {
+        key: {
+            "score": round(max_score * ratio, 2),
+            "max": max_score,
+        }
+        for key, max_score in maxima.items()
+    }
+
+
+def _single_choice_ratio(question, answer_data):
+    selected_ids = _as_id_set(answer_data)
+    if not selected_ids:
+        return 0
+
+    correct_ids = set(
+        question.options.filter(is_correct=True).values_list("id", flat=True)
+    )
+    return 1 if selected_ids & correct_ids else 0
+
+
+def _multiple_choice_ratio(question, answer_data):
+    selected_ids = _as_id_set(answer_data)
+    correct_ids = set(
+        question.options.filter(is_correct=True).values_list("id", flat=True)
+    )
+
+    if not correct_ids:
+        return 0
+
+    correct_selected = len(selected_ids & correct_ids)
+    incorrect_selected = len(selected_ids - correct_ids)
+    awarded = max(correct_selected - incorrect_selected, 0)
+    return awarded / len(correct_ids)
+
+
+def _fib_dropdown_ratio(question, answer_data):
+    answer = _as_mapping(answer_data)
+    subquestions = list(question.sub_questions.prefetch_related("options"))
+
+    if not subquestions:
+        return 0
+
+    awarded = 0
+    for subquestion in subquestions:
+        selected = (
+            answer.get(str(subquestion.blank_number))
+            or answer.get(subquestion.blank_number)
+            or answer.get(str(subquestion.id))
+            or answer.get(subquestion.id)
+        )
+        selected_id = _to_int(selected)
+        if selected_id is None:
+            continue
+
+        if subquestion.options.filter(id=selected_id, is_correct=True).exists():
+            awarded += 1
+
+    return awarded / len(subquestions)
+
+
+def _order_ratio(question, answer_data):
+    answer = _as_mapping(answer_data)
+    ordered_options = list(
+        question.options.exclude(order_position__isnull=True)
+    )
+
+    if not ordered_options:
+        return 0
+
+    awarded = 0
+    for option in ordered_options:
+        submitted_position = (
+            answer.get(str(option.id))
+            or answer.get(option.id)
         )
 
-        # Same as old version: responses.create() → output_text
-        raw_output = (completion.output_text or "").strip()
+        if submitted_position is None:
+            for key, value in answer.items():
+                if _to_int(value) == option.id:
+                    submitted_position = key
+                    break
 
-        try:
-            parsed = json.loads(raw_output)
-        except:
-            parsed = extract_json(raw_output)
+        if _to_int(submitted_position) == option.order_position:
+            awarded += 1
 
-        if not isinstance(parsed, dict):
-            return {
-                "success": False,
-                "error": "Invalid JSON structure",
-                "raw": raw_output,
-            }
+    return awarded / len(ordered_options)
 
-        # 🔒 CANONICAL NORMALIZATION (THIS IS THE FIX)
-        normalized = {
-                "scores": parsed.get("scores", {}),
-                "feedback": parsed.get("feedback", "")
-        }
 
+def _text_match_ratio(question, answer_data):
+    answers = _split_text_answer(answer_data)
+    correct_answers = [
+        subquestion.correct_answer.strip().lower()
+        for subquestion in question.sub_questions.all()
+        if subquestion.correct_answer
+    ]
+
+    if not correct_answers and question.correct_answer:
+        correct_answers = _split_text_answer(question.correct_answer)
+
+    if not correct_answers:
+        return 0
+
+    awarded = 0
+    for index, correct in enumerate(correct_answers):
+        if index < len(answers) and answers[index] == correct:
+            awarded += 1
+
+    return awarded / len(correct_answers)
+
+
+def evaluate_deterministically(*, user_answer, question, subsection):
+    cfg = RULE_QUESTION_CONFIG.get(subsection.name)
+    if not cfg:
         return {
-            "success": True,
-            "data": normalized,
-            "raw": raw_output,
+            "ok": False,
+            "error": f"No rule configuration defined for {subsection.name}",
         }
 
-    except Exception as e:
+    if subsection.name == "fib_dropdown":
+        ratio = _fib_dropdown_ratio(question, user_answer.answer_data)
+    elif cfg["correctness_type"] == "order_position":
+        ratio = _order_ratio(question, user_answer.answer_data)
+    elif cfg["correctness_type"] == "text_match":
+        ratio = _text_match_ratio(question, user_answer.answer_data)
+    elif cfg["correctness_type"] == "is_correct_flag":
+        if cfg["answer_format"] == "list_of_ids":
+            ratio = _multiple_choice_ratio(question, user_answer.answer_data)
+        else:
+            ratio = _single_choice_ratio(question, user_answer.answer_data)
+    else:
         return {
-            "success": False,
-            "error": str(e),
-            "raw": None,
+            "ok": False,
+            "error": f"Unsupported rule correctness type {cfg['correctness_type']}",
         }
 
-# -------------------------------------------------
-# MAIN ENTRY POINT
-# -------------------------------------------------
+    ratio = max(min(ratio, 1), 0)
+    scores = _score_from_ratio(ratio, subsection.rubric)
 
+    return {
+        "ok": True,
+        "evaluation": {
+            "scores": scores,
+            "weighted_score": sum(item["score"] for item in scores.values()),
+            "max_score": sum(item["max"] for item in scores.values()),
+            "feedback": "Correct." if ratio == 1 else "Some answers were incorrect.",
+        },
+    }
 
 
 def run_rule_evaluation(*, user_answer, question, subsection):
     """
     Entry point for ALL rule-based evaluation.
 
-    - Builds deterministic prompt
-    - Calls AI evaluator
-    - Returns AI output AS-IS
+    Objective question types are evaluated locally to avoid OpenAI latency,
+    timeout, and rate-limit risk.
     """
-
-    prompt = build_rule_ai_prompt(
+    return evaluate_deterministically(
         user_answer=user_answer,
         question=question,
         subsection=subsection,
     )
-
-    # Imported AI evaluator
-    evaluation_result = evaluate_with_ai(prompt)
-
-    return {
-        "ok": True,
-        "evaluation": evaluation_result["data"],
-    }

@@ -186,8 +186,40 @@ def _feedback_items(feedback):
     ]
 
 
+def _evaluation_summary(responses):
+    total = len(responses)
+    completed = sum(1 for r in responses if r.evaluated or r.evaluation_status == "completed")
+    failed = sum(1 for r in responses if r.evaluation_status == "failed")
+    pending = total - completed - failed
+    duplicate_groups = _duplicate_response_groups(responses)
+    duplicate_rows = sum(max(0, len(group) - 1) for group in duplicate_groups.values())
+
+    return {
+        "total": total,
+        "completed": completed,
+        "failed": failed,
+        "pending": pending,
+        "duplicate_groups": len(duplicate_groups),
+        "duplicate_rows": duplicate_rows,
+        "is_complete": total == completed,
+    }
+
+
+def _duplicate_response_groups(responses):
+    groups = {}
+    for response in responses:
+        key = (response.user_session_id, response.question_id)
+        groups.setdefault(key, []).append(response)
+
+    return {
+        key: group
+        for key, group in groups.items()
+        if len(group) > 1
+    }
+
+
 def build_session_pdf_context(session):
-    responses = (
+    responses = list(
         UserResponse.objects
         .filter(user_session_id=session.pk)
         .select_related("question__subsection__section")
@@ -200,6 +232,12 @@ def build_session_pdf_context(session):
     )
 
     structured = OrderedDict()
+    duplicate_groups = _duplicate_response_groups(responses)
+    duplicate_ids = {
+        response.id
+        for group in duplicate_groups.values()
+        for response in group
+    }
 
     for r in responses:
         question = r.question
@@ -239,9 +277,17 @@ def build_session_pdf_context(session):
         scores = evaluation.get("scores", {})
         feedback = evaluation.get("feedback", {})
 
+        display_status = "completed" if r.evaluated else r.evaluation_status
+
         subsection_data["responses"].append({
             "question": question.text or question.name or f"Question {question.pk}",
             "answer": _as_display_text(r.answer_data),
+            "response_id": r.id,
+            "is_duplicate": r.id in duplicate_ids,
+            "duplicate_count": len(duplicate_groups.get((r.user_session_id, r.question_id), [])),
+            "evaluation_status": display_status,
+            "evaluation_stage": r.evaluation_stage,
+            "evaluation_error": r.evaluation_error,
             "skill_scores": {
                 "speaking": r.speaking_score_awarded or 0,
                 "writing": r.writing_score_awarded or 0,
@@ -287,6 +333,7 @@ def build_session_pdf_context(session):
             "listening": session.listening_score_awarded,
             "overall": session.total_score,
         },
+        "evaluation_summary": _evaluation_summary(responses),
         "sections": sections,
     }
 

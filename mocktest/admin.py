@@ -6,6 +6,7 @@ from django.db.models import Prefetch
 
 from .models import *
 from .services.pdf_service import generate_session_pdf
+from .services.evaluation_queue import queue_response_evaluation
 
 
 # =========================
@@ -48,6 +49,7 @@ class UserResponseInline(admin.TabularInline):
         'question',
         'response_display',
         'scores_display',
+        'evaluation_status',
         'evaluated',
         'submitted_at',
     )
@@ -87,6 +89,29 @@ class UserResponseInline(admin.TabularInline):
         )
 
     scores_display.short_description = "Scores"
+
+    def evaluation_status(self, obj):
+        if obj.evaluation_status == "completed" or obj.evaluated:
+            return format_html('<span style="color:green;font-weight:bold;">Evaluated</span>')
+
+        if obj.evaluation_status == "failed":
+            return format_html(
+                '<span style="color:#b45309;font-weight:bold;">Error: {}</span>',
+                obj.evaluation_error or "Evaluation failed",
+            )
+
+        if obj.evaluation_status == "transcribing":
+            return format_html('<span style="color:#2563eb;">Transcribing</span>')
+
+        if obj.evaluation_status == "evaluating":
+            return format_html('<span style="color:#2563eb;">Evaluating</span>')
+
+        if obj.answer_audio and not obj.transcribed_audio_data:
+            return format_html('<span style="color:#6b7280;">Pending transcription</span>')
+
+        return format_html('<span style="color:#6b7280;">Pending evaluation</span>')
+
+    evaluation_status.short_description = "Evaluation Status"
 # =========================
 # CORE ADMINS
 # =========================
@@ -244,12 +269,39 @@ class UserMockTestSessionAdmin(admin.ModelAdmin):
     # -------------------------
     # BULK ACTION
     # -------------------------
-    actions = ['mark_as_completed']
+    actions = ['mark_as_completed', 'requeue_pending_evaluations', 'recalculate_scores']
 
     def mark_as_completed(self, request, queryset):
         updated = queryset.update(is_completed=True)
         self.message_user(request, f"{updated} sessions marked as completed.")
     mark_as_completed.short_description = "Mark selected sessions as completed"
+
+    def requeue_pending_evaluations(self, request, queryset):
+        responses = (
+            UserResponse.objects
+            .filter(user_session__in=queryset, evaluated=False)
+            .select_related("question__subsection")
+        )
+
+        queued = 0
+        for response in responses:
+            queue_response_evaluation(response)
+            queued += 1
+
+        self.message_user(
+            request,
+            f"{queued} pending responses queued for Celery evaluation.",
+        )
+    requeue_pending_evaluations.short_description = "Requeue pending evaluations"
+
+    def recalculate_scores(self, request, queryset):
+        updated = 0
+        for session in queryset:
+            session.aggregate_scores()
+            updated += 1
+
+        self.message_user(request, f"{updated} session scores recalculated.")
+    recalculate_scores.short_description = "Recalculate selected session scores"
 
     # -------------------------
     # CUSTOM URL
@@ -304,14 +356,51 @@ class UserResponseAdmin(admin.ModelAdmin):
         'mock_test',
         'question',
         'evaluated',
+        'evaluation_status',
         'submitted_at',
     )
 
-    list_filter = ('mock_test', 'evaluated')
-    search_fields = ('user_session__name', 'question__question_text')
+    list_filter = ('mock_test', 'evaluated', 'evaluation_status', 'evaluation_stage')
+    search_fields = ('user_session__name', 'question__text')
 
     readonly_fields = ('submitted_at',)
     list_per_page = 25
+    actions = ['requeue_selected_evaluations']
+
+    def evaluation_status(self, obj):
+        if obj.evaluation_status == "completed" or obj.evaluated:
+            return format_html('<span style="color:green;font-weight:bold;">Evaluated</span>')
+
+        if obj.evaluation_status == "failed":
+            return format_html(
+                '<span style="color:#b45309;font-weight:bold;">Error: {}</span>',
+                obj.evaluation_error or "Evaluation failed",
+            )
+
+        if obj.evaluation_status == "transcribing":
+            return format_html('<span style="color:#2563eb;">Transcribing</span>')
+
+        if obj.evaluation_status == "evaluating":
+            return format_html('<span style="color:#2563eb;">Evaluating</span>')
+
+        if obj.answer_audio and not obj.transcribed_audio_data:
+            return format_html('<span style="color:#6b7280;">Pending transcription</span>')
+
+        return format_html('<span style="color:#6b7280;">Pending evaluation</span>')
+
+    evaluation_status.short_description = "Evaluation Status"
+
+    def requeue_selected_evaluations(self, request, queryset):
+        queued = 0
+        for response in queryset.select_related("question__subsection"):
+            queue_response_evaluation(response)
+            queued += 1
+
+        self.message_user(
+            request,
+            f"{queued} responses queued for Celery evaluation.",
+        )
+    requeue_selected_evaluations.short_description = "Requeue selected evaluations"
 
 
 # =========================
@@ -326,7 +415,20 @@ class GlobalRubricAdmin(admin.ModelAdmin):
 
 @admin.register(SingleResponse)
 class SingleResponseAdmin(admin.ModelAdmin):
-    list_display = ('name', 'question', 'submitted_at')
-    list_filter = ('question__question_type', 'name')
+    list_display = ('name', 'question', 'evaluated', 'evaluation_status', 'submitted_at')
+    list_filter = ('question__question_type', 'name', 'evaluated', 'evaluation_status')
     readonly_fields = ('submitted_at',)
     ordering = ['-submitted_at']
+    actions = ['requeue_selected_evaluations']
+
+    def requeue_selected_evaluations(self, request, queryset):
+        queued = 0
+        for response in queryset.select_related("question__subsection"):
+            queue_response_evaluation(response)
+            queued += 1
+
+        self.message_user(
+            request,
+            f"{queued} single responses queued for Celery evaluation.",
+        )
+    requeue_selected_evaluations.short_description = "Requeue selected evaluations"

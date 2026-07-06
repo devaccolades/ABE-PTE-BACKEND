@@ -1,6 +1,6 @@
-# examinor/services/orchestrator.py
+from django.conf import settings
+from django.db import IntegrityError
 
-from django.http import JsonResponse
 from mocktest.models import SubSection
 from mocktest.models import GlobalRubric
 from examinor.services.prompt_builder import build_prompt
@@ -35,6 +35,22 @@ def build_task_rubric(subsection: SubSection) -> dict:
     return final_rubric
 
 
+def save_evaluation_cache(prompt_hash, model, result):
+    try:
+        EvaluationCache.objects.create(
+            prompt_hash=prompt_hash,
+            model=model,
+            result=result,
+        )
+        return result
+    except IntegrityError:
+        cached = EvaluationCache.objects.filter(
+            prompt_hash=prompt_hash,
+            model=model,
+        ).first()
+        return cached.result if cached else result
+
+
 def  run_evaluation(
     subsection_name: str,
     question_text: str,
@@ -55,48 +71,72 @@ def  run_evaluation(
       - Question audio/image conversion
     """
 
-    # --- Step 1: Load subsection ---
-    try:
-        subsection = SubSection.objects.get(name=subsection_name)
-    except SubSection.DoesNotExist:
+    matching_subsections = SubSection.objects.filter(name=subsection_name)
+    count = matching_subsections.count()
+
+    if count == 0:
         return {
             "ok": False,
             "error": f"Invalid subsection '{subsection_name}'",
             "evaluation": None
         }
-    # return subsection.name
-    # --- Step 2: Build complete rubric ---
+
+    if count > 1:
+        return {
+            "ok": False,
+            "error": f"Duplicate subsection name '{subsection_name}'. Evaluate by linked subsection.",
+            "evaluation": None,
+        }
+
+    return run_evaluation_for_subsection(
+        matching_subsections.first(),
+        question_text,
+        evaluation_payload,
+    )
+
+
+def run_evaluation_for_subsection(
+    subsection: SubSection,
+    question_text: str,
+    evaluation_payload: dict,
+):
+    """
+    Evaluate using the exact subsection linked to a question.
+    This avoids duplicate-name failures when question banks contain repeated
+    SubSection rows with the same choice value.
+    """
+
     rubric = build_task_rubric(subsection)
-    # --- Step 3: Build prompt ---
     prompt, p_hash = build_prompt(
         task_type=subsection.name,
         question_text=question_text,
         evaluation_payload=evaluation_payload,
         rubric=rubric
     )
-    # return prompt
-    # NEW: Cache check
-    cached = EvaluationCache.objects.filter(prompt_hash=p_hash).first()
+
+    cache_model = settings.OPENAI_EVALUATION_MODEL
+    cached = EvaluationCache.objects.filter(
+        prompt_hash=p_hash,
+        model=cache_model,
+    ).first()
     if cached:
         return {
             "ok": True,
             "prompt_hash": p_hash,
-            # "rubric_used": rubric,
+            "model": cache_model,
             "evaluation": cached.result,
-            # "raw": None,
             "cached": True
         }
 
-
-    # --- Step 4: Evaluate with GPT ---
     result = evaluate_with_openai(
         prompt,
         p_hash 
     )
     if result["success"]:
-        EvaluationCache.objects.create(
-            prompt_hash=p_hash,
-            result=result["data"]
+        result["data"] = save_evaluation_cache(
+            p_hash,
+            cache_model,
+            result["data"],
         )
 
     if not result["success"]:
@@ -104,15 +144,14 @@ def  run_evaluation(
             "ok": False,
             "error": result["error"],
             "prompt_hash": p_hash,
+            "model": cache_model,
             "prompt": prompt,
             "raw": result.get("raw")
         }
 
-    # --- Step 5: Return combined response ---
     return {
         "ok": True,
         "prompt_hash": p_hash,
-        # "rubric_used": rubric,
+        "model": cache_model,
         "evaluation": result["data"],
-        # "raw": result["raw"],
     }

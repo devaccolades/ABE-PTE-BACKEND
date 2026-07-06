@@ -4,9 +4,18 @@ import json
 import re
 from django.conf import settings
 from openai import OpenAI
-from .prompt_builder import build_prompt
+from .openai_errors import format_openai_error
 
-client = OpenAI(api_key=settings.OPENAI_API_KEY)
+
+def get_openai_client():
+    if not settings.OPENAI_API_KEY:
+        return None
+
+    return OpenAI(
+        api_key=settings.OPENAI_API_KEY,
+        timeout=settings.OPENAI_TIMEOUT_SECONDS,
+        max_retries=settings.OPENAI_MAX_RETRIES,
+    )
 
 
 def extract_json(text: str):
@@ -31,10 +40,21 @@ def evaluate_with_openai(prompt, phash):
     Uses Responses API exactly like before.
     """
 
+    if not settings.OPENAI_API_KEY:
+        return {
+            "success": False,
+            "error": "OPENAI_API_KEY is missing",
+            "details": "Set OPENAI_API_KEY in the Django and Celery worker environment.",
+            "raw": None,
+            "prompt_hash": phash,
+        }
+
     try:
+        client = get_openai_client()
+
         # Minimal valid call – same as your old working version
         completion = client.responses.create(
-            model="gpt-5-nano",
+            model=settings.OPENAI_EVALUATION_MODEL,
             input=prompt
         )
 
@@ -66,7 +86,8 @@ def evaluate_with_openai(prompt, phash):
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
+            "error": format_openai_error(e),
+            "details": str(e),
             "raw": None,
             "prompt_hash": phash
         }

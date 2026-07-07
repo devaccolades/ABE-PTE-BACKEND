@@ -4,7 +4,7 @@ from django.urls import path, reverse
 from django.http import FileResponse, Http404
 from django.shortcuts import redirect
 from django.utils.html import format_html
-from django.db.models import Prefetch, Q
+from django.db.models import Max, Prefetch, Q
 
 from .models import *
 from .services.pdf_service import generate_session_pdf
@@ -37,12 +37,27 @@ def api_limit_error_query():
 
 
 def add_api_limit_warning(modeladmin, request, response_model):
-    count = response_model.objects.filter(
+    failed_limit_responses = response_model.objects.filter(
         evaluation_status="failed",
-    ).filter(api_limit_error_query()).count()
+    ).filter(api_limit_error_query())
+    count = failed_limit_responses.count()
 
     if not count:
         return
+
+    latest_limit_at = failed_limit_responses.aggregate(
+        latest=Max("last_evaluation_attempt_at"),
+    )["latest"]
+    latest_success_at = response_model.objects.filter(
+        evaluation_status="completed",
+    ).aggregate(latest=Max("last_evaluation_attempt_at"))["latest"]
+
+    recovery_note = ""
+    if latest_limit_at and latest_success_at and latest_success_at > latest_limit_at:
+        recovery_note = (
+            " A newer evaluation completed after the latest quota/rate-limit "
+            "failure, so the OpenAI API key appears active again."
+        )
 
     modeladmin.message_user(
         request,
@@ -50,6 +65,7 @@ def add_api_limit_warning(modeladmin, request, response_model):
             f"OpenAI API quota/rate limit issue detected on {count} failed "
             "evaluation response(s). Evaluation retries may continue failing "
             "until the API limit resets or quota is increased."
+            f"{recovery_note}"
         ),
         level=messages.WARNING,
     )
@@ -252,6 +268,7 @@ class UserMockTestSessionAdmin(admin.ModelAdmin):
         'started_at',
         'status_badge',
         'total_score',
+        'retry_evaluations_button',
         'download_pdf_button',
     )
 
@@ -320,20 +337,31 @@ class UserMockTestSessionAdmin(admin.ModelAdmin):
 
     download_pdf_button.short_description = "PDF"
 
+    def retry_evaluations_button(self, obj):
+        url = reverse("admin:retry-session-evaluations", args=[obj.pk])
+        return format_html(
+            '<a style="padding:4px 8px;background:#2563eb;color:white;border-radius:4px;text-decoration:none;" href="{}">Retry</a>',
+            url,
+        )
+
+    retry_evaluations_button.short_description = "Retry"
+
     # -------------------------
     # BULK ACTION
     # -------------------------
-    actions = ['mark_as_completed', 'requeue_pending_evaluations', 'recalculate_scores']
+    actions = ['mark_as_completed', 'retry_failed_or_pending_evaluations', 'recalculate_scores']
 
     def mark_as_completed(self, request, queryset):
         updated = queryset.update(is_completed=True)
         self.message_user(request, f"{updated} sessions marked as completed.")
     mark_as_completed.short_description = "Mark selected sessions as completed"
 
-    def requeue_pending_evaluations(self, request, queryset):
+    def _queue_retryable_session_responses(self, sessions):
         responses = (
             UserResponse.objects
-            .filter(user_session__in=queryset, evaluated=False)
+            .filter(user_session__in=sessions)
+            .filter(Q(evaluated=False) | Q(evaluation_status="failed"))
+            .exclude(evaluation_status__in=["transcribing", "evaluating"])
             .select_related("question__subsection")
         )
 
@@ -342,11 +370,18 @@ class UserMockTestSessionAdmin(admin.ModelAdmin):
             queue_response_evaluation(response)
             queued += 1
 
+        return queued
+
+    def retry_failed_or_pending_evaluations(self, request, queryset):
+        queued = self._queue_retryable_session_responses(queryset)
+
         self.message_user(
             request,
-            f"{queued} pending responses queued for Celery evaluation.",
+            f"{queued} failed/pending response(s) queued for Celery evaluation.",
         )
-    requeue_pending_evaluations.short_description = "Requeue pending evaluations"
+    retry_failed_or_pending_evaluations.short_description = (
+        "Retry failed/pending evaluations for selected sessions"
+    )
 
     def recalculate_scores(self, request, queryset):
         updated = 0
@@ -368,8 +403,30 @@ class UserMockTestSessionAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.download_pdf_view),
                 name="download-session-pdf",
             ),
+            path(
+                "retry-evaluations/<int:session_id>/",
+                self.admin_site.admin_view(self.retry_session_evaluations_view),
+                name="retry-session-evaluations",
+            ),
         ]
         return custom_urls + urls
+
+    def retry_session_evaluations_view(self, request, session_id):
+        try:
+            session = UserMockTestSession.objects.get(pk=session_id)
+        except UserMockTestSession.DoesNotExist:
+            raise Http404("Session not found")
+
+        queued = self._queue_retryable_session_responses(
+            UserMockTestSession.objects.filter(pk=session.pk)
+        )
+
+        self.message_user(
+            request,
+            f"{queued} failed/pending response(s) queued for {session.name}.",
+        )
+
+        return redirect(request.META.get("HTTP_REFERER") or "../")
 
     # -------------------------
     # PDF VIEW (SAFE)

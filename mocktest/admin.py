@@ -1,12 +1,80 @@
-from django.contrib import admin
-from django.urls import path
+from django.contrib import admin, messages
+from django.contrib.auth.models import Group, User
+from django.urls import path, reverse
 from django.http import FileResponse, Http404
+from django.shortcuts import redirect
 from django.utils.html import format_html
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 
 from .models import *
 from .services.pdf_service import generate_session_pdf
 from .services.evaluation_queue import queue_response_evaluation
+
+
+admin.site.unregister(Group)
+admin.site.unregister(User)
+
+
+RATE_LIMIT_ERROR_MARKERS = (
+    "429",
+    "rate limit",
+    "too many requests",
+    "quota",
+    "insufficient_quota",
+)
+
+
+def is_api_limit_error(error):
+    error_text = str(error or "").lower()
+    return any(marker in error_text for marker in RATE_LIMIT_ERROR_MARKERS)
+
+
+def api_limit_error_query():
+    query = Q()
+    for marker in RATE_LIMIT_ERROR_MARKERS:
+        query |= Q(evaluation_error__icontains=marker)
+    return query
+
+
+def add_api_limit_warning(modeladmin, request, response_model):
+    count = response_model.objects.filter(
+        evaluation_status="failed",
+    ).filter(api_limit_error_query()).count()
+
+    if not count:
+        return
+
+    modeladmin.message_user(
+        request,
+        (
+            f"OpenAI API quota/rate limit issue detected on {count} failed "
+            "evaluation response(s). Evaluation retries may continue failing "
+            "until the API limit resets or quota is increased."
+        ),
+        level=messages.WARNING,
+    )
+
+
+def evaluation_status_badge(obj):
+    if obj.evaluation_status == "completed" or obj.evaluated:
+        return format_html('<span style="color:green;font-weight:bold;">Evaluated</span>')
+
+    if obj.evaluation_status == "failed":
+        return format_html(
+            '<span style="color:#b45309;font-weight:bold;">Error: {}</span>',
+            obj.evaluation_error or "Evaluation failed",
+        )
+
+    if obj.evaluation_status == "transcribing":
+        return format_html('<span style="color:#2563eb;">Transcribing</span>')
+
+    if obj.evaluation_status == "evaluating":
+        return format_html('<span style="color:#2563eb;">Evaluating</span>')
+
+    if obj.answer_audio and not obj.transcribed_audio_data:
+        return format_html('<span style="color:#6b7280;">Pending transcription</span>')
+
+    return format_html('<span style="color:#6b7280;">Pending evaluation</span>')
 
 
 # =========================
@@ -91,25 +159,7 @@ class UserResponseInline(admin.TabularInline):
     scores_display.short_description = "Scores"
 
     def evaluation_status(self, obj):
-        if obj.evaluation_status == "completed" or obj.evaluated:
-            return format_html('<span style="color:green;font-weight:bold;">Evaluated</span>')
-
-        if obj.evaluation_status == "failed":
-            return format_html(
-                '<span style="color:#b45309;font-weight:bold;">Error: {}</span>',
-                obj.evaluation_error or "Evaluation failed",
-            )
-
-        if obj.evaluation_status == "transcribing":
-            return format_html('<span style="color:#2563eb;">Transcribing</span>')
-
-        if obj.evaluation_status == "evaluating":
-            return format_html('<span style="color:#2563eb;">Evaluating</span>')
-
-        if obj.answer_audio and not obj.transcribed_audio_data:
-            return format_html('<span style="color:#6b7280;">Pending transcription</span>')
-
-        return format_html('<span style="color:#6b7280;">Pending evaluation</span>')
+        return evaluation_status_badge(obj)
 
     evaluation_status.short_description = "Evaluation Status"
 # =========================
@@ -239,6 +289,10 @@ class UserMockTestSessionAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         return qs.select_related('mock_test')
 
+    def changelist_view(self, request, extra_context=None):
+        add_api_limit_warning(self, request, UserResponse)
+        return super().changelist_view(request, extra_context=extra_context)
+
     # -------------------------
     # SHORT SESSION ID
     # -------------------------
@@ -357,42 +411,79 @@ class UserResponseAdmin(admin.ModelAdmin):
         'question',
         'evaluated',
         'evaluation_status',
+        'retry_evaluation',
         'submitted_at',
     )
 
     list_filter = ('mock_test', 'evaluated', 'evaluation_status', 'evaluation_stage')
     search_fields = ('user_session__name', 'question__text')
 
-    readonly_fields = ('submitted_at',)
+    readonly_fields = (
+        'submitted_at',
+        'evaluation_status',
+        'evaluation_stage',
+        'evaluation_error',
+        'evaluation_attempts',
+        'last_evaluation_attempt_at',
+    )
     list_per_page = 25
     actions = ['requeue_selected_evaluations']
 
+    def changelist_view(self, request, extra_context=None):
+        add_api_limit_warning(self, request, UserResponse)
+        return super().changelist_view(request, extra_context=extra_context)
+
     def evaluation_status(self, obj):
-        if obj.evaluation_status == "completed" or obj.evaluated:
-            return format_html('<span style="color:green;font-weight:bold;">Evaluated</span>')
-
-        if obj.evaluation_status == "failed":
-            return format_html(
-                '<span style="color:#b45309;font-weight:bold;">Error: {}</span>',
-                obj.evaluation_error or "Evaluation failed",
-            )
-
-        if obj.evaluation_status == "transcribing":
-            return format_html('<span style="color:#2563eb;">Transcribing</span>')
-
-        if obj.evaluation_status == "evaluating":
-            return format_html('<span style="color:#2563eb;">Evaluating</span>')
-
-        if obj.answer_audio and not obj.transcribed_audio_data:
-            return format_html('<span style="color:#6b7280;">Pending transcription</span>')
-
-        return format_html('<span style="color:#6b7280;">Pending evaluation</span>')
+        return evaluation_status_badge(obj)
 
     evaluation_status.short_description = "Evaluation Status"
+
+    def retry_evaluation(self, obj):
+        if obj.evaluation_status in ("transcribing", "evaluating"):
+            return format_html('<span style="color:#6b7280;">In progress</span>')
+
+        url = reverse("admin:mocktest_userresponse_retry_evaluation", args=[obj.pk])
+        label = "Try again" if obj.evaluation_status == "failed" else "Requeue"
+        return format_html('<a class="button" href="{}">{}</a>', url, label)
+
+    retry_evaluation.short_description = "Retry"
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/retry-evaluation/",
+                self.admin_site.admin_view(self.retry_evaluation_view),
+                name="mocktest_userresponse_retry_evaluation",
+            ),
+        ]
+        return custom_urls + urls
+
+    def retry_evaluation_view(self, request, object_id):
+        response = self.get_object(request, object_id)
+        if response is None:
+            raise Http404("Response not found")
+
+        if response.evaluation_status in ("transcribing", "evaluating"):
+            self.message_user(
+                request,
+                "This response is already being processed.",
+                level="warning",
+            )
+        else:
+            mode = queue_response_evaluation(response)
+            self.message_user(
+                request,
+                f"Response {response.id} queued for {mode}.",
+            )
+
+        return redirect(request.META.get("HTTP_REFERER") or "../")
 
     def requeue_selected_evaluations(self, request, queryset):
         queued = 0
         for response in queryset.select_related("question__subsection"):
+            if response.evaluation_status in ("transcribing", "evaluating"):
+                continue
             queue_response_evaluation(response)
             queued += 1
 
@@ -415,15 +506,87 @@ class GlobalRubricAdmin(admin.ModelAdmin):
 
 @admin.register(SingleResponse)
 class SingleResponseAdmin(admin.ModelAdmin):
-    list_display = ('name', 'question', 'evaluated', 'evaluation_status', 'submitted_at')
-    list_filter = ('question__question_type', 'name', 'evaluated', 'evaluation_status')
-    readonly_fields = ('submitted_at',)
+    list_display = (
+        'name',
+        'question',
+        'evaluated',
+        'evaluation_status',
+        'retry_evaluation',
+        'submitted_at',
+    )
+    list_filter = (
+        'question__question_type',
+        'name',
+        'evaluated',
+        'evaluation_status',
+        'evaluation_stage',
+    )
+    readonly_fields = (
+        'submitted_at',
+        'evaluation_status',
+        'evaluation_stage',
+        'evaluation_error',
+        'evaluation_attempts',
+        'last_evaluation_attempt_at',
+    )
     ordering = ['-submitted_at']
     actions = ['requeue_selected_evaluations']
+
+    def changelist_view(self, request, extra_context=None):
+        add_api_limit_warning(self, request, SingleResponse)
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def evaluation_status(self, obj):
+        return evaluation_status_badge(obj)
+
+    evaluation_status.short_description = "Evaluation Status"
+
+    def retry_evaluation(self, obj):
+        if obj.evaluation_status in ("transcribing", "evaluating"):
+            return format_html('<span style="color:#6b7280;">In progress</span>')
+
+        url = reverse("admin:mocktest_singleresponse_retry_evaluation", args=[obj.pk])
+        label = "Try again" if obj.evaluation_status == "failed" else "Requeue"
+        return format_html('<a class="button" href="{}">{}</a>', url, label)
+
+    retry_evaluation.short_description = "Retry"
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/retry-evaluation/",
+                self.admin_site.admin_view(self.retry_evaluation_view),
+                name="mocktest_singleresponse_retry_evaluation",
+            ),
+        ]
+        return custom_urls + urls
+
+    def retry_evaluation_view(self, request, object_id):
+        response = self.get_object(request, object_id)
+        if response is None:
+            raise Http404("Single response not found")
+
+        if response.evaluation_status in ("transcribing", "evaluating"):
+            self.message_user(
+                request,
+                "This response is already being processed.",
+                level="warning",
+            )
+        else:
+            mode = queue_response_evaluation(response)
+            self.message_user(
+                request,
+                f"Single response {response.id} queued for {mode}.",
+            )
+
+        return redirect(request.META.get("HTTP_REFERER") or "../")
 
     def requeue_selected_evaluations(self, request, queryset):
         queued = 0
         for response in queryset.select_related("question__subsection"):
+            if response.evaluation_status in ("transcribing", "evaluating"):
+                continue
             queue_response_evaluation(response)
             queued += 1
 

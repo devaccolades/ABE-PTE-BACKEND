@@ -2,7 +2,7 @@ import os
 import uuid
 import tempfile
 from urllib.parse import urlencode
-from django.db import DatabaseError
+from django.db import DatabaseError, IntegrityError, transaction
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
@@ -389,29 +389,32 @@ class UserResponseAPIView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        existing_response = UserResponse.objects.filter(
-            user_session=session,
-            question=question,
-        ).first()
-        if existing_response:
-            return Response(
-                {
-                    "error": "Response already submitted for this session and question.",
-                    "response_id": existing_response.id,
-                    "evaluation_status": existing_response.evaluation_status,
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
+        try:
+            with transaction.atomic():
+                UserMockTestSession.objects.select_for_update().get(pk=session.pk)
+                existing_response = UserResponse.objects.filter(
+                    user_session=session,
+                    question=question,
+                ).first()
+                if existing_response:
+                    return self._duplicate_response(existing_response)
 
-                    
-        user_answer = UserResponse.objects.create(
-            user_session=session,
-            question=question,
-            mock_test=mock_test,
-            answer_data=answer,
-            answer_audio=audio_file,
-            transcribed_audio_data=None
-        )
+                user_answer = UserResponse.objects.create(
+                    user_session=session,
+                    question=question,
+                    mock_test=mock_test,
+                    answer_data=answer,
+                    answer_audio=audio_file,
+                    transcribed_audio_data=None,
+                )
+        except IntegrityError:
+            existing_response = UserResponse.objects.filter(
+                user_session=session,
+                question=question,
+            ).first()
+            if existing_response:
+                return self._duplicate_response(existing_response)
+            raise
         
         queue_failed = False
         try:
@@ -433,6 +436,17 @@ class UserResponseAPIView(APIView):
             "retryable": queue_failed,
         }
         return Response(data, status=status.HTTP_201_CREATED)
+
+    @staticmethod
+    def _duplicate_response(existing_response):
+        return Response(
+            {
+                "error": "Response already submitted for this session and question.",
+                "response_id": existing_response.id,
+                "evaluation_status": existing_response.evaluation_status,
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
     
 class APIListingQuestions(APIView):
     """

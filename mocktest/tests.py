@@ -366,6 +366,15 @@ class UserResponseSubmissionTests(TestCase):
         self.assertEqual(second_response.json()["response_id"], UserResponse.objects.get().id)
         mock_delay.assert_called_once()
 
+    def test_user_response_declares_session_question_unique_constraint(self):
+        constraint = next(
+            constraint
+            for constraint in UserResponse._meta.constraints
+            if constraint.name == "uniq_userresp_session_question"
+        )
+
+        self.assertEqual(tuple(constraint.fields), ("user_session", "question"))
+
     @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
     def test_user_response_requires_question_identifier(self, mock_delay):
         mock_test = MockTest.objects.create(title="Missing Question")

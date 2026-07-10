@@ -503,6 +503,12 @@ class UserResponse(models.Model):
         return f"{self.user_session.name} - {self.mock_test} "
 
     class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user_session", "question"],
+                name="uniq_userresp_session_question",
+            ),
+        ]
         indexes = [
             models.Index(
                 fields=["evaluation_status", "submitted_at"],

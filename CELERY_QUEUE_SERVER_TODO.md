@@ -21,6 +21,13 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/1
 CELERY_TASK_DEFAULT_QUEUE=default
 CELERY_EVALUATION_QUEUE=evaluation
 CELERY_TRANSCRIPTION_QUEUE=transcription
+CELERY_TASK_ACKS_LATE=true
+CELERY_TASK_REJECT_ON_WORKER_LOST=true
+CELERY_WORKER_PREFETCH_MULTIPLIER=1
+CELERY_TASK_TRACK_STARTED=true
+CELERY_TASK_SOFT_TIME_LIMIT=300
+CELERY_TASK_TIME_LIMIT=360
+CELERY_VISIBILITY_TIMEOUT_SECONDS=3600
 EVALUATION_STALE_AFTER_MINUTES=20
 EVALUATION_RECOVERY_BATCH_SIZE=100
 EVALUATION_RECOVERY_INTERVAL_SECONDS=300
@@ -123,3 +130,14 @@ pm2 logs celery-beat --lines 100
 The default recovery check runs every 5 minutes and only requeues active work
 whose last attempt is at least 20 minutes old. Keep only one Beat instance to
 avoid duplicate periodic jobs.
+
+## Task durability
+
+Tasks are acknowledged only after completion. If a worker process is lost, its
+active task is returned to Redis and can be processed again. Prefetch is limited
+to one task per worker process so queued exams remain visible and fairly shared.
+
+The five-minute soft limit records a failed attempt and requests a retry. The
+six-minute hard limit terminates an unresponsive worker process; late
+acknowledgement then returns that task to the queue. The Redis visibility timeout
+must remain longer than the hard task limit.

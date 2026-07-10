@@ -1298,6 +1298,20 @@ class EvaluationRepairToolTests(TestCase):
             settings.CELERY_TRANSCRIPTION_QUEUE,
         )
 
+    def test_celery_durability_defaults_are_enabled(self):
+        self.assertTrue(settings.CELERY_TASK_ACKS_LATE)
+        self.assertTrue(settings.CELERY_TASK_REJECT_ON_WORKER_LOST)
+        self.assertEqual(settings.CELERY_WORKER_PREFETCH_MULTIPLIER, 1)
+        self.assertTrue(settings.CELERY_TASK_TRACK_STARTED)
+        self.assertLess(
+            settings.CELERY_TASK_SOFT_TIME_LIMIT,
+            settings.CELERY_TASK_TIME_LIMIT,
+        )
+        self.assertGreaterEqual(
+            settings.CELERY_BROKER_TRANSPORT_OPTIONS["visibility_timeout"],
+            settings.CELERY_TASK_TIME_LIMIT,
+        )
+
     @override_settings(
         OPENAI_API_KEY="",
         OPENAI_WHISPER_API_KEY="test-whisper-key",

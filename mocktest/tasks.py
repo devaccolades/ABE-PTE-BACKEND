@@ -3,6 +3,7 @@ import uuid
 import subprocess
 from celery import shared_task
 from celery.exceptions import Retry
+from billiard.exceptions import SoftTimeLimitExceeded
 
 from examinor.services.rule_evaluator import run_rule_evaluation
 from .models import *
@@ -305,6 +306,14 @@ def evaluate_user_response(self, user_answer_id, question_id):
 
     except Retry:
         raise
+    except SoftTimeLimitExceeded:
+        error = "Evaluation task exceeded its soft time limit"
+        try:
+            user_answer = UserResponse.objects.get(id=user_answer_id)
+            save_evaluation_failure(user_answer, "evaluation", error)
+        except UserResponse.DoesNotExist:
+            pass
+        raise self.retry(exc=TimeoutError(error))
     except Exception as e:
         try:
             user_answer = UserResponse.objects.get(id=user_answer_id)
@@ -469,6 +478,14 @@ def evaluate_single_response(self, user_answer_id, question_id):
 
     except Retry:
         raise
+    except SoftTimeLimitExceeded:
+        error = "Evaluation task exceeded its soft time limit"
+        try:
+            user_answer = SingleResponse.objects.get(id=user_answer_id)
+            save_evaluation_failure(user_answer, "evaluation", error)
+        except SingleResponse.DoesNotExist:
+            pass
+        raise self.retry(exc=TimeoutError(error))
     except Exception as e:
         try:
             user_answer = SingleResponse.objects.get(id=user_answer_id)

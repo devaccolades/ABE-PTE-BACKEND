@@ -36,6 +36,7 @@ class Command(BaseCommand):
         self.stdout.write("========================")
 
         self._check_openai_settings(failures)
+        self._check_celery_settings(failures)
 
         if not options["skip_redis"]:
             self._check_redis("broker", settings.CELERY_BROKER_URL, timeout, failures)
@@ -76,6 +77,38 @@ class Command(BaseCommand):
         self.stdout.write(f"CELERY_TASK_DEFAULT_QUEUE={settings.CELERY_TASK_DEFAULT_QUEUE}")
         self.stdout.write(f"CELERY_EVALUATION_QUEUE={settings.CELERY_EVALUATION_QUEUE}")
         self.stdout.write(f"CELERY_TRANSCRIPTION_QUEUE={settings.CELERY_TRANSCRIPTION_QUEUE}")
+
+    def _check_celery_settings(self, failures):
+        self.stdout.write("")
+        self.stdout.write("Celery durability")
+        self.stdout.write("-----------------")
+        self.stdout.write(f"CELERY_TASK_ACKS_LATE={settings.CELERY_TASK_ACKS_LATE}")
+        self.stdout.write(
+            "CELERY_TASK_REJECT_ON_WORKER_LOST="
+            f"{settings.CELERY_TASK_REJECT_ON_WORKER_LOST}"
+        )
+        self.stdout.write(
+            "CELERY_WORKER_PREFETCH_MULTIPLIER="
+            f"{settings.CELERY_WORKER_PREFETCH_MULTIPLIER}"
+        )
+        self.stdout.write(f"CELERY_TASK_TRACK_STARTED={settings.CELERY_TASK_TRACK_STARTED}")
+        self.stdout.write(
+            f"CELERY_TASK_SOFT_TIME_LIMIT={settings.CELERY_TASK_SOFT_TIME_LIMIT}"
+        )
+        self.stdout.write(f"CELERY_TASK_TIME_LIMIT={settings.CELERY_TASK_TIME_LIMIT}")
+        self.stdout.write(
+            "CELERY_VISIBILITY_TIMEOUT_SECONDS="
+            f"{settings.CELERY_BROKER_TRANSPORT_OPTIONS['visibility_timeout']}"
+        )
+
+        if not settings.CELERY_TASK_ACKS_LATE:
+            failures.append("CELERY_TASK_ACKS_LATE must be enabled")
+        if not settings.CELERY_TASK_REJECT_ON_WORKER_LOST:
+            failures.append("CELERY_TASK_REJECT_ON_WORKER_LOST must be enabled")
+        if settings.CELERY_WORKER_PREFETCH_MULTIPLIER != 1:
+            failures.append("CELERY_WORKER_PREFETCH_MULTIPLIER must be 1")
+        if settings.CELERY_TASK_SOFT_TIME_LIMIT >= settings.CELERY_TASK_TIME_LIMIT:
+            failures.append("Celery soft time limit must be lower than the hard time limit")
 
     def _print_secret_presence(self, name, value, failures):
         if value:

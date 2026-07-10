@@ -20,7 +20,7 @@ from mocktest.models import (
 )
 from mocktest.services.pdf_service import build_session_pdf_context
 from mocktest.services.evaluation_queue import queue_response_evaluation
-from mocktest.tasks import evaluate_user_response
+from mocktest.tasks import evaluate_user_response, recover_stale_evaluations
 
 
 class SessionPdfContextTests(TestCase):
@@ -727,6 +727,55 @@ class EvaluationRepairToolTests(TestCase):
         self.assertEqual(mock_queue.call_count, 1)
         self.assertEqual(mock_queue.call_args.args[0].id, old_failed.id)
         self.assertIn("1 responses queued.", stdout.getvalue())
+
+    @patch("mocktest.services.evaluation_queue.queue_response_evaluation")
+    def test_recovery_task_only_requeues_stale_active_responses(self, mock_queue):
+        mock_test, question = self._create_question()
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="stale-recovery-session",
+            mock_test=mock_test,
+        )
+        old_time = timezone.now() - timezone.timedelta(minutes=30)
+
+        stale_evaluating = UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            evaluation_status="evaluating",
+            last_evaluation_attempt_at=old_time,
+        )
+        stale_transcribing = SingleResponse.objects.create(
+            question=question,
+            evaluation_status="transcribing",
+            last_evaluation_attempt_at=old_time,
+        )
+        UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            evaluation_status="evaluating",
+            last_evaluation_attempt_at=timezone.now(),
+        )
+        UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            evaluation_status="pending",
+            last_evaluation_attempt_at=old_time,
+        )
+
+        result = recover_stale_evaluations(
+            stale_after_minutes=20,
+            batch_size=100,
+        )
+
+        queued_ids = {call.args[0].id for call in mock_queue.call_args_list}
+        self.assertEqual(mock_queue.call_count, 2)
+        self.assertEqual(queued_ids, {stale_evaluating.id, stale_transcribing.id})
+        self.assertEqual(result["recovered"], 2)
+        self.assertEqual(result["processed"], 2)
+        self.assertEqual(result["queue_failures"], 0)
 
     def test_inspect_duplicate_responses_reports_duplicate_session_question_pairs(self):
         mock_test, question = self._create_question()

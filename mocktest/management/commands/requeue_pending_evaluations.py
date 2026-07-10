@@ -3,7 +3,10 @@ from django.db.models import Q
 from django.utils import timezone
 
 from mocktest.models import SingleResponse, UserResponse
-from mocktest.services.evaluation_queue import queue_response_evaluation
+from mocktest.services.evaluation_queue import (
+    EvaluationQueueUnavailable,
+    queue_response_evaluation,
+)
 
 
 class Command(BaseCommand):
@@ -105,10 +108,15 @@ class Command(BaseCommand):
             responses = responses[: options["limit"]]
 
         queued = 0
+        queue_failures = 0
         by_mode = {}
 
         for response in responses:
-            mode = self._queue_or_preview(response, options["dry_run"])
+            try:
+                mode = self._queue_or_preview(response, options["dry_run"])
+            except EvaluationQueueUnavailable:
+                queue_failures += 1
+                continue
             by_mode[mode] = by_mode.get(mode, 0) + 1
             queued += 1
 
@@ -117,6 +125,13 @@ class Command(BaseCommand):
 
         for mode, count in sorted(by_mode.items()):
             self.stdout.write(f"{mode}: {count}")
+
+        if queue_failures:
+            self.stderr.write(
+                self.style.ERROR(
+                    f"{queue_failures} response(s) could not be queued and were marked failed."
+                )
+            )
 
     def _queue_or_preview(self, response, dry_run):
         subsection = response.question.subsection

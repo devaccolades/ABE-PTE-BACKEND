@@ -19,7 +19,10 @@ from mocktest.models import (
     SingleResponse,
 )
 from mocktest.services.pdf_service import build_session_pdf_context
-from mocktest.services.evaluation_queue import queue_response_evaluation
+from mocktest.services.evaluation_queue import (
+    EvaluationQueueUnavailable,
+    queue_response_evaluation,
+)
 from mocktest.tasks import evaluate_user_response, recover_stale_evaluations
 
 
@@ -211,7 +214,7 @@ class UserResponseSubmissionTests(TestCase):
             text=f"{section_name} question",
         )
 
-    @patch("mocktest.views.evaluate_user_response.delay")
+    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
     def test_user_response_question_lookup_is_scoped_to_session_mock_test(self, mock_delay):
         first_mock_test = MockTest.objects.create(title="First")
         second_mock_test = MockTest.objects.create(title="Second")
@@ -240,7 +243,44 @@ class UserResponseSubmissionTests(TestCase):
         self.assertEqual(saved.question_id, first_question.id)
         mock_delay.assert_called_once_with(saved.id, first_question.id)
 
-    @patch("mocktest.views.evaluate_user_response.delay")
+    @patch(
+        "mocktest.services.evaluation_queue.evaluate_user_response.delay",
+        side_effect=ConnectionError("Redis unavailable"),
+    )
+    def test_user_response_is_preserved_when_queue_is_unavailable(self, mock_delay):
+        mock_test = MockTest.objects.create(title="Queue Failure Test")
+        question = self._create_question_set(mock_test, "Writing", "Q-1")
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="queue-failure-session",
+            mock_test=mock_test,
+        )
+
+        response = self.client.post(
+            "/mocktest/user-response/",
+            {
+                "session_id": session.session_id,
+                "question_id": question.id,
+                "answer": {"text": "preserve this answer"},
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        evaluation = response.json()["evaluation"]
+        self.assertFalse(evaluation["queued"])
+        self.assertTrue(evaluation["retryable"])
+        self.assertEqual(evaluation["status"], "failed")
+        self.assertEqual(evaluation["stage"], "queueing")
+
+        saved = UserResponse.objects.get()
+        self.assertEqual(saved.answer_data, {"text": "preserve this answer"})
+        self.assertEqual(saved.evaluation_status, "failed")
+        self.assertEqual(saved.evaluation_stage, "queueing")
+        self.assertIn("Evaluation queue unavailable", saved.evaluation_error)
+        mock_delay.assert_called_once_with(saved.id, question.id)
+
+    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
     def test_user_response_duplicate_question_names_in_same_mock_test_are_rejected(self, mock_delay):
         mock_test = MockTest.objects.create(title="Duplicate Test")
         self._create_question_set(mock_test, "Writing One", "Q-1")
@@ -265,7 +305,7 @@ class UserResponseSubmissionTests(TestCase):
         self.assertFalse(UserResponse.objects.exists())
         mock_delay.assert_not_called()
 
-    @patch("mocktest.views.evaluate_user_response.delay")
+    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
     def test_user_response_can_submit_by_question_id_when_names_duplicate(self, mock_delay):
         mock_test = MockTest.objects.create(title="Duplicate Test")
         first_question = self._create_question_set(mock_test, "Writing One", "Q-1")
@@ -291,7 +331,7 @@ class UserResponseSubmissionTests(TestCase):
         self.assertEqual(saved.question_id, first_question.id)
         mock_delay.assert_called_once_with(saved.id, first_question.id)
 
-    @patch("mocktest.views.evaluate_user_response.delay")
+    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
     def test_user_response_rejects_duplicate_submission_for_same_session_question(self, mock_delay):
         mock_test = MockTest.objects.create(title="Duplicate Submission Test")
         question = self._create_question_set(mock_test, "Writing", "Q-1")
@@ -326,7 +366,7 @@ class UserResponseSubmissionTests(TestCase):
         self.assertEqual(second_response.json()["response_id"], UserResponse.objects.get().id)
         mock_delay.assert_called_once()
 
-    @patch("mocktest.views.evaluate_user_response.delay")
+    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
     def test_user_response_requires_question_identifier(self, mock_delay):
         mock_test = MockTest.objects.create(title="Missing Question")
         session = UserMockTestSession.objects.create(
@@ -348,7 +388,7 @@ class UserResponseSubmissionTests(TestCase):
         self.assertFalse(UserResponse.objects.exists())
         mock_delay.assert_not_called()
 
-    @patch("mocktest.views.evaluate_user_response.delay")
+    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
     def test_user_response_rejects_invalid_question_id(self, mock_delay):
         mock_test = MockTest.objects.create(title="Bad Question ID")
         session = UserMockTestSession.objects.create(
@@ -371,7 +411,7 @@ class UserResponseSubmissionTests(TestCase):
         self.assertFalse(UserResponse.objects.exists())
         mock_delay.assert_not_called()
 
-    @patch("mocktest.views.evaluate_single_response.delay")
+    @patch("mocktest.services.evaluation_queue.evaluate_single_response.delay")
     def test_single_response_rejects_duplicate_question_names_without_id(self, mock_delay):
         first_mock_test = MockTest.objects.create(title="First")
         second_mock_test = MockTest.objects.create(title="Second")
@@ -392,7 +432,7 @@ class UserResponseSubmissionTests(TestCase):
         self.assertFalse(SingleResponse.objects.exists())
         mock_delay.assert_not_called()
 
-    @patch("mocktest.views.evaluate_single_response.delay")
+    @patch("mocktest.services.evaluation_queue.evaluate_single_response.delay")
     def test_single_response_can_submit_by_question_id(self, mock_delay):
         mock_test = MockTest.objects.create(title="Single Test")
         question = self._create_question_set(mock_test, "Writing", "Q-1")
@@ -531,6 +571,33 @@ class EvaluationRepairToolTests(TestCase):
         self.assertEqual(response.evaluation_stage, "")
         self.assertEqual(response.evaluation_error, "")
         mock_delay.assert_called_once_with(response.id, question.id)
+
+    @patch(
+        "mocktest.services.evaluation_queue.evaluate_user_response.delay",
+        side_effect=ConnectionError("Redis unavailable"),
+    )
+    def test_queue_helper_records_dispatch_failure(self, mock_delay):
+        mock_test, question = self._create_question()
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="queue-helper-failure-session",
+            mock_test=mock_test,
+        )
+        response = UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            answer_data={"text": "answer"},
+        )
+
+        with self.assertRaises(EvaluationQueueUnavailable):
+            queue_response_evaluation(response)
+
+        response.refresh_from_db()
+        self.assertEqual(response.evaluation_status, "failed")
+        self.assertEqual(response.evaluation_stage, "queueing")
+        self.assertIn("Evaluation queue unavailable", response.evaluation_error)
+        self.assertEqual(response.evaluation_result["stage"], "queueing")
 
     def test_evaluation_task_persists_question_id_mismatch_failure(self):
         mock_test, question = self._create_question()

@@ -1,3 +1,5 @@
+import logging
+
 from celery import chain
 
 from mocktest.models import SingleResponse
@@ -7,6 +9,35 @@ from mocktest.tasks import (
     transcribe_single_task,
     transcribe_task,
 )
+
+
+logger = logging.getLogger(__name__)
+
+
+class EvaluationQueueUnavailable(RuntimeError):
+    pass
+
+
+def _save_queue_failure(response, error):
+    error_type = error.__class__.__name__
+    message = f"Evaluation queue unavailable ({error_type}). Retry when Celery/Redis is healthy."
+    response.evaluation_result = {
+        "ok": False,
+        "stage": "queueing",
+        "error": message,
+    }
+    response.evaluation_status = "failed"
+    response.evaluation_stage = "queueing"
+    response.evaluation_error = message
+    response.save(
+        update_fields=[
+            "evaluation_result",
+            "evaluation_status",
+            "evaluation_stage",
+            "evaluation_error",
+        ]
+    )
+    return message
 
 
 def queue_response_evaluation(response):
@@ -30,19 +61,29 @@ def queue_response_evaluation(response):
         and not response.transcribed_audio_data
     )
 
-    if needs_transcription:
-        transcribe = transcribe_single_task if is_single else transcribe_task
-        evaluate = evaluate_single_response if is_single else evaluate_user_response
-        chain(
-            transcribe.s(response.id),
-            evaluate.si(response.id, response.question_id),
-        ).delay()
-        return "transcription_and_evaluation"
+    try:
+        if needs_transcription:
+            transcribe = transcribe_single_task if is_single else transcribe_task
+            evaluate = evaluate_single_response if is_single else evaluate_user_response
+            chain(
+                transcribe.s(response.id),
+                evaluate.si(response.id, response.question_id),
+            ).delay()
+            return "transcription_and_evaluation"
 
-    if is_single:
-        evaluate_single_response.delay(response.id, response.question_id)
-    else:
-        evaluate_user_response.delay(response.id, response.question_id)
+        if is_single:
+            evaluate_single_response.delay(response.id, response.question_id)
+        else:
+            evaluate_user_response.delay(response.id, response.question_id)
+    except Exception as exc:
+        logger.error(
+            "Could not queue evaluation for %s id=%s error_type=%s",
+            response.__class__.__name__,
+            response.id,
+            exc.__class__.__name__,
+        )
+        message = _save_queue_failure(response, exc)
+        raise EvaluationQueueUnavailable(message) from exc
 
     return "evaluation"
 

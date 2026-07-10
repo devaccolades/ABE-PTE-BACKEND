@@ -63,6 +63,21 @@ Retry in 60s: Exception('OpenAI API rate limit exceeded')
 
 This means Celery is working, but OpenAI rejected the request. Fix by waiting for the limit window to reset, increasing quota, or using a valid API key/project with available quota.
 
+## Common failure: Redis/Celery unavailable during submission
+
+The answer remains saved. Its evaluation state is recorded as:
+
+```text
+status=failed
+stage=queueing
+error=Evaluation queue unavailable (...)
+```
+
+Restore Redis and the Celery worker, run the runtime health check, then retry the
+question or session from Django admin. The API returns `201 Created` with
+`evaluation.queued=false` and `evaluation.retryable=true` because the answer was
+accepted even though evaluation could not be queued.
+
 ## Check runtime health
 
 ```bash

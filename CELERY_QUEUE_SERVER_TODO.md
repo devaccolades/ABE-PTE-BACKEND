@@ -21,6 +21,9 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/1
 CELERY_TASK_DEFAULT_QUEUE=default
 CELERY_EVALUATION_QUEUE=evaluation
 CELERY_TRANSCRIPTION_QUEUE=transcription
+EVALUATION_STALE_AFTER_MINUTES=20
+EVALUATION_RECOVERY_BATCH_SIZE=100
+EVALUATION_RECOVERY_INTERVAL_SECONDS=300
 ```
 
 ## Initial Worker Plan
@@ -99,3 +102,24 @@ worker temporarily:
 ```bash
 celery -A abe_pte worker -Q default,evaluation,transcription --concurrency=2 --loglevel=info
 ```
+
+## Automatic stale evaluation recovery
+
+Celery Beat schedules recovery checks for responses left in `transcribing` or
+`evaluating` after a worker interruption. Run exactly one Beat process:
+
+```bash
+pm2 start /home/ubuntu/venv/bin/python --name celery-beat -- -m celery -A abe_pte beat -l info
+pm2 save
+```
+
+Verify it is running:
+
+```bash
+pm2 show celery-beat
+pm2 logs celery-beat --lines 100
+```
+
+The default recovery check runs every 5 minutes and only requeues active work
+whose last attempt is at least 20 minutes old. Keep only one Beat instance to
+avoid duplicate periodic jobs.

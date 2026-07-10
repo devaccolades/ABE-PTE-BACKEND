@@ -190,11 +190,27 @@ CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:63
 CELERY_TASK_DEFAULT_QUEUE = os.getenv("CELERY_TASK_DEFAULT_QUEUE", "default")
 CELERY_EVALUATION_QUEUE = os.getenv("CELERY_EVALUATION_QUEUE", "evaluation")
 CELERY_TRANSCRIPTION_QUEUE = os.getenv("CELERY_TRANSCRIPTION_QUEUE", "transcription")
+EVALUATION_STALE_AFTER_MINUTES = int(
+    os.getenv("EVALUATION_STALE_AFTER_MINUTES", "20")
+)
+EVALUATION_RECOVERY_BATCH_SIZE = int(
+    os.getenv("EVALUATION_RECOVERY_BATCH_SIZE", "100")
+)
+EVALUATION_RECOVERY_INTERVAL_SECONDS = float(
+    os.getenv("EVALUATION_RECOVERY_INTERVAL_SECONDS", "300")
+)
 CELERY_TASK_ROUTES = {
     "mocktest.tasks.evaluate_user_response": {"queue": CELERY_EVALUATION_QUEUE},
     "mocktest.tasks.evaluate_single_response": {"queue": CELERY_EVALUATION_QUEUE},
     "mocktest.tasks.transcribe_task": {"queue": CELERY_TRANSCRIPTION_QUEUE},
     "mocktest.tasks.transcribe_single_task": {"queue": CELERY_TRANSCRIPTION_QUEUE},
+    "mocktest.tasks.recover_stale_evaluations": {"queue": CELERY_TASK_DEFAULT_QUEUE},
+}
+CELERY_BEAT_SCHEDULE = {
+    "recover-stale-evaluations": {
+        "task": "mocktest.tasks.recover_stale_evaluations",
+        "schedule": EVALUATION_RECOVERY_INTERVAL_SECONDS,
+    },
 }
 
 # CORS_ALLOW_ALL_ORIGINS = True

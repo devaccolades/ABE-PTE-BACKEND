@@ -476,4 +476,83 @@ def evaluate_single_response(self, user_answer_id, question_id):
         except SingleResponse.DoesNotExist:
             pass
         return {"error": "Unexpected error occurred", "details": str(e)}
+
+
+@shared_task
+def recover_stale_evaluations(stale_after_minutes=None, batch_size=None):
+    """Requeue active evaluations abandoned by an interrupted worker."""
+    from django.conf import settings
+    from mocktest.services.evaluation_queue import queue_response_evaluation
+
+    stale_after_minutes = (
+        settings.EVALUATION_STALE_AFTER_MINUTES
+        if stale_after_minutes is None
+        else int(stale_after_minutes)
+    )
+    batch_size = (
+        settings.EVALUATION_RECOVERY_BATCH_SIZE
+        if batch_size is None
+        else int(batch_size)
+    )
+    if stale_after_minutes < 1:
+        raise ValueError("stale_after_minutes must be at least 1")
+    if batch_size < 1:
+        raise ValueError("batch_size must be at least 1")
+
+    cutoff = timezone.now() - timezone.timedelta(minutes=stale_after_minutes)
+    recovered = 0
+    processed = 0
+    queue_failures = 0
+    by_model = {}
+
+    for response_model in (UserResponse, SingleResponse):
+        remaining = batch_size - processed
+        if remaining <= 0:
+            break
+
+        response_ids = list(
+            response_model.objects.filter(
+                evaluated=False,
+                evaluation_status__in=("transcribing", "evaluating"),
+                last_evaluation_attempt_at__lte=cutoff,
+            )
+            .order_by("last_evaluation_attempt_at", "id")
+            .values_list("id", flat=True)[:remaining]
+        )
+
+        model_recovered = 0
+        for response_id in response_ids:
+            processed += 1
+            response = (
+                response_model.objects.select_related("question__subsection")
+                .filter(
+                    id=response_id,
+                    evaluated=False,
+                    evaluation_status__in=("transcribing", "evaluating"),
+                    last_evaluation_attempt_at__lte=cutoff,
+                )
+                .first()
+            )
+            if response is None:
+                continue
+
+            try:
+                queue_response_evaluation(response)
+            except Exception as exc:
+                save_evaluation_failure(response, "queueing", exc)
+                queue_failures += 1
+                continue
+
+            recovered += 1
+            model_recovered += 1
+
+        by_model[response_model.__name__] = model_recovered
+
+    return {
+        "recovered": recovered,
+        "processed": processed,
+        "queue_failures": queue_failures,
+        "by_model": by_model,
+        "stale_after_minutes": stale_after_minutes,
+    }
     

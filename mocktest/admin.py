@@ -8,7 +8,10 @@ from django.db.models import Max, Prefetch, Q
 
 from .models import *
 from .services.pdf_service import generate_session_pdf
-from .services.evaluation_queue import queue_response_evaluation
+from .services.evaluation_queue import (
+    EvaluationQueueUnavailable,
+    queue_response_evaluation,
+)
 
 
 admin.site.unregister(Group)
@@ -366,18 +369,23 @@ class UserMockTestSessionAdmin(admin.ModelAdmin):
         )
 
         queued = 0
+        queue_failures = 0
         for response in responses:
-            queue_response_evaluation(response)
-            queued += 1
+            try:
+                queue_response_evaluation(response)
+                queued += 1
+            except EvaluationQueueUnavailable:
+                queue_failures += 1
 
-        return queued
+        return queued, queue_failures
 
     def retry_failed_or_pending_evaluations(self, request, queryset):
-        queued = self._queue_retryable_session_responses(queryset)
+        queued, queue_failures = self._queue_retryable_session_responses(queryset)
 
         self.message_user(
             request,
-            f"{queued} failed/pending response(s) queued for Celery evaluation.",
+            f"{queued} response(s) queued; {queue_failures} queueing failure(s).",
+            level=messages.ERROR if queue_failures else messages.SUCCESS,
         )
     retry_failed_or_pending_evaluations.short_description = (
         "Retry failed/pending evaluations for selected sessions"
@@ -417,13 +425,14 @@ class UserMockTestSessionAdmin(admin.ModelAdmin):
         except UserMockTestSession.DoesNotExist:
             raise Http404("Session not found")
 
-        queued = self._queue_retryable_session_responses(
+        queued, queue_failures = self._queue_retryable_session_responses(
             UserMockTestSession.objects.filter(pk=session.pk)
         )
 
         self.message_user(
             request,
-            f"{queued} failed/pending response(s) queued for {session.name}.",
+            f"{queued} response(s) queued for {session.name}; {queue_failures} queueing failure(s).",
+            level=messages.ERROR if queue_failures else messages.SUCCESS,
         )
 
         return redirect(request.META.get("HTTP_REFERER") or "../")
@@ -528,25 +537,33 @@ class UserResponseAdmin(admin.ModelAdmin):
                 level="warning",
             )
         else:
-            mode = queue_response_evaluation(response)
-            self.message_user(
-                request,
-                f"Response {response.id} queued for {mode}.",
-            )
+            try:
+                mode = queue_response_evaluation(response)
+                self.message_user(
+                    request,
+                    f"Response {response.id} queued for {mode}.",
+                )
+            except EvaluationQueueUnavailable as exc:
+                self.message_user(request, str(exc), level=messages.ERROR)
 
         return redirect(request.META.get("HTTP_REFERER") or "../")
 
     def requeue_selected_evaluations(self, request, queryset):
         queued = 0
+        queue_failures = 0
         for response in queryset.select_related("question__subsection"):
             if response.evaluation_status in ("transcribing", "evaluating"):
                 continue
-            queue_response_evaluation(response)
-            queued += 1
+            try:
+                queue_response_evaluation(response)
+                queued += 1
+            except EvaluationQueueUnavailable:
+                queue_failures += 1
 
         self.message_user(
             request,
-            f"{queued} responses queued for Celery evaluation.",
+            f"{queued} response(s) queued; {queue_failures} queueing failure(s).",
+            level=messages.ERROR if queue_failures else messages.SUCCESS,
         )
     requeue_selected_evaluations.short_description = "Requeue selected evaluations"
 
@@ -631,24 +648,32 @@ class SingleResponseAdmin(admin.ModelAdmin):
                 level="warning",
             )
         else:
-            mode = queue_response_evaluation(response)
-            self.message_user(
-                request,
-                f"Single response {response.id} queued for {mode}.",
-            )
+            try:
+                mode = queue_response_evaluation(response)
+                self.message_user(
+                    request,
+                    f"Single response {response.id} queued for {mode}.",
+                )
+            except EvaluationQueueUnavailable as exc:
+                self.message_user(request, str(exc), level=messages.ERROR)
 
         return redirect(request.META.get("HTTP_REFERER") or "../")
 
     def requeue_selected_evaluations(self, request, queryset):
         queued = 0
+        queue_failures = 0
         for response in queryset.select_related("question__subsection"):
             if response.evaluation_status in ("transcribing", "evaluating"):
                 continue
-            queue_response_evaluation(response)
-            queued += 1
+            try:
+                queue_response_evaluation(response)
+                queued += 1
+            except EvaluationQueueUnavailable:
+                queue_failures += 1
 
         self.message_user(
             request,
-            f"{queued} single responses queued for Celery evaluation.",
+            f"{queued} single response(s) queued; {queue_failures} queueing failure(s).",
+            level=messages.ERROR if queue_failures else messages.SUCCESS,
         )
     requeue_selected_evaluations.short_description = "Requeue selected evaluations"

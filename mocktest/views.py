@@ -7,8 +7,6 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
-from celery import chain
-from .tasks import transcribe_task,evaluate_user_response,evaluate_single_response,transcribe_single_task
 from .models import Question, MockTest, MockTestSection, UserResponse, UserMockTestSession, SubQuestion,Section,SubSection,SingleResponse
 from .serializers import UserMockTestSession,SingleQuestionSerializer,UserResponseSerializer,MockTestListSerializer,QuestionSerializer,SingleResponseSerializer 
 from .services.transcription import transcribe_and_analyse
@@ -17,6 +15,10 @@ from rest_framework.generics import ListAPIView
 from rest_framework.exceptions import NotFound
 from .services.pdf_service import generate_session_pdf
 from .services.evaluation_status import build_session_evaluation_status
+from .services.evaluation_queue import (
+    EvaluationQueueUnavailable,
+    queue_response_evaluation,
+)
 from django.http import FileResponse
 
 
@@ -199,23 +201,24 @@ class SingleAPIView(APIView):
             transcribed_audio_data=None
         )
         
-        if audio_file:
-            chain(
-                # transcribe_task.s(user_answer.id, temp_path),
-                transcribe_single_task.s(user_answer.id),
-                evaluate_single_response.si(user_answer.id, question.id)
-            ).delay()
-
-        else:
-            evaluate_single_response.delay(user_answer.id, question.id)
+        queue_failed = False
+        try:
+            queue_response_evaluation(user_answer)
+        except EvaluationQueueUnavailable:
+            queue_failed = True
 
         serializer = SingleResponseSerializer(user_answer)
         data = serializer.data
         data["evaluation"] = {
-            "queued": True,
+            "queued": not queue_failed,
             "status": user_answer.evaluation_status,
             "stage": user_answer.evaluation_stage or "queued",
-            "message": "Evaluation queued. Poll evaluation status for results.",
+            "message": (
+                "Answer saved, but evaluation could not be queued. Retry from admin when the queue is healthy."
+                if queue_failed
+                else "Evaluation queued. Poll evaluation status for results."
+            ),
+            "retryable": queue_failed,
         }
         return Response(data, status=status.HTTP_201_CREATED)
 
@@ -410,23 +413,24 @@ class UserResponseAPIView(APIView):
             transcribed_audio_data=None
         )
         
-        if audio_file:
-            chain(
-                # transcribe_task.s(user_answer.id, temp_path),
-                transcribe_task.s(user_answer.id),
-                evaluate_user_response.si(user_answer.id, question.id)
-            ).delay()
-
-        else:
-            evaluate_user_response.delay(user_answer.id, question.id)
+        queue_failed = False
+        try:
+            queue_response_evaluation(user_answer)
+        except EvaluationQueueUnavailable:
+            queue_failed = True
 
         serializer = UserResponseSerializer(user_answer)
         data = serializer.data
         data["evaluation"] = {
-            "queued": True,
+            "queued": not queue_failed,
             "status": user_answer.evaluation_status,
             "stage": user_answer.evaluation_stage or "queued",
-            "message": "Evaluation queued. Poll session evaluation status for results.",
+            "message": (
+                "Answer saved, but evaluation could not be queued. Retry from admin when the queue is healthy."
+                if queue_failed
+                else "Evaluation queued. Poll session evaluation status for results."
+            ),
+            "retryable": queue_failed,
         }
         return Response(data, status=status.HTTP_201_CREATED)
     

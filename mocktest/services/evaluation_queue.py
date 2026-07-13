@@ -18,6 +18,34 @@ class EvaluationQueueUnavailable(RuntimeError):
     pass
 
 
+class EvaluationInputUnavailable(EvaluationQueueUnavailable):
+    pass
+
+
+def question_requires_audio(question):
+    subsection = question.subsection
+    return bool(subsection and subsection.ai_input_type == "audio")
+
+
+def _save_input_failure(response, message):
+    response.evaluation_result = {
+        "ok": False,
+        "stage": "submission",
+        "error": message,
+    }
+    response.evaluation_status = "failed"
+    response.evaluation_stage = "submission"
+    response.evaluation_error = message
+    response.save(
+        update_fields=[
+            "evaluation_result",
+            "evaluation_status",
+            "evaluation_stage",
+            "evaluation_error",
+        ]
+    )
+
+
 def _save_queue_failure(response, error):
     error_type = error.__class__.__name__
     message = f"Evaluation queue unavailable ({error_type}). Retry when Celery/Redis is healthy."
@@ -41,6 +69,14 @@ def _save_queue_failure(response, error):
 
 
 def queue_response_evaluation(response):
+    requires_audio = question_requires_audio(response.question)
+    if requires_audio and not response.answer_audio and not response.transcribed_audio_data:
+        message = (
+            "Audio answer file is missing; transcription and evaluation cannot start."
+        )
+        _save_input_failure(response, message)
+        raise EvaluationInputUnavailable(message)
+
     response.evaluation_status = "pending"
     response.evaluation_stage = ""
     response.evaluation_error = ""
@@ -52,11 +88,9 @@ def queue_response_evaluation(response):
         ]
     )
 
-    subsection = response.question.subsection
     is_single = isinstance(response, SingleResponse)
     needs_transcription = (
-        subsection
-        and subsection.ai_input_type == "audio"
+        requires_audio
         and response.answer_audio
         and not response.transcribed_audio_data
     )

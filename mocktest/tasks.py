@@ -16,6 +16,10 @@ from examinor.services.orchestrator import build_task_rubric
 from examinor.services.orchestrator import run_evaluation_for_subsection
 
 
+class EvaluationTaskFailed(RuntimeError):
+    pass
+
+
 def save_evaluation_failure(response, stage, error, extra=None):
     result = {
         "ok": False,
@@ -158,6 +162,11 @@ def transcribe_task(self,user_response_id,):
     user_response = UserResponse.objects.get(id=user_response_id)
     mark_evaluation_attempt(user_response, "transcribing", "transcription")
 
+    if not user_response.answer_audio:
+        error = "Audio answer file is missing; transcription cannot start."
+        save_evaluation_failure(user_response, "transcription", error)
+        raise EvaluationTaskFailed(error)
+
     input_path = user_response.answer_audio.path
     output_path = f"/tmp/{uuid.uuid4()}.wav"
 
@@ -208,14 +217,14 @@ def evaluate_user_response(self, user_answer_id, question_id):
             question_id,
         )
         if error:
-            return {"error": error}
+            raise EvaluationTaskFailed(error)
 
         question = user_answer.question
 
         if not question.subsection:
             error = f"Question {question.id} has no subsection assigned"
             save_evaluation_failure(user_answer, "evaluation", error)
-            return {"error": error}
+            raise EvaluationTaskFailed(error)
         
         evaluation_payload = {}
 
@@ -227,7 +236,13 @@ def evaluate_user_response(self, user_answer_id, question_id):
 
         if subsection_obj.ai_input_type == "audio":
             if not user_answer.transcribed_audio_data:
-                raise Exception("Audio transcription not completed yet")
+                error = (
+                    "Audio transcription is missing; queue transcription before evaluation."
+                    if user_answer.answer_audio
+                    else "Audio answer file is missing; transcription and evaluation cannot start."
+                )
+                save_evaluation_failure(user_answer, "transcription", error)
+                raise EvaluationTaskFailed(error)
             evaluation_payload["transcribed_audio_data"] = user_answer.transcribed_audio_data
 
         # -------------------------
@@ -265,12 +280,7 @@ def evaluate_user_response(self, user_answer_id, question_id):
             )
             if is_transient_evaluation_error(evaluation_result):
                 raise self.retry(exc=Exception(evaluation_result.get("error")))
-            return {
-                "error": "Evaluation failed",
-                "details": evaluation_result.get("error"),
-                "user_answer_id": user_answer_id,
-                "question_id": queued_question_id,
-            }
+            raise EvaluationTaskFailed(user_answer.evaluation_error)
 
         evaluation_result = validate_evaluation_or_fail(
             user_answer,
@@ -278,11 +288,7 @@ def evaluate_user_response(self, user_answer_id, question_id):
             subsection_obj,
         )
         if evaluation_result is None:
-            return {
-                "error": "Evaluation validation failed",
-                "user_answer_id": user_answer_id,
-                "question_id": queued_question_id,
-            }
+            raise EvaluationTaskFailed("Evaluation validation failed")
 
         with transaction.atomic():
 
@@ -306,6 +312,8 @@ def evaluate_user_response(self, user_answer_id, question_id):
 
     except Retry:
         raise
+    except EvaluationTaskFailed:
+        raise
     except SoftTimeLimitExceeded:
         error = "Evaluation task exceeded its soft time limit"
         try:
@@ -320,7 +328,7 @@ def evaluate_user_response(self, user_answer_id, question_id):
             save_evaluation_failure(user_answer, "evaluation", e)
         except UserResponse.DoesNotExist:
             pass
-        return {"error": "Unexpected error occurred", "details": str(e)}
+        raise
     
 
 
@@ -331,6 +339,11 @@ def evaluate_user_response(self, user_answer_id, question_id):
 def transcribe_single_task(self,user_response_id,):
     user_response = SingleResponse.objects.get(id=user_response_id)
     mark_evaluation_attempt(user_response, "transcribing", "transcription")
+
+    if not user_response.answer_audio:
+        error = "Audio answer file is missing; transcription cannot start."
+        save_evaluation_failure(user_response, "transcription", error)
+        raise EvaluationTaskFailed(error)
 
     input_path = user_response.answer_audio.path
     output_path = f"/tmp/{uuid.uuid4()}.wav"
@@ -380,14 +393,14 @@ def evaluate_single_response(self, user_answer_id, question_id):
             question_id,
         )
         if error:
-            return {"error": error}
+            raise EvaluationTaskFailed(error)
 
         question = user_answer.question
 
         if not question.subsection:
             error = f"Question {question.id} has no subsection assigned"
             save_evaluation_failure(user_answer, "evaluation", error)
-            return {"error": error}
+            raise EvaluationTaskFailed(error)
         
         evaluation_payload = {}
 
@@ -399,7 +412,13 @@ def evaluate_single_response(self, user_answer_id, question_id):
 
         if subsection_obj.ai_input_type == "audio":
             if not user_answer.transcribed_audio_data:
-                raise Exception("Audio transcription not completed yet")
+                error = (
+                    "Audio transcription is missing; queue transcription before evaluation."
+                    if user_answer.answer_audio
+                    else "Audio answer file is missing; transcription and evaluation cannot start."
+                )
+                save_evaluation_failure(user_answer, "transcription", error)
+                raise EvaluationTaskFailed(error)
             evaluation_payload["transcribed_audio_data"] = user_answer.transcribed_audio_data
 
         # -------------------------
@@ -437,12 +456,7 @@ def evaluate_single_response(self, user_answer_id, question_id):
             )
             if is_transient_evaluation_error(evaluation_result):
                 raise self.retry(exc=Exception(evaluation_result.get("error")))
-            return {
-                "error": "Evaluation failed",
-                "details": evaluation_result.get("error"),
-                "user_answer_id": user_answer_id,
-                "question_id": queued_question_id,
-            }
+            raise EvaluationTaskFailed(user_answer.evaluation_error)
 
         evaluation_result = validate_evaluation_or_fail(
             user_answer,
@@ -450,11 +464,7 @@ def evaluate_single_response(self, user_answer_id, question_id):
             subsection_obj,
         )
         if evaluation_result is None:
-            return {
-                "error": "Evaluation validation failed",
-                "user_answer_id": user_answer_id,
-                "question_id": queued_question_id,
-            }
+            raise EvaluationTaskFailed("Evaluation validation failed")
 
         with transaction.atomic():
 
@@ -478,6 +488,8 @@ def evaluate_single_response(self, user_answer_id, question_id):
 
     except Retry:
         raise
+    except EvaluationTaskFailed:
+        raise
     except SoftTimeLimitExceeded:
         error = "Evaluation task exceeded its soft time limit"
         try:
@@ -492,7 +504,7 @@ def evaluate_single_response(self, user_answer_id, question_id):
             save_evaluation_failure(user_answer, "evaluation", e)
         except SingleResponse.DoesNotExist:
             pass
-        return {"error": "Unexpected error occurred", "details": str(e)}
+        raise
 
 
 @shared_task

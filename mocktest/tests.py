@@ -20,6 +20,7 @@ from mocktest.models import (
 )
 from mocktest.services.pdf_service import build_session_pdf_context
 from mocktest.services.evaluation_queue import (
+    EvaluationInputUnavailable,
     EvaluationQueueUnavailable,
     queue_response_evaluation,
 )
@@ -463,6 +464,50 @@ class UserResponseSubmissionTests(TestCase):
         self.assertEqual(saved.question_id, question.id)
         mock_delay.assert_called_once_with(saved.id, question.id)
 
+    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
+    def test_user_response_requires_audio_file_for_audio_question(self, mock_delay):
+        mock_test = MockTest.objects.create(title="Audio Test")
+        question = self._create_question_set(mock_test, "Speaking", "RA-1")
+        question.subsection.ai_input_type = "audio"
+        question.subsection.save(update_fields=["ai_input_type"])
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="missing-audio-session",
+            mock_test=mock_test,
+        )
+
+        response = self.client.post(
+            "/mocktest/user-response/",
+            {
+                "session_id": session.session_id,
+                "question_id": question.id,
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("answer_audio is required", response.json()["error"])
+        self.assertFalse(UserResponse.objects.exists())
+        mock_delay.assert_not_called()
+
+    @patch("mocktest.services.evaluation_queue.evaluate_single_response.delay")
+    def test_single_response_requires_audio_file_for_audio_question(self, mock_delay):
+        mock_test = MockTest.objects.create(title="Single Audio Test")
+        question = self._create_question_set(mock_test, "Speaking", "RA-1")
+        question.subsection.ai_input_type = "audio"
+        question.subsection.save(update_fields=["ai_input_type"])
+
+        response = self.client.post(
+            "/mocktest/single-response/",
+            {"name": "Student", "question_id": question.id},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("answer_audio is required", response.json()["error"])
+        self.assertFalse(SingleResponse.objects.exists())
+        mock_delay.assert_not_called()
+
     def test_session_evaluation_status_reports_progress(self):
         mock_test = MockTest.objects.create(title="Status Test")
         first_question = self._create_question_set(mock_test, "Writing One", "Q-1")
@@ -608,6 +653,31 @@ class EvaluationRepairToolTests(TestCase):
         self.assertIn("Evaluation queue unavailable", response.evaluation_error)
         self.assertEqual(response.evaluation_result["stage"], "queueing")
 
+    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
+    def test_queue_helper_rejects_audio_response_without_audio(self, mock_delay):
+        mock_test, question = self._create_question()
+        question.subsection.ai_input_type = "audio"
+        question.subsection.save(update_fields=["ai_input_type"])
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="queue-missing-audio-session",
+            mock_test=mock_test,
+        )
+        response = UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+        )
+
+        with self.assertRaises(EvaluationInputUnavailable):
+            queue_response_evaluation(response)
+
+        response.refresh_from_db()
+        self.assertEqual(response.evaluation_status, "failed")
+        self.assertEqual(response.evaluation_stage, "submission")
+        self.assertIn("Audio answer file is missing", response.evaluation_error)
+        mock_delay.assert_not_called()
+
     def test_evaluation_task_persists_question_id_mismatch_failure(self):
         mock_test, question = self._create_question()
         session = UserMockTestSession.objects.create(
@@ -625,7 +695,8 @@ class EvaluationRepairToolTests(TestCase):
         result = evaluate_user_response.apply(args=(response.id, question.id + 999))
 
         response.refresh_from_db()
-        self.assertIn("does not match", result.result["error"])
+        self.assertTrue(result.failed())
+        self.assertIn("does not match", str(result.result))
         self.assertFalse(response.evaluated)
         self.assertEqual(response.evaluation_status, "failed")
         self.assertEqual(response.evaluation_stage, "evaluation")
@@ -648,11 +719,36 @@ class EvaluationRepairToolTests(TestCase):
         result = evaluate_user_response.apply(args=(response.id, "not-a-number"))
 
         response.refresh_from_db()
-        self.assertIn("not a valid integer", result.result["error"])
+        self.assertTrue(result.failed())
+        self.assertIn("not a valid integer", str(result.result))
         self.assertFalse(response.evaluated)
         self.assertEqual(response.evaluation_status, "failed")
         self.assertEqual(response.evaluation_stage, "evaluation")
         self.assertIn("not a valid integer", response.evaluation_error)
+
+    def test_evaluation_task_reports_missing_audio_as_celery_failure(self):
+        mock_test, question = self._create_question()
+        question.subsection.ai_input_type = "audio"
+        question.subsection.save(update_fields=["ai_input_type"])
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="task-missing-audio-session",
+            mock_test=mock_test,
+        )
+        response = UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+        )
+
+        result = evaluate_user_response.apply(args=(response.id, question.id))
+
+        response.refresh_from_db()
+        self.assertTrue(result.failed())
+        self.assertIn("Audio answer file is missing", str(result.result))
+        self.assertEqual(response.evaluation_status, "failed")
+        self.assertEqual(response.evaluation_stage, "transcription")
+        self.assertIn("Audio answer file is missing", response.evaluation_error)
 
     def test_single_evaluation_task_persists_question_id_mismatch_failure(self):
         _, question = self._create_question()
@@ -667,7 +763,8 @@ class EvaluationRepairToolTests(TestCase):
         result = evaluate_single_response.apply(args=(response.id, question.id + 999))
 
         response.refresh_from_db()
-        self.assertIn("does not match", result.result["error"])
+        self.assertTrue(result.failed())
+        self.assertIn("does not match", str(result.result))
         self.assertFalse(response.evaluated)
         self.assertEqual(response.evaluation_status, "failed")
         self.assertEqual(response.evaluation_stage, "evaluation")

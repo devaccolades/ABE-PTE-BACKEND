@@ -17,6 +17,7 @@ from .services.pdf_service import generate_session_pdf
 from .services.evaluation_status import build_session_evaluation_status
 from .services.evaluation_queue import (
     EvaluationQueueUnavailable,
+    question_requires_audio,
     queue_response_evaluation,
 )
 from django.http import FileResponse
@@ -190,6 +191,12 @@ class SingleAPIView(APIView):
             return Response(
                 {"error": "Duplicate question_name. Use question_id."},
                 status=status.HTTP_409_CONFLICT,
+            )
+
+        if question_requires_audio(question) and not audio_file:
+            return Response(
+                {"error": "answer_audio is required for this audio question."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
                     
@@ -387,6 +394,12 @@ class UserResponseAPIView(APIView):
             return Response(
                 {"error": "Duplicate question_name in this mock test. Use unique question names."},
                 status=status.HTTP_409_CONFLICT,
+            )
+
+        if question_requires_audio(question) and not audio_file:
+            return Response(
+                {"error": "answer_audio is required for this audio question."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:

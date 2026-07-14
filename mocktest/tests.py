@@ -23,6 +23,7 @@ from mocktest.models import (
     UserResponse,
     SingleResponse,
 )
+from mocktest.forms import QuestionAdminForm
 from mocktest.services.pdf_service import build_session_pdf_context
 from mocktest.serializers import QuestionSerializer
 from mocktest.services.evaluation_queue import (
@@ -746,6 +747,163 @@ class QuestionBankAuditCommandTests(TestCase):
         self.assertIn("invalid_trait_skill_contract", codes)
         self.assertIn("reading maximum is zero", problems)
         self.assertNotIn("listening maximum is zero", problems)
+
+
+class RepairQuestionBankSystemConfigCommandTests(TestCase):
+    def test_dry_run_then_apply_repairs_read_aloud_and_rescores_without_ai(self):
+        mock_test = MockTest.objects.create(title="Speaking Test")
+        section = Section.objects.create(name="Speaking")
+        mock_test_section = MockTestSection.objects.create(
+            mock_test=mock_test,
+            section=section,
+        )
+        subsection = SubSection.objects.create(
+            section=section,
+            name="read_aloud",
+            rubric={"content": {"max": 6}},
+            trait_skill_map={"content": ["speaking", "listening"]},
+        )
+        question = Question.objects.create(
+            mock_test_section=mock_test_section,
+            subsection=subsection,
+            speaking_score_max=6,
+        )
+        session = UserMockTestSession.objects.create(
+            name="Reader",
+            session_id="system-repair-session",
+            mock_test=mock_test,
+        )
+        response = UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            evaluated=True,
+            evaluation_status="completed",
+            evaluation_result={
+                "ok": True,
+                "evaluation": {
+                    "scores": {"content": {"score": 4, "max": 6}}
+                },
+            },
+        )
+
+        stdout = StringIO()
+        call_command("repair_question_bank_system_config", stdout=stdout)
+        subsection.refresh_from_db()
+        question.refresh_from_db()
+
+        self.assertEqual(
+            subsection.trait_skill_map,
+            {"content": ["speaking", "listening"]},
+        )
+        self.assertIsNone(question.reading_score_max)
+        self.assertIn("Dry run only", stdout.getvalue())
+
+        call_command(
+            "repair_question_bank_system_config",
+            "--apply",
+            "--rescore-existing",
+        )
+        subsection.refresh_from_db()
+        question.refresh_from_db()
+        response.refresh_from_db()
+
+        self.assertEqual(
+            subsection.trait_skill_map,
+            {"content": ["reading", "speaking"]},
+        )
+        self.assertEqual(question.reading_score_max, 6)
+        self.assertEqual(response.speaking_score_awarded, 4)
+        self.assertEqual(response.reading_score_awarded, 4)
+        self.assertEqual(response.listening_score_awarded, 0)
+
+    def test_preserves_existing_nonzero_question_maximum(self):
+        section = Section.objects.create(name="Writing")
+        subsection = SubSection.objects.create(
+            section=section,
+            name="write_essay",
+            rubric={
+                "content": {"max": 3},
+                "grammar": {"max": 2},
+            },
+            trait_skill_map={
+                "content": ["writing"],
+                "grammar": ["writing"],
+            },
+        )
+        question = Question.objects.create(
+            subsection=subsection,
+            writing_score_max=4,
+        )
+
+        call_command("repair_question_bank_system_config", "--apply")
+        question.refresh_from_db()
+
+        self.assertEqual(question.writing_score_max, 4)
+
+    def test_question_admin_form_derives_missing_skill_maxima(self):
+        mock_test = MockTest.objects.create(title="Writing Test")
+        section = Section.objects.create(name="Writing")
+        mock_test_section = MockTestSection.objects.create(
+            mock_test=mock_test,
+            section=section,
+        )
+        subsection = SubSection.objects.create(
+            section=section,
+            name="write_essay",
+            rubric={
+                "content": {"max": 3},
+                "grammar": {"max": 2},
+            },
+            trait_skill_map={
+                "content": ["writing"],
+                "grammar": ["writing"],
+            },
+        )
+        form = QuestionAdminForm(data={
+            "mock_test_section": mock_test_section.pk,
+            "question_type": "single_answer",
+            "difficulty": "medium",
+            "subsection": subsection.pk,
+            "name": "Essay Q1",
+            "text": "Write an essay.",
+            "reading_time": 0,
+            "answering_time": 1200,
+            "speaking_score_max": "",
+            "writing_score_max": "",
+            "reading_score_max": "",
+            "listening_score_max": "",
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        question = form.save()
+
+        self.assertEqual(question.writing_score_max, 5)
+
+    def test_question_admin_form_rejects_section_mismatch(self):
+        mock_test = MockTest.objects.create(title="Mixed Test")
+        speaking = Section.objects.create(name="Speaking")
+        reading = Section.objects.create(name="Reading")
+        mock_test_section = MockTestSection.objects.create(
+            mock_test=mock_test,
+            section=speaking,
+        )
+        subsection = SubSection.objects.create(
+            section=reading,
+            name="mc_single",
+        )
+        form = QuestionAdminForm(data={
+            "mock_test_section": mock_test_section.pk,
+            "question_type": "single_answer",
+            "difficulty": "medium",
+            "subsection": subsection.pk,
+            "name": "Mismatched question",
+            "reading_time": 0,
+            "answering_time": 30,
+        })
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("must belong to the same section", str(form.errors))
 
 
 class DraftReadingExplanationsCommandTests(TestCase):

@@ -9,14 +9,14 @@ from examinor.services.rule_evaluator import (
     run_rule_evaluation,
 )
 from mocktest.models import Question
+from mocktest.services.question_config import (
+    CANONICAL_TRAIT_SKILL_CONTRACTS,
+    VALID_SKILLS,
+)
 
 
-VALID_SKILLS = {"speaking", "writing", "reading", "listening"}
 MEDIA_REQUIRED_SECTIONS = {"Listening"}
 IMAGE_REQUIRED_SUBSECTIONS = {"describe_image"}
-REQUIRED_TRAIT_SKILLS = {
-    ("read_aloud", "content"): {"speaking", "reading"},
-}
 
 
 class EmptyAnswer:
@@ -237,7 +237,9 @@ class Command(BaseCommand):
                     )
                 mapped_skills.update(set(skills) & VALID_SKILLS)
 
-                required = REQUIRED_TRAIT_SKILLS.get((subsection.name, trait))
+                required = CANONICAL_TRAIT_SKILL_CONTRACTS.get(
+                    (subsection.name, trait)
+                )
                 if required:
                     actual = set(skills) & VALID_SKILLS
                     missing = sorted(required - actual)

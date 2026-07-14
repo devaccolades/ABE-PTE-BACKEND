@@ -1,0 +1,70 @@
+:root {
+    --abe-accent: #e23d43;
+    --abe-background: #f8fafc;
+    --abe-card: #ffffff;
+    --abe-border: #e5e7eb;
+    --abe-heading: #1e293b;
+    --abe-body: #475569;
+    --abe-muted: #94a3b8;
+    --abe-sidebar: #0f172a;
+    --abe-success: #22c55e;
+    --abe-warning: #f59e0b;
+    --abe-danger: #ef4444;
+}
+
+#nav-sidebar,
+#nav-sidebar-inner {
+    background: var(--abe-sidebar) !important;
+    border-color: var(--abe-heading) !important;
+}
+
+#nav-sidebar h2,
+#nav-sidebar .material-symbols-outlined {
+    color: #f8fafc !important;
+}
+
+#nav-sidebar a {
+    color: #cbd5e1 !important;
+}
+
+#nav-sidebar a:hover {
+    background: rgb(20 179 239 / 12%) !important;
+    color: #ffffff !important;
+}
+
+#nav-sidebar a.bg-base-100 {
+    background: rgb(20 179 239 / 18%) !important;
+    color: #e8f8fe !important;
+}
+
+#nav-sidebar hr,
+#nav-sidebar input {
+    border-color: #334155 !important;
+}
+
+#nav-sidebar input {
+    background: #1e293b !important;
+    color: #f8fafc !important;
+}
+
+.abe-status-primary {
+    color: #0e9ed6 !important;
+}
+
+.abe-status-success {
+    color: var(--abe-success) !important;
+}
+
+.abe-status-warning {
+    color: var(--abe-warning) !important;
+}
+
+.abe-status-danger {
+    color: var(--abe-danger) !important;
+}
+
+.deletelink,
+input[name="_delete"] {
+    background-color: var(--abe-accent) !important;
+    border-color: var(--abe-accent) !important;
+}

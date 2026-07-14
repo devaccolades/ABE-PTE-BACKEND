@@ -1,4 +1,5 @@
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from django.test import SimpleTestCase, TestCase
 from django.test import override_settings
@@ -13,6 +14,7 @@ from examinor.services.orchestrator import (
 )
 from examinor.services.prompt_builder import build_prompt, normalize_answer_text
 from examinor.services.rule_evaluator import run_rule_evaluation
+from examinor.services.explanation_drafter import draft_question_explanation
 from mocktest.services.transcription import transcribe_audio
 from mocktest.models import Question, QuestionOption, Section, SubQuestion, SubSection
 
@@ -392,6 +394,11 @@ class RuleEvaluatorTests(TestCase):
         )
 
         self.assertEqual(result["evaluation"]["scores"]["reading"]["score"], 0.25)
+        feedback = result["evaluation"]["feedback"]
+        self.assertEqual(feedback["summary"], "1 of 4 blanks were correct.")
+        self.assertEqual(len(feedback["details"]), 4)
+        self.assertEqual(feedback["details"][0]["status"], "correct")
+        self.assertEqual(feedback["details"][1]["status"], "incorrect")
 
     def test_scores_reorder_paragraphs_by_adjacent_pairs(self):
         subsection = SubSection.objects.create(
@@ -426,6 +433,10 @@ class RuleEvaluatorTests(TestCase):
         )
 
         self.assertEqual(result["evaluation"]["scores"]["reading"]["score"], 0.25)
+        self.assertEqual(
+            result["evaluation"]["feedback"]["summary"],
+            "1 of 4 adjacent paragraph pair(s) were correct.",
+        )
 
         Answer.answer_data = {
             str(position): option.id
@@ -438,3 +449,33 @@ class RuleEvaluatorTests(TestCase):
         )
 
         self.assertEqual(result["evaluation"]["scores"]["reading"]["score"], 1.0)
+
+
+class ExplanationDrafterTests(TestCase):
+    @patch("examinor.services.explanation_drafter.get_openai_client")
+    def test_drafts_reusable_explanation_from_correct_answer_data(self, get_client):
+        section = Section.objects.create(name="Reading")
+        subsection = SubSection.objects.create(section=section, name="mc_single")
+        question = Question.objects.create(
+            subsection=subsection,
+            text="Which option is correct?",
+        )
+        QuestionOption.objects.create(
+            question=question,
+            option_text="Correct option",
+            is_correct=True,
+        )
+        create = get_client.return_value.responses.create
+        create.return_value = SimpleNamespace(
+            output_text="The correct option follows directly from the passage."
+        )
+
+        explanation = draft_question_explanation(question)
+
+        self.assertEqual(
+            explanation,
+            "The correct option follows directly from the passage.",
+        )
+        prompt = create.call_args.kwargs["input"]
+        self.assertIn("Correct option", prompt)
+        self.assertIn("Which option is correct?", prompt)

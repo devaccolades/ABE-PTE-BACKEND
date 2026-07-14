@@ -136,6 +136,59 @@ class SessionPdfContextTests(TestCase):
 
         self.assertEqual(context["skills"]["reading"], 45.0)
 
+    def test_reading_report_shows_answer_review_explanation_and_summary(self):
+        mock_test = MockTest.objects.create(title="PTE Mock Test")
+        section = Section.objects.create(name="Reading")
+        mock_test_section = MockTestSection.objects.create(
+            mock_test=mock_test,
+            section=section,
+            order=1,
+        )
+        subsection = SubSection.objects.create(section=section, name="mc_single")
+        question = Question.objects.create(
+            mock_test_section=mock_test_section,
+            subsection=subsection,
+            reading_score_max=1,
+            answer_explanation="The passage directly supports the correct option.",
+        )
+        session = UserMockTestSession.objects.create(
+            name="Reader",
+            session_id="reading-feedback-session",
+            mock_test=mock_test,
+        )
+        UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            reading_score_awarded=0.5,
+            evaluated=True,
+            evaluation_status="completed",
+            evaluation_result={
+                "evaluation": {
+                    "scores": {"reading": {"score": 0.5, "max": 1}},
+                    "feedback": {
+                        "summary": "Partially correct.",
+                        "details": [{
+                            "label": "Answer",
+                            "status": "partial",
+                            "selected": "Selected option",
+                            "correct": "Correct option",
+                        }],
+                        "explanation": "The passage directly supports the correct option.",
+                    },
+                }
+            },
+        )
+
+        context = build_session_pdf_context(session)
+        html = render_to_string("pdf/session_report.html", context)
+
+        self.assertEqual(context["sections"][0]["summary"]["accuracy"], 50.0)
+        self.assertIn("Reading performance:", html)
+        self.assertIn("Selected option", html)
+        self.assertIn("Correct option", html)
+        self.assertIn("The passage directly supports the correct option.", html)
+
 
     def test_context_and_template_show_incomplete_evaluation_warning(self):
         mock_test = MockTest.objects.create(title="PTE Mock Test")
@@ -183,7 +236,7 @@ class SessionPdfContextTests(TestCase):
         self.assertIn("Failed: 1", html)
         self.assertIn("Evaluation returned no score data.", html)
 
-    def test_context_and_template_show_duplicate_response_warning(self):
+    def test_context_has_no_duplicate_warning_with_unique_responses(self):
         mock_test = MockTest.objects.create(title="PTE Mock Test")
         section = Section.objects.create(name="Writing")
         mock_test_section = MockTestSection.objects.create(
@@ -203,8 +256,8 @@ class SessionPdfContextTests(TestCase):
             text="Write an essay.",
         )
         session = UserMockTestSession.objects.create(
-            name="Student Duplicate",
-            session_id="duplicate-pdf-session",
+            name="Student",
+            session_id="unique-pdf-session",
             mock_test=mock_test,
         )
         UserResponse.objects.create(
@@ -215,27 +268,14 @@ class SessionPdfContextTests(TestCase):
             evaluated=True,
             evaluation_status="completed",
         )
-        UserResponse.objects.create(
-            user_session=session,
-            mock_test=mock_test,
-            question=question,
-            answer_data={"text": "Second answer"},
-            evaluated=True,
-            evaluation_status="completed",
-        )
-
         context = build_session_pdf_context(session)
 
-        self.assertEqual(context["evaluation_summary"]["duplicate_groups"], 1)
-        self.assertEqual(context["evaluation_summary"]["duplicate_rows"], 1)
-        responses = context["sections"][0]["subsections"][0]["responses"]
-        self.assertTrue(all(response["is_duplicate"] for response in responses))
+        self.assertEqual(context["evaluation_summary"]["duplicate_groups"], 0)
+        self.assertEqual(context["evaluation_summary"]["duplicate_rows"], 0)
 
         html = render_to_string("pdf/session_report.html", context)
 
-        self.assertIn("Duplicate responses detected.", html)
-        self.assertIn("Duplicate response row.", html)
-        self.assertIn("Duplicate count for this question: 2", html)
+        self.assertNotIn("Duplicate responses detected.", html)
 
 
 class PublicQuestionSerializerTests(TestCase):
@@ -258,6 +298,8 @@ class PublicQuestionSerializerTests(TestCase):
         data = QuestionSerializer(question).data
         option = data["sub_questions"][0]["options"][0]
 
+        self.assertNotIn("answer_explanation", data)
+        self.assertNotIn("answer_explanation_draft", data)
         self.assertNotIn("correct_answer", data["sub_questions"][0])
         self.assertNotIn("is_correct", option)
         self.assertNotIn("order_position", option)
@@ -372,6 +414,42 @@ class RuleQuestionConfigCommandTests(TestCase):
         )
 
         self.assertIn("looks healthy", stdout.getvalue())
+
+
+class DraftReadingExplanationsCommandTests(TestCase):
+    @patch("mocktest.management.commands.draft_reading_explanations.draft_question_explanation")
+    def test_dry_run_does_not_call_openai_and_confirm_saves_draft(self, draft):
+        section = Section.objects.create(name="Reading")
+        subsection = SubSection.objects.create(
+            section=section,
+            name="mc_single",
+            evaluation_type="rule",
+        )
+        question = Question.objects.create(
+            subsection=subsection,
+            text="Question needing an explanation",
+        )
+        stdout = StringIO()
+
+        call_command("draft_reading_explanations", stdout=stdout)
+
+        draft.assert_not_called()
+        self.assertIn("Dry run only", stdout.getvalue())
+
+        draft.return_value = "A reusable reviewed explanation."
+        call_command(
+            "draft_reading_explanations",
+            "--question-id",
+            str(question.pk),
+            "--confirm",
+        )
+        question.refresh_from_db()
+
+        self.assertEqual(question.answer_explanation, "")
+        self.assertEqual(
+            question.answer_explanation_draft,
+            "A reusable reviewed explanation.",
+        )
 
 
 class UserResponseSubmissionTests(TestCase):

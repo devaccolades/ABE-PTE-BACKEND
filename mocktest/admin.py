@@ -4,7 +4,7 @@ from django.urls import path, reverse
 from django.http import FileResponse, Http404
 from django.shortcuts import redirect
 from django.utils.html import format_html
-from django.db.models import Max, Prefetch, Q
+from django.db.models import F, Max, Prefetch, Q
 
 from .models import *
 from .services.pdf_service import generate_session_pdf
@@ -225,19 +225,38 @@ class SubSectionAdmin(admin.ModelAdmin):
 class QuestionAdmin(admin.ModelAdmin):
     list_display = (
         'name', 'id', 'question_type', 'subsection',
+        'explanation_status', 'explanation_draft_status',
         'reading_time', 'answering_time',
         'speaking_score_max', 'writing_score_max',
         'reading_score_max', 'listening_score_max'
     )
 
-    search_fields = ('name', 'text')
+    search_fields = ('name', 'text', 'answer_explanation')
     list_filter = ('question_type', 'subsection')
     ordering = ['subsection__id', 'id']
+    actions = ['publish_explanation_drafts']
 
     def get_inlines(self, request, obj=None):
         if obj and obj.question_type == 'fill_blank':
             return [SubQuestionInline]
         return [QuestionOptionInline]
+
+    @admin.display(description="Explanation", boolean=True)
+    def explanation_status(self, obj):
+        return bool(obj.answer_explanation)
+
+    @admin.display(description="AI draft", boolean=True)
+    def explanation_draft_status(self, obj):
+        return bool(obj.answer_explanation_draft)
+
+    @admin.action(description="Publish reviewed explanation drafts")
+    def publish_explanation_drafts(self, request, queryset):
+        ready = queryset.exclude(answer_explanation_draft="")
+        updated = ready.update(answer_explanation=F("answer_explanation_draft"))
+        self.message_user(
+            request,
+            f"Published {updated} reviewed question explanation(s).",
+        )
 
 
 @admin.register(QuestionOption)

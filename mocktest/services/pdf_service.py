@@ -193,6 +193,9 @@ def _score_items(scores):
 
 
 def _feedback_items(feedback):
+    if isinstance(feedback, str):
+        return [{"label": "Feedback", "text": feedback}] if feedback.strip() else []
+
     if not isinstance(feedback, dict):
         return []
 
@@ -202,8 +205,35 @@ def _feedback_items(feedback):
             "text": _as_display_text(value),
         }
         for key, value in feedback.items()
+        if key not in {"details", "explanation"}
         if value not in (None, "")
     ]
+
+
+def _feedback_details(feedback):
+    if not isinstance(feedback, dict):
+        return []
+    details = feedback.get("details")
+    return details if isinstance(details, list) else []
+
+
+def _reading_section_summary(subsections):
+    scored = [subsection for subsection in subsections if subsection["total_max"] > 0]
+    if not scored:
+        return None
+
+    total_score = sum(subsection["total_score"] for subsection in scored)
+    total_max = sum(subsection["total_max"] for subsection in scored)
+    accuracy = round((total_score / total_max) * 100, 1)
+    strongest = max(scored, key=lambda subsection: subsection["percent"])
+    focus = min(scored, key=lambda subsection: subsection["percent"])
+    return {
+        "accuracy": accuracy,
+        "strongest": strongest["title"],
+        "strongest_percent": strongest["percent"],
+        "focus": focus["title"],
+        "focus_percent": focus["percent"],
+    }
 
 
 def _evaluation_summary(responses):
@@ -316,6 +346,12 @@ def build_session_pdf_context(session):
             },
             "scores": _score_items(scores),
             "feedback": _feedback_items(feedback),
+            "feedback_details": _feedback_details(feedback),
+            "answer_explanation": (
+                feedback.get("explanation", "")
+                if isinstance(feedback, dict)
+                else question.answer_explanation
+            ) or question.answer_explanation,
             "total_score": (
                 (r.speaking_score_awarded or 0) +
                 (r.writing_score_awarded or 0) +
@@ -344,9 +380,17 @@ def build_session_pdf_context(session):
             subsection_data["avg_score"] = avg_score
             subsection_data["avg_max"] = avg_max
             subsection_data["avg_percent"] = _score_percent(avg_score, avg_max)
+            subsection_data["total_score"] = total
+            subsection_data["total_max"] = maximum
+            subsection_data["percent"] = round(_score_percent(total, maximum), 1)
             subsections.append(subsection_data)
 
         section_data["subsections"] = subsections
+        section_data["summary"] = (
+            _reading_section_summary(subsections)
+            if "reading" in section_data["title"].lower()
+            else None
+        )
         sections.append(section_data)
 
     return {

@@ -177,6 +177,16 @@ class Question(models.Model):
     audio = models.FileField(upload_to="questions/audio/", blank=True, null=True)
     image = models.FileField(upload_to="questions/images/", blank=True, null=True)
     correct_answer = models.TextField(blank=True, null=True)
+    answer_explanation = models.TextField(
+        blank=True,
+        default="",
+        help_text="Candidate-facing explanation shown after evaluation.",
+    )
+    answer_explanation_draft = models.TextField(
+        blank=True,
+        default="",
+        help_text="AI-generated draft awaiting administrator review.",
+    )
     reading_time = models.PositiveIntegerField(
         help_text="Time allowed to read question in seconds", default=0
     )

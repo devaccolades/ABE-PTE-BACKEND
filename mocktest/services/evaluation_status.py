@@ -36,6 +36,8 @@ def build_session_evaluation_status(session, include_responses=False):
     payload = {
         "session_id": session.session_id,
         "session_pk": session.pk,
+        "exam_completed": session.is_completed,
+        "exam_completed_at": session.completed_at,
         "student": session.name,
         "mock_test_id": str(session.mock_test_id),
         "mock_test_title": session.mock_test.title,

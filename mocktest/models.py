@@ -1,5 +1,6 @@
 import uuid
 from django.db import models
+from django.utils import timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -262,6 +263,16 @@ class UserMockTestSession(models.Model):
     writing_score_awarded = models.FloatField(default=0)
     reading_score_awarded = models.FloatField(default=0)
     listening_score_awarded = models.FloatField(default=0)
+
+    def mark_completed(self):
+        """Idempotently record that the candidate finished submitting the exam."""
+        if self.is_completed and self.completed_at:
+            return False
+
+        self.is_completed = True
+        self.completed_at = self.completed_at or timezone.now()
+        self.save(update_fields=["is_completed", "completed_at"])
+        return True
 
     def aggregate_scores(self):
         """

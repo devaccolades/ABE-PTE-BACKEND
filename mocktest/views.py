@@ -1,6 +1,7 @@
 import os
 import uuid
 import tempfile
+import logging
 from urllib.parse import urlencode
 from django.db import DatabaseError, IntegrityError, transaction
 from rest_framework.views import APIView
@@ -21,6 +22,27 @@ from .services.evaluation_queue import (
     queue_response_evaluation,
 )
 from django.http import FileResponse
+
+
+logger = logging.getLogger(__name__)
+
+
+def required_audio_error(question, audio_file, request):
+    if not question_requires_audio(question):
+        return None
+    if audio_file and audio_file.size > 0:
+        return None
+
+    logger.warning(
+        "Rejected audio response without a usable upload: question_id=%s "
+        "subsection=%s content_type=%s file_fields=%s audio_size=%s",
+        question.id,
+        question.subsection.name,
+        request.content_type,
+        sorted(request.FILES.keys()),
+        getattr(audio_file, "size", None),
+    )
+    return "A non-empty answer_audio file is required for this audio question."
 
 
 def normalize_question_lookup(question_id=None, question_name=None):
@@ -193,9 +215,14 @@ class SingleAPIView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        if question_requires_audio(question) and not audio_file:
+        audio_error = required_audio_error(question, audio_file, request)
+        if audio_error:
             return Response(
-                {"error": "answer_audio is required for this audio question."},
+                {
+                    "error": audio_error,
+                    "code": "audio_upload_required",
+                    "retryable": True,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -396,9 +423,14 @@ class UserResponseAPIView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        if question_requires_audio(question) and not audio_file:
+        audio_error = required_audio_error(question, audio_file, request)
+        if audio_error:
             return Response(
-                {"error": "answer_audio is required for this audio question."},
+                {
+                    "error": audio_error,
+                    "code": "audio_upload_required",
+                    "retryable": True,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

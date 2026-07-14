@@ -1,115 +1,98 @@
 # Question Bank Owner Messages
 
-These messages are intended for the people who created each mock test. The shared Read Aloud mapping will be corrected centrally. Owners only need to confirm the Reading maximum on their Read Aloud questions.
+Generated from `question_bank_grouped_by_mock_test.xlsx` after excluding shared
+trait-mapping and missing-score-maximum repairs handled centrally by the backend.
 
-## Hitha
+Do not delete questions or submitted responses. Update only the answer metadata
+listed below, then notify the backend team so the audit and affected results can
+be recalculated.
 
-Hi Hitha, while validating **Hitha Test 01**, we found a few question settings that need correction before we recalculate results.
+## Mock Test 6452
 
-- Read Aloud IDs `1, 3, 102, 103, 104, 105, 106, 110`: confirm and set the intended Reading score maximum.
-- Reading Drag and Drop IDs `399, 400, 401, 402`: mark the correct options and their correct blank positions.
-- Listening Fill in the Blanks IDs `540, 541, 542`: enter each correct missing word in blank order.
-- Highlight Incorrect Words IDs `550, 551, 552`: enter the accurate spoken transcript, or the incorrect displayed words separated by `|`.
-- Write from Dictation ID `556`: enter the exact spoken sentence as the correct answer.
+Hi, we completed the system-level corrections for **6452**. Please make these
+remaining question-content corrections:
 
-Please do not delete questions or submitted responses. Let me know once these question settings are updated.
+- Question `30` (Reorder Paragraphs): add at least two paragraphs and set their correct order.
+- Question `411` (Reading Drag and Drop): mark the correct options and assign each correct blank position.
+- Questions `420, 422` (Listening Fill in the Blanks): add each missing word to the blank's **Correct answer** field in order.
+- Questions `428, 437` (Highlight Incorrect Words): add the accurate transcript to **Correct answer**, or enter the incorrect displayed words separated by `|`.
 
-## Athira
+## Anishya_T1
 
-Hi Athira, while validating **Athira** and **ATHIRA MT2**, we found some question settings that need correction before results are recalculated.
+Hi Anishya, we completed the system-level corrections for **Anishya_T1**. Please
+make these remaining question-content corrections:
 
-- Read Aloud IDs `10, 112, 114, 116, 117, 119`: confirm and set the intended Reading score maximum.
-- Listening Fill in the Blanks IDs `31, 215`: enter each correct missing word in blank order.
-- Highlight Incorrect Words IDs `38, 205`: enter the accurate spoken transcript, or the incorrect displayed words separated by `|`.
-- Summarize Written Text IDs `661, 662`: set the intended Writing and Reading score maximums.
-- Write Essay ID `663`: set the intended Writing score maximum.
-- Reading Fill in the Blanks ID `664`: set the intended Reading score maximum.
-
-Please do not delete questions or submitted responses. Let me know once these question settings are updated.
-
-## Bindu
-
-Hi Bindu, while validating **Bindu_T1**, we found some question settings that need correction before results are recalculated.
-
-- Read Aloud IDs `23, 47, 54, 133, 135, 136`: confirm and set the intended Reading score maximum.
-- Listening Fill in the Blanks IDs `307, 308`: enter each correct missing word in blank order.
-- Highlight Incorrect Words IDs `309, 310`: enter the accurate spoken transcript, or the incorrect displayed words separated by `|`.
-
-Please do not delete questions or submitted responses. Let me know once these question settings are updated.
-
-## Salini
-
-Hi Salini, while validating **Salini**, we found some question settings that need correction before results are recalculated.
-
-- Read Aloud IDs `58, 206, 207, 208, 209, 660`: confirm and set the intended Reading score maximum.
-- Listening Fill in the Blanks IDs `76, 583`: enter each correct missing word in blank order.
-- Highlight Incorrect Words IDs `134, 607`: enter the accurate spoken transcript, or the incorrect displayed words separated by `|`.
-- Reading Drag and Drop ID `560`: set the intended Reading score maximum.
-- Reading Multiple Choice ID `565`: set the intended Reading score maximum.
-- Repeat Sentence ID `212`: assign it to the correct mock-test section if it should be included in the test.
-
-Please do not delete questions or submitted responses. Let me know once these question settings are updated.
+- Questions `652, 655` (Listening Fill in the Blanks): add each missing word to the blank's **Correct answer** field in order.
+- Questions `635, 638` (Highlight Incorrect Words): add the accurate transcript to **Correct answer**, or enter the incorrect displayed words separated by `|`.
 
 ## Anupama
 
-Hi Anupama, while validating **Anupama**, we found some question settings that need correction before results are recalculated.
+Hi Anupama, we completed the system-level corrections for **Anupama**. Please
+make these remaining question-content corrections:
 
-- Read Aloud IDs `297, 298, 299, 321, 327, 329, 330`: confirm and set the intended Reading score maximum.
-- Reading Dropdown IDs `334, 474, 476, 478, 479`: ensure every blank has exactly one correct option.
-- Reading Drag and Drop ID `491`: remove the duplicate correct blank position and set one correct option per position.
-- Listening Fill in the Blanks IDs `500, 501`: enter each correct missing word in blank order.
-- Highlight Incorrect Words IDs `507, 508`: enter the accurate spoken transcript, or the incorrect displayed words separated by `|`.
+- Questions `334, 474, 476, 478, 479` (Reading Dropdown): ensure every blank has exactly one correct option.
+- Question `491` (Reading Drag and Drop): remove duplicate blank positions and assign one correct option to each required position.
+- Questions `500, 501` (Listening Fill in the Blanks): add each missing word to the blank's **Correct answer** field in order.
+- Questions `507, 508` (Highlight Incorrect Words): add the accurate transcript to **Correct answer**, or enter the incorrect displayed words separated by `|`.
 
-Please do not delete questions or submitted responses. Let me know once these question settings are updated.
+## Athira
 
-## Santhi
+Hi Athira, we completed the system-level corrections for **Athira** and
+**ATHIRA MT2**. ATHIRA MT2 has no remaining manual items. For **Athira**, please
+make these corrections:
 
-Hi Santhi, while validating **Santhi - T1**, we found some question settings that need correction before results are recalculated.
+- Questions `31, 215` (Listening Fill in the Blanks): add each missing word to the blank's **Correct answer** field in order.
+- Questions `38, 205` (Highlight Incorrect Words): add the accurate transcript to **Correct answer**, or enter the incorrect displayed words separated by `|`.
 
-- Read Aloud IDs `182, 184, 188, 191, 193, 195`: confirm and set the intended Reading score maximum.
-- Reading Dropdown ID `533`: ensure the blank has exactly one correct option.
-- Listening Fill in the Blanks IDs `650, 653`: enter each correct missing word in blank order.
-- Highlight Incorrect Words IDs `637, 640`: enter the accurate spoken transcript, or the incorrect displayed words separated by `|`.
+## Bindu_T1
 
-Please do not delete questions or submitted responses. Let me know once these question settings are updated.
+Hi Bindu, we completed the system-level corrections for **Bindu_T1**. Please
+make these remaining question-content corrections:
 
-## Paval
+- Questions `307, 308` (Listening Fill in the Blanks): add each missing word to the blank's **Correct answer** field in order.
+- Questions `309, 310` (Highlight Incorrect Words): add the accurate transcript to **Correct answer**, or enter the incorrect displayed words separated by `|`.
 
-Hi Paval, while validating **Paval_T1**, we found some question settings that need correction before results are recalculated.
+## Hitha Test 01
 
-- Read Aloud IDs `186, 189, 192, 197, 199, 201`: confirm and set the intended Reading score maximum.
-- Reading Dropdown ID `535`: ensure the blank has exactly one correct option.
-- Listening Fill in the Blanks IDs `651, 654`: enter each correct missing word in blank order.
-- Highlight Incorrect Words IDs `636, 639`: enter the accurate spoken transcript, or the incorrect displayed words separated by `|`.
+Hi Hitha, we completed the system-level corrections for **Hitha Test 01**.
+Please make these remaining question-content corrections:
 
-Please do not delete questions or submitted responses. Let me know once these question settings are updated.
+- Questions `399, 400, 401, 402` (Reading Drag and Drop): mark the correct options and assign each correct blank position.
+- Questions `540, 541, 542` (Listening Fill in the Blanks): add each missing word to the blank's **Correct answer** field in order.
+- Questions `550, 551, 552` (Highlight Incorrect Words): add the accurate transcript to **Correct answer**, or enter the incorrect displayed words separated by `|`.
+- Question `556` (Write From Dictation): enter the exact spoken sentence in **Correct answer**.
 
-## Anishya
+## Paval_T1
 
-Hi Anishya, while validating **Anishya_T1**, we found some question settings that need correction before results are recalculated.
+Hi Paval, we completed the system-level corrections for **Paval_T1**. Please
+make these remaining question-content corrections:
 
-- Read Aloud IDs `185, 190, 194, 657, 658, 659`: confirm and set the intended Reading score maximum.
-- Listening Fill in the Blanks IDs `652, 655`: enter each correct missing word in blank order.
-- Highlight Incorrect Words IDs `635, 638`: enter the accurate spoken transcript, or the incorrect displayed words separated by `|`.
+- Question `535` (Reading Dropdown): ensure the affected blank has exactly one correct option.
+- Questions `651, 654` (Listening Fill in the Blanks): add each missing word to the blank's **Correct answer** field in order.
+- Questions `636, 639` (Highlight Incorrect Words): add the accurate transcript to **Correct answer**, or enter the incorrect displayed words separated by `|`.
 
-Please do not delete questions or submitted responses. Let me know once these question settings are updated.
+## Salini
 
-## Mock Test 6452 Owner
+Hi Salini, we completed the system-level corrections for **Salini**. Please
+make these remaining question-content corrections:
 
-Hi, while validating **mock test 6452**, we found some question settings that need correction before results are recalculated.
+- Questions `76, 583` (Listening Fill in the Blanks): add each missing word to the blank's **Correct answer** field in order.
+- Questions `134, 607` (Highlight Incorrect Words): add the accurate transcript to **Correct answer**, or enter the incorrect displayed words separated by `|`.
+- Question `212` (Repeat Sentence): assign it to the correct mock-test section, or confirm it is intentionally unused.
 
-- Read Aloud IDs `5, 115, 118, 120, 121, 123`: confirm and set the intended Reading score maximum.
-- Reorder Paragraph ID `30`: add at least two paragraphs and configure their correct order.
-- Reorder Paragraph ID `410`: set the intended Reading score maximum.
-- Reading Drag and Drop ID `411`: mark the correct options and their correct blank positions.
-- Listening Fill in the Blanks IDs `420, 422`: enter each correct missing word in blank order.
-- Highlight Incorrect Words IDs `428, 437`: enter the accurate spoken transcript, or the incorrect displayed words separated by `|`.
-- Write from Dictation ID `462`: set the intended Listening score maximum.
-- Listening Multiple Choice ID `512`: set the intended Listening score maximum.
-- Reading Dropdown ID `549`: set the intended Reading score maximum.
+## Santhi - T1
 
-Please do not delete questions or submitted responses. Let me know once these question settings are updated.
+Hi Santhi, we completed the system-level corrections for **Santhi - T1**.
+Please make these remaining question-content corrections:
 
-## Internal Test
+- Question `533` (Reading Dropdown): ensure the affected blank has exactly one correct option.
+- Questions `650, 653` (Listening Fill in the Blanks): add each missing word to the blank's **Correct answer** field in order.
+- Questions `637, 640` (Highlight Incorrect Words): add the accurate transcript to **Correct answer**, or enter the incorrect displayed words separated by `|`.
 
-Mock test `test`, question ID `656`, appears to be an internal test question. Confirm whether it should remain active. If retained, set its intended Read Aloud Reading score maximum.
+## Backend Follow-Up
+
+After owners finish:
+
+1. Run `python manage.py check_question_bank --skip-media-check --output question_bank_audit_after_manual_fixes.csv`.
+2. Resolve any remaining errors before conducting new exams.
+3. Re-evaluate corrected rule-based responses and recalculate affected session scores.

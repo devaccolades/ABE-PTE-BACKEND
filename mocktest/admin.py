@@ -8,7 +8,9 @@ from django.db.models import F, Max, Prefetch, Q
 from unfold.admin import ModelAdmin, TabularInline
 
 from .models import *
+from .forms import QuestionAdminForm
 from .services.pdf_service import generate_session_pdf
+from .services.question_config import SUBQUESTION_SUBSECTIONS
 from .services.evaluation_queue import (
     EvaluationQueueUnavailable,
     queue_response_evaluation,
@@ -226,6 +228,7 @@ class SubSectionAdmin(ModelAdmin):
 
 @admin.register(Question)
 class QuestionAdmin(ModelAdmin):
+    form = QuestionAdminForm
     compressed_fields = True
     list_filter_submit = True
     warn_unsaved_form = True
@@ -243,7 +246,11 @@ class QuestionAdmin(ModelAdmin):
     actions = ['publish_explanation_drafts']
 
     def get_inlines(self, request, obj=None):
-        if obj and obj.question_type == 'fill_blank':
+        if (
+            obj
+            and obj.subsection
+            and obj.subsection.name in SUBQUESTION_SUBSECTIONS
+        ):
             return [SubQuestionInline]
         return [QuestionOptionInline]
 

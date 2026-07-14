@@ -96,6 +96,30 @@ def evaluation_status_badge(obj):
     return format_html('<span style="color:#6b7280;">Pending evaluation</span>')
 
 
+def audio_recording_link(obj):
+    if not obj.answer_audio:
+        return format_html('<span style="color:#6b7280;">No audio</span>')
+
+    try:
+        exists = obj.answer_audio.storage.exists(obj.answer_audio.name)
+    except OSError:
+        exists = False
+
+    if not exists:
+        return format_html(
+            '<span style="color:#b91c1c;">File missing: {}</span>',
+            obj.answer_audio.name,
+        )
+
+    return format_html(
+        '<a href="{}" target="_blank" rel="noopener">Play audio</a>',
+        obj.answer_audio.url,
+    )
+
+
+audio_recording_link.short_description = "Audio recording"
+
+
 # =========================
 # INLINES
 # =========================
@@ -135,6 +159,7 @@ class UserResponseInline(admin.TabularInline):
     readonly_fields = (
         'question',
         'response_display',
+        'audio_recording',
         'scores_display',
         'evaluation_status',
         'evaluated',
@@ -145,23 +170,19 @@ class UserResponseInline(admin.TabularInline):
     # RESPONSE DISPLAY (SMART)
     # -------------------------
     def response_display(self, obj):
-        # JSON answer
-        if obj.answer_data:
-            return format_html(
-                '<pre style="white-space:pre-wrap;max-width:400px;">{}</pre>',
-                obj.answer_data
-            )
-
-        # Audio answer
-        if obj.answer_audio:
-            return format_html(
-                '<a href="{}" target="_blank">🎧 Audio</a>',
-                obj.answer_audio.url
-            )
-
-        return "-"
+        if not obj.answer_data:
+            return "-"
+        return format_html(
+            '<pre style="white-space:pre-wrap;max-width:400px;">{}</pre>',
+            obj.answer_data,
+        )
 
     response_display.short_description = "Response"
+
+    def audio_recording(self, obj):
+        return audio_recording_link(obj)
+
+    audio_recording.short_description = "Audio recording"
 
     # -------------------------
     # SCORES DISPLAY (COMPACT)
@@ -355,7 +376,10 @@ class UserMockTestSessionAdmin(admin.ModelAdmin):
     actions = ['mark_as_completed', 'retry_failed_or_pending_evaluations', 'recalculate_scores']
 
     def mark_as_completed(self, request, queryset):
-        updated = queryset.update(is_completed=True)
+        updated = 0
+        for session in queryset:
+            if session.mark_completed():
+                updated += 1
         self.message_user(request, f"{updated} sessions marked as completed.")
     mark_as_completed.short_description = "Mark selected sessions as completed"
 
@@ -475,6 +499,7 @@ class UserResponseAdmin(admin.ModelAdmin):
         'id',
         'mock_test',
         'question',
+        'audio_recording',
         'evaluated',
         'evaluation_status',
         'retry_evaluation',
@@ -486,6 +511,7 @@ class UserResponseAdmin(admin.ModelAdmin):
 
     readonly_fields = (
         'submitted_at',
+        'audio_recording',
         'evaluation_status',
         'evaluation_stage',
         'evaluation_error',
@@ -503,6 +529,11 @@ class UserResponseAdmin(admin.ModelAdmin):
         return evaluation_status_badge(obj)
 
     evaluation_status.short_description = "Evaluation Status"
+
+    def audio_recording(self, obj):
+        return audio_recording_link(obj)
+
+    audio_recording.short_description = "Audio recording"
 
     def retry_evaluation(self, obj):
         if obj.evaluation_status in ("transcribing", "evaluating"):
@@ -583,6 +614,7 @@ class SingleResponseAdmin(admin.ModelAdmin):
     list_display = (
         'name',
         'question',
+        'audio_recording',
         'evaluated',
         'evaluation_status',
         'retry_evaluation',
@@ -597,6 +629,7 @@ class SingleResponseAdmin(admin.ModelAdmin):
     )
     readonly_fields = (
         'submitted_at',
+        'audio_recording',
         'evaluation_status',
         'evaluation_stage',
         'evaluation_error',
@@ -614,6 +647,11 @@ class SingleResponseAdmin(admin.ModelAdmin):
         return evaluation_status_badge(obj)
 
     evaluation_status.short_description = "Evaluation Status"
+
+    def audio_recording(self, obj):
+        return audio_recording_link(obj)
+
+    audio_recording.short_description = "Audio recording"
 
     def retry_evaluation(self, obj):
         if obj.evaluation_status in ("transcribing", "evaluating"):

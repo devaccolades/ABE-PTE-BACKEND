@@ -2,6 +2,7 @@ import os
 import uuid
 import tempfile
 import logging
+import json
 from urllib.parse import urlencode
 from django.db import DatabaseError, IntegrityError, transaction
 from rest_framework.views import APIView
@@ -43,6 +44,16 @@ def required_audio_error(question, audio_file, request):
         getattr(audio_file, "size", None),
     )
     return "A non-empty answer_audio file is required for this audio question."
+
+
+def normalize_answer_data(answer):
+    if not isinstance(answer, str):
+        return answer
+
+    try:
+        return json.loads(answer)
+    except (TypeError, ValueError):
+        return answer
 
 
 def normalize_question_lookup(question_id=None, question_name=None):
@@ -106,6 +117,21 @@ def get_single_question(question_id=None, question_name=None):
     return questions.select_related("subsection").first(), None
 
 
+def is_final_mock_test_question(question, mock_test):
+    final_question_id = (
+        Question.objects
+        .filter(mock_test_section__mock_test=mock_test)
+        .order_by(
+            "-mock_test_section__order",
+            "-subsection__order",
+            "-id",
+        )
+        .values_list("id", flat=True)
+        .first()
+    )
+    return final_question_id == question.id
+
+
 class SessionPDFView(APIView):
     def get(self, request, pk):
         session = get_object_or_404(UserMockTestSession, pk=pk)
@@ -153,6 +179,38 @@ class SessionEvaluationStatusAPIView(APIView):
         )
 
 
+class CompleteMockTestSessionAPIView(APIView):
+    def post(self, request):
+        session_id = request.data.get("session_id")
+        if not session_id:
+            return Response(
+                {"error": "session_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with transaction.atomic():
+                session = UserMockTestSession.objects.select_for_update().get(
+                    session_id=session_id,
+                )
+                changed = session.mark_completed()
+        except UserMockTestSession.DoesNotExist:
+            return Response(
+                {"error": "Invalid session_id"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            {
+                "session_id": session.session_id,
+                "is_completed": session.is_completed,
+                "completed_at": session.completed_at,
+                "already_completed": not changed,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class QuestionPagination(PageNumberPagination):
     page_size = 10                    # default
     page_size_query_param = "page_size"
@@ -195,7 +253,7 @@ class SingleAPIView(APIView):
         question_id = request.data.get('question_id')
         question_name = request.data.get('question_name')
         name = request.data.get('name')
-        answer = request.data.get('answer')
+        answer = normalize_answer_data(request.data.get('answer'))
         audio_file = request.FILES.get('answer_audio')
 
         question, question_error = get_single_question(
@@ -392,7 +450,7 @@ class UserResponseAPIView(APIView):
         session_id = request.data.get('session_id')
         question_id = request.data.get('question_id')
         question_name = request.data.get('question_name')
-        answer = request.data.get('answer')
+        answer = normalize_answer_data(request.data.get('answer'))
         audio_file = request.FILES.get('answer_audio')
 
         if not session_id:
@@ -436,7 +494,9 @@ class UserResponseAPIView(APIView):
 
         try:
             with transaction.atomic():
-                UserMockTestSession.objects.select_for_update().get(pk=session.pk)
+                session = UserMockTestSession.objects.select_for_update().get(
+                    pk=session.pk,
+                )
                 existing_response = UserResponse.objects.filter(
                     user_session=session,
                     question=question,
@@ -452,6 +512,8 @@ class UserResponseAPIView(APIView):
                     answer_audio=audio_file,
                     transcribed_audio_data=None,
                 )
+                if is_final_mock_test_question(question, mock_test):
+                    session.mark_completed()
         except IntegrityError:
             existing_response = UserResponse.objects.filter(
                 user_session=session,
@@ -479,6 +541,10 @@ class UserResponseAPIView(APIView):
                 else "Evaluation queued. Poll session evaluation status for results."
             ),
             "retryable": queue_failed,
+        }
+        data["session"] = {
+            "is_completed": session.is_completed,
+            "completed_at": session.completed_at,
         }
         return Response(data, status=status.HTTP_201_CREATED)
 
@@ -537,7 +603,15 @@ class APIListingQuestions(APIView):
             next_section = sections.filter(order__gt=current_section.order).first()
 
             if not next_section:
-                return Response({"message": "All sections completed"}, status=200)
+                session.mark_completed()
+                return Response(
+                    {
+                        "message": "All sections completed",
+                        "is_completed": True,
+                        "completed_at": session.completed_at,
+                    },
+                    status=200,
+                )
 
             current_section = next_section
             session.current_mocktest_section = current_section
@@ -573,7 +647,15 @@ class APIListingQuestions(APIView):
                 next_section = sections.filter(order__gt=current_section.order).first()
 
                 if not next_section:
-                    return Response({"message": "All sections completed"}, status=200)
+                    session.mark_completed()
+                    return Response(
+                        {
+                            "message": "All sections completed",
+                            "is_completed": True,
+                            "completed_at": session.completed_at,
+                        },
+                        status=200,
+                    )
 
                 current_section = next_section
                 session.current_mocktest_section = current_section
@@ -599,7 +681,15 @@ class APIListingQuestions(APIView):
         paginated_qs = paginator.paginate_queryset(questions, request)
 
         if not paginated_qs:
-            return Response({"message": "All sections completed"}, status=200)
+            session.mark_completed()
+            return Response(
+                {
+                    "message": "All sections completed",
+                    "is_completed": True,
+                    "completed_at": session.completed_at,
+                },
+                status=200,
+            )
 
         serializer = SingleQuestionSerializer(
             paginated_qs, many=True, context={'request': request}

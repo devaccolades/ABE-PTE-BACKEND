@@ -1,8 +1,10 @@
 from io import StringIO
+import tempfile
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.conf import settings
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.template.loader import render_to_string
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -509,6 +511,144 @@ class UserResponseSubmissionTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["results"][0]["ai_input_type"], "audio")
+
+    @patch("mocktest.services.evaluation_queue.chain")
+    def test_audio_upload_is_stored_and_survives_response_updates(self, mock_chain):
+        mock_test = MockTest.objects.create(title="Audio Storage Test")
+        question = self._create_question_set(mock_test, "Speaking", "RA-1")
+        question.subsection.ai_input_type = "audio"
+        question.subsection.save(update_fields=["ai_input_type"])
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="audio-storage-session",
+            mock_test=mock_test,
+        )
+
+        with tempfile.TemporaryDirectory() as media_root:
+            with override_settings(MEDIA_ROOT=media_root):
+                response = self.client.post(
+                    "/mocktest/user-response/",
+                    {
+                        "session_id": session.session_id,
+                        "question_id": question.id,
+                        "answer": "{}",
+                        "answer_audio": SimpleUploadedFile(
+                            "answer.webm",
+                            b"recorded audio bytes",
+                            content_type="audio/webm",
+                        ),
+                    },
+                )
+
+                saved = UserResponse.objects.get()
+                self.assertEqual(response.status_code, 201)
+                self.assertEqual(saved.answer_data, {})
+                self.assertTrue(saved.answer_audio.name.startswith("response/audio/"))
+                self.assertTrue(saved.answer_audio.storage.exists(saved.answer_audio.name))
+                self.assertEqual(saved.answer_audio.read(), b"recorded audio bytes")
+
+                saved.transcribed_audio_data = {"text": "transcribed"}
+                saved.evaluation_status = "evaluating"
+                saved.save(
+                    update_fields=["transcribed_audio_data", "evaluation_status"],
+                )
+                saved.refresh_from_db()
+
+                self.assertTrue(saved.answer_audio)
+                self.assertTrue(saved.answer_audio.storage.exists(saved.answer_audio.name))
+                mock_chain.return_value.delay.assert_called_once()
+
+    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
+    def test_final_answer_marks_session_completed(self, mock_delay):
+        mock_test = MockTest.objects.create(title="Completion Test")
+        first_question = self._create_question_set(mock_test, "Writing One", "Q-1")
+        final_question = self._create_question_set(mock_test, "Writing Two", "Q-2")
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="completion-session",
+            mock_test=mock_test,
+        )
+
+        first_response = self.client.post(
+            "/mocktest/user-response/",
+            {
+                "session_id": session.session_id,
+                "question_id": first_question.id,
+                "answer": {"text": "first"},
+            },
+            content_type="application/json",
+        )
+        session.refresh_from_db()
+        self.assertEqual(first_response.status_code, 201)
+        self.assertFalse(session.is_completed)
+        self.assertIsNone(session.completed_at)
+
+        final_response = self.client.post(
+            "/mocktest/user-response/",
+            {
+                "session_id": session.session_id,
+                "question_id": final_question.id,
+                "answer": {"text": "final"},
+            },
+            content_type="application/json",
+        )
+
+        session.refresh_from_db()
+        self.assertEqual(final_response.status_code, 201)
+        self.assertTrue(final_response.json()["session"]["is_completed"])
+        self.assertTrue(session.is_completed)
+        self.assertIsNotNone(session.completed_at)
+
+    def test_complete_session_endpoint_is_idempotent(self):
+        mock_test = MockTest.objects.create(title="Completion Endpoint Test")
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="completion-endpoint-session",
+            mock_test=mock_test,
+        )
+
+        first_response = self.client.post(
+            "/mocktest/complete-session/",
+            {"session_id": session.session_id},
+            content_type="application/json",
+        )
+        session.refresh_from_db()
+        completed_at = session.completed_at
+
+        second_response = self.client.post(
+            "/mocktest/complete-session/",
+            {"session_id": session.session_id},
+            content_type="application/json",
+        )
+        session.refresh_from_db()
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertFalse(first_response.json()["already_completed"])
+        self.assertEqual(second_response.status_code, 200)
+        self.assertTrue(second_response.json()["already_completed"])
+        self.assertEqual(session.completed_at, completed_at)
+
+    def test_timer_exit_from_final_section_marks_session_completed(self):
+        mock_test = MockTest.objects.create(title="Timer Completion Test")
+        question = self._create_question_set(mock_test, "Listening", "Q-1")
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="timer-completion-session",
+            mock_test=mock_test,
+            current_mocktest_section=question.mock_test_section,
+        )
+
+        response = self.client.get(
+            "/mocktest/question/",
+            {"session_id": session.session_id},
+            HTTP_TIMER_EXCEEDED="true",
+        )
+
+        session.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["is_completed"])
+        self.assertTrue(session.is_completed)
+        self.assertIsNotNone(session.completed_at)
 
     @patch("mocktest.services.evaluation_queue.evaluate_single_response.delay")
     def test_single_response_requires_audio_file_for_audio_question(self, mock_delay):

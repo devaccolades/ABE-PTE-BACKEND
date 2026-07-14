@@ -1,4 +1,5 @@
 from io import StringIO
+import csv
 import tempfile
 
 from django.core.management import call_command
@@ -461,6 +462,89 @@ class RuleQuestionConfigCommandTests(TestCase):
         )
 
         self.assertIn("looks healthy", stdout.getvalue())
+
+
+class QuestionBankAuditCommandTests(TestCase):
+    def _question(self, *, correct=True, reading_max=1):
+        mock_test = MockTest.objects.create(title="Client Mock Test A")
+        section = Section.objects.create(name="Reading")
+        mock_test_section = MockTestSection.objects.create(
+            mock_test=mock_test,
+            section=section,
+            order=1,
+        )
+        subsection = SubSection.objects.create(
+            section=section,
+            name="mc_single",
+            evaluation_type="rule",
+            rubric={"reading": {"max": 1}},
+            trait_skill_map={"reading": ["reading"]},
+        )
+        question = Question.objects.create(
+            mock_test_section=mock_test_section,
+            subsection=subsection,
+            name="Reading-Q1",
+            text="Choose the correct answer.",
+            reading_score_max=reading_max,
+        )
+        QuestionOption.objects.create(
+            question=question,
+            option_text="Answer A",
+            is_correct=correct,
+        )
+        return mock_test, question
+
+    def test_writes_healthy_empty_csv_report(self):
+        self._question()
+        with tempfile.TemporaryDirectory() as directory:
+            output = f"{directory}/audit.csv"
+            stdout = StringIO()
+
+            call_command(
+                "check_question_bank",
+                "--skip-media-check",
+                "--output",
+                output,
+                stdout=stdout,
+            )
+
+            with open(output, encoding="utf-8") as report:
+                rows = list(csv.DictReader(report))
+
+        self.assertEqual(rows, [])
+        self.assertIn("configuration looks healthy", stdout.getvalue())
+
+    def test_report_includes_mock_test_and_affected_session(self):
+        mock_test, question = self._question(correct=False, reading_max=0)
+        session = UserMockTestSession.objects.create(
+            name="Student Session Name",
+            session_id="session-reference-123",
+            mock_test=mock_test,
+        )
+        UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = f"{directory}/audit.csv"
+            with self.assertRaises(CommandError):
+                call_command(
+                    "check_question_bank",
+                    "--skip-media-check",
+                    "--output",
+                    output,
+                    stdout=StringIO(),
+                )
+            with open(output, encoding="utf-8") as report:
+                rows = list(csv.DictReader(report))
+
+        self.assertTrue(rows)
+        self.assertEqual(rows[0]["mock_test"], "Client Mock Test A")
+        self.assertEqual(rows[0]["affected_session_count"], "1")
+        self.assertIn("Student Session Name", rows[0]["affected_sessions"])
+        self.assertIn("session-reference-123", rows[0]["affected_sessions"])
 
 
 class DraftReadingExplanationsCommandTests(TestCase):

@@ -5,7 +5,7 @@ from celery import shared_task
 from celery.exceptions import Retry
 from billiard.exceptions import SoftTimeLimitExceeded
 
-from examinor.services.rule_evaluator import run_rule_evaluation
+from examinor.services.rule_evaluator import run_rule_evaluation, uses_rule_evaluation
 from .models import *
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import DatabaseError
@@ -75,7 +75,7 @@ def is_transient_evaluation_error(evaluation_result):
 
 
 def validation_rubric_for_subsection(subsection):
-    if subsection.evaluation_type == "rule":
+    if uses_rule_evaluation(subsection):
         return subsection.rubric
     return build_task_rubric(subsection)
 
@@ -231,6 +231,9 @@ def evaluate_user_response(self, user_answer_id, question_id):
         if user_answer.answer_data:
             evaluation_payload["answer_data"] = user_answer.answer_data
 
+        if question.correct_answer:
+            evaluation_payload["reference_answer"] = question.correct_answer
+
         subsection = question.subsection.name
         subsection_obj = question.subsection
 
@@ -248,7 +251,7 @@ def evaluate_user_response(self, user_answer_id, question_id):
         # -------------------------
         # RULE-BASED SHORT CIRCUIT
         # -------------------------
-        if subsection_obj.evaluation_type == "rule":
+        if uses_rule_evaluation(subsection_obj):
             evaluation_result = run_rule_evaluation(
                 user_answer=user_answer,
                 question=question,
@@ -407,6 +410,9 @@ def evaluate_single_response(self, user_answer_id, question_id):
         if user_answer.answer_data:
             evaluation_payload["answer_data"] = user_answer.answer_data
 
+        if question.correct_answer:
+            evaluation_payload["reference_answer"] = question.correct_answer
+
         subsection = question.subsection.name
         subsection_obj = question.subsection
 
@@ -424,7 +430,7 @@ def evaluate_single_response(self, user_answer_id, question_id):
         # -------------------------
         # RULE-BASED SHORT CIRCUIT
         # -------------------------
-        if subsection_obj.evaluation_type == "rule":
+        if uses_rule_evaluation(subsection_obj):
             evaluation_result = run_rule_evaluation(
                 user_answer=user_answer,
                 question=question,

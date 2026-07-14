@@ -106,6 +106,18 @@ def run_evaluation_for_subsection(
     SubSection rows with the same choice value.
     """
 
+    if (
+        subsection.name == "summarize_spoken_text"
+        and not evaluation_payload.get("reference_answer")
+    ):
+        return {
+            "ok": False,
+            "error": (
+                "Summarize Spoken Text requires a reference transcript, "
+                "model answer, or key points in question.correct_answer."
+            ),
+        }
+
     rubric = build_task_rubric(subsection)
     prompt, p_hash = build_prompt(
         task_type=subsection.name,

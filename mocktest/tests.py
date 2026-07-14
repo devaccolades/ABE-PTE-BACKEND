@@ -136,6 +136,53 @@ class SessionPdfContextTests(TestCase):
 
         self.assertEqual(context["skills"]["reading"], 45.0)
 
+    def test_listening_report_uses_option_text_and_performance_summary(self):
+        mock_test = MockTest.objects.create(title="PTE Mock Test")
+        section = Section.objects.create(name="Listening")
+        mock_test_section = MockTestSection.objects.create(
+            mock_test=mock_test,
+            section=section,
+            order=1,
+        )
+        subsection = SubSection.objects.create(
+            section=section,
+            name="l_mc_single",
+            rubric={"listening": {"max": 1}},
+        )
+        question = Question.objects.create(
+            mock_test_section=mock_test_section,
+            subsection=subsection,
+            text="Which statement is correct?",
+            listening_score_max=1,
+        )
+        selected = QuestionOption.objects.create(
+            question=question,
+            option_text="The selected statement",
+            is_correct=True,
+        )
+        session = UserMockTestSession.objects.create(
+            name="Listener",
+            session_id="listening-report-session",
+            mock_test=mock_test,
+        )
+        UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            answer_data=selected.id,
+            listening_score_awarded=1,
+            evaluated=True,
+            evaluation_status="completed",
+        )
+
+        context = build_session_pdf_context(session)
+        listening = context["sections"][0]
+        response = listening["subsections"][0]["responses"][0]
+
+        self.assertEqual(response["answer"], "The selected statement")
+        self.assertEqual(listening["summary"]["label"], "Listening")
+        self.assertEqual(listening["summary"]["accuracy"], 100.0)
+
     def test_reading_report_shows_answer_review_explanation_and_summary(self):
         mock_test = MockTest.objects.create(title="PTE Mock Test")
         section = Section.objects.create(name="Reading")

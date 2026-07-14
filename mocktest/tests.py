@@ -14,6 +14,7 @@ from unittest.mock import patch
 from mocktest.models import (
     MockTest,
     MockTestSection,
+    GlobalRubric,
     Question,
     QuestionOption,
     Section,
@@ -761,12 +762,19 @@ class RepairQuestionBankSystemConfigCommandTests(TestCase):
             section=section,
             name="read_aloud",
             rubric={"content": {"max": 6}},
-            trait_skill_map={"content": ["speaking", "listening"]},
+            trait_skill_map={
+                "content": ["speaking", "listening"],
+                "oral_fluency": ["speaking"],
+                "pronunciation": ["speaking"],
+            },
+            use_fluency=True,
+            use_pronunciation=True,
         )
+        GlobalRubric.objects.create(key="oral_fluency", rubric={"max": 5})
+        GlobalRubric.objects.create(key="pronunciation", rubric={"max": 5})
         question = Question.objects.create(
             mock_test_section=mock_test_section,
             subsection=subsection,
-            speaking_score_max=6,
         )
         session = UserMockTestSession.objects.create(
             name="Reader",
@@ -794,9 +802,14 @@ class RepairQuestionBankSystemConfigCommandTests(TestCase):
 
         self.assertEqual(
             subsection.trait_skill_map,
-            {"content": ["speaking", "listening"]},
+            {
+                "content": ["speaking", "listening"],
+                "oral_fluency": ["speaking"],
+                "pronunciation": ["speaking"],
+            },
         )
         self.assertIsNone(question.reading_score_max)
+        self.assertIsNone(question.speaking_score_max)
         self.assertIn("Dry run only", stdout.getvalue())
 
         call_command(
@@ -810,9 +823,14 @@ class RepairQuestionBankSystemConfigCommandTests(TestCase):
 
         self.assertEqual(
             subsection.trait_skill_map,
-            {"content": ["reading", "speaking"]},
+            {
+                "content": ["reading", "speaking"],
+                "oral_fluency": ["speaking"],
+                "pronunciation": ["speaking"],
+            },
         )
         self.assertEqual(question.reading_score_max, 6)
+        self.assertEqual(question.speaking_score_max, 16)
         self.assertEqual(response.speaking_score_awarded, 4)
         self.assertEqual(response.reading_score_awarded, 4)
         self.assertEqual(response.listening_score_awarded, 0)

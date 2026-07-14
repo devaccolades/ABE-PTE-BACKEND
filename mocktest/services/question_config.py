@@ -20,8 +20,22 @@ def normalized_trait_skills(subsection, trait):
 
 
 def expected_question_skill_maxima(subsection):
+    from mocktest.models import GlobalRubric
+
+    rubric = dict(subsection.rubric or {})
+    global_traits = (
+        ("pronunciation", subsection.use_pronunciation),
+        ("oral_fluency", subsection.use_fluency),
+    )
+    for trait, enabled in global_traits:
+        if not enabled or trait in rubric:
+            continue
+        global_rubric = GlobalRubric.objects.filter(key=trait).first()
+        if global_rubric:
+            rubric[trait] = global_rubric.rubric
+
     expected = {skill: 0.0 for skill in VALID_SKILLS}
-    for trait, maximum in rubric_maxima(subsection.rubric).items():
+    for trait, maximum in rubric_maxima(rubric).items():
         for skill in normalized_trait_skills(subsection, trait):
             expected[skill] += maximum
     return {skill: maximum for skill, maximum in expected.items() if maximum > 0}

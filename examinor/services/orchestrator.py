@@ -18,7 +18,7 @@ def build_task_rubric(subsection: SubSection) -> dict:
       }
     """
 
-    final_rubric = subsection.rubric or {}
+    final_rubric = dict(subsection.rubric or {})
 
     # add global pronunciation rubric if enabled
     if getattr(subsection, "use_pronunciation", False):

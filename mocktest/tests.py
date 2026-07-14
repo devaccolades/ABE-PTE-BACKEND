@@ -34,6 +34,88 @@ from mocktest.tasks import evaluate_user_response, recover_stale_evaluations
 
 
 class SessionPdfContextTests(TestCase):
+    def test_summarize_spoken_text_annotates_the_saved_transcript(self):
+        mock_test = MockTest.objects.create(title="PTE Mock Test")
+        section = Section.objects.create(name="Listening")
+        mock_test_section = MockTestSection.objects.create(
+            mock_test=mock_test,
+            section=section,
+            order=1,
+        )
+        subsection = SubSection.objects.create(
+            section=section,
+            name="summarize_spoken_text",
+            ai_input_type="audio",
+            order=1,
+        )
+        question = Question.objects.create(
+            mock_test_section=mock_test_section,
+            subsection=subsection,
+            text="Summarize the lecture.",
+            writing_score_max=2,
+            listening_score_max=2,
+        )
+        session = UserMockTestSession.objects.create(
+            name="Listener",
+            session_id="sst-highlight-session",
+            mock_test=mock_test,
+            total_score=2,
+        )
+        UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            answer_data={},
+            transcribed_audio_data={
+                "transcription": {"text": "The speakers discusses enviroment."}
+            },
+            evaluation_result={
+                "evaluation": {
+                    "scores": {
+                        "grammar": {"score": 0, "max": 1},
+                        "spelling": {"score": 0, "max": 1},
+                    },
+                    "feedback": {
+                        "errors": [
+                            {
+                                "type": "grammar",
+                                "text": "speakers discusses",
+                                "suggestion": "speaker discusses",
+                                "explanation": "Subject-verb agreement.",
+                            },
+                            {
+                                "type": "spelling",
+                                "text": "enviroment",
+                                "suggestion": "environment",
+                                "explanation": "Misspelled word.",
+                            },
+                        ]
+                    },
+                }
+            },
+            evaluated=True,
+            evaluation_status="completed",
+        )
+
+        context = build_session_pdf_context(session)
+        response = context["sections"][0]["subsections"][0]["responses"][0]
+
+        self.assertEqual(response["answer"], "The speakers discusses enviroment.")
+        self.assertEqual(
+            [segment["type"] for segment in response["answer_segments"] if segment["type"]],
+            ["grammar", "spelling"],
+        )
+
+        html = render_to_string("pdf/session_report.html", context)
+        self.assertIn(
+            'class="language-error-grammar">speakers discusses</span>',
+            html,
+        )
+        self.assertIn(
+            'class="language-error-spelling">enviroment</span>',
+            html,
+        )
+
     def test_writing_errors_are_highlighted_and_score_cards_link_to_sections(self):
         mock_test = MockTest.objects.create(title="PTE Mock Test")
         section = Section.objects.create(name="Writing Section")
@@ -108,8 +190,8 @@ class SessionPdfContextTests(TestCase):
 
         self.assertIn('href="#section-writing-section"', html)
         self.assertIn('id="section-writing-section"', html)
-        self.assertIn('class="writing-error-grammar">This are</span>', html)
-        self.assertIn('class="writing-error-spelling">sentnce</span>', html)
+        self.assertIn('class="language-error-grammar">This are</span>', html)
+        self.assertIn('class="language-error-spelling">sentnce</span>', html)
         self.assertIn("Overall Score", html)
         self.assertIn("2.00 / 90", html)
 

@@ -305,6 +305,8 @@ class PromptBuilderTests(SimpleTestCase):
         self.assertIn('"""The lecture explains cultural exchange."""', prompt)
         self.assertIn('"strengths"', prompt)
         self.assertIn('"improvements"', prompt)
+        self.assertIn('"errors":[{', prompt)
+        self.assertIn("exact, case-preserving substring", prompt)
         self.assertIn("Judge content only against REFERENCE_MATERIAL", prompt)
 
 

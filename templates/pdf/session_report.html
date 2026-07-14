@@ -164,22 +164,22 @@
         <div class="card-container">
             <div class="card speaking">
                 <h3>Speaking</h3>
-                <div class="score">{{ skills.speaking }}</div>
+                <div class="score">{{ skills.speaking|floatformat:1 }}</div>
             </div>
 
             <div class="card writing">
                 <h3>Writing</h3>
-                <div class="score">{{ skills.writing }}</div>
+                <div class="score">{{ skills.writing|floatformat:1 }}</div>
             </div>
 
             <div class="card reading">
                 <h3>Reading</h3>
-                <div class="score">{{ skills.reading }}</div>
+                <div class="score">{{ skills.reading|floatformat:1 }}</div>
             </div>
 
             <div class="card listening">
                 <h3>Listening</h3>
-                <div class="score">{{ skills.listening }}</div>
+                <div class="score">{{ skills.listening|floatformat:1 }}</div>
             </div>
         </div>
 
@@ -217,7 +217,10 @@
         <div class="subsection">
             <div style="display:flex; justify-content:space-between;">
                 <strong>{{ subsection.title }}</strong>
-                <strong>{{ subsection.avg_score|floatformat:0 }}</strong>
+                <strong>
+                    Average: {{ subsection.avg_score|floatformat:2 }} /
+                    {{ subsection.avg_max|floatformat:2 }}
+                </strong>
             </div>
 
             <div class="bar">
@@ -251,7 +254,8 @@
 
                 <!-- TOTAL SCORE -->
                 <div style="font-size:10px; margin-top:4px;">
-                    <strong>Score:</strong> {{ r.total_score|floatformat:0 }}
+                    <strong>Score:</strong> {{ r.total_score|floatformat:2 }} /
+                    {{ r.max_score|floatformat:2 }}
                 </div>
 
                 {% if r.evaluation_status != "completed" %}
@@ -265,10 +269,10 @@
                 <!-- SKILL SCORES -->
                 <div style="font-size:10px; margin-top:4px;">
                     <strong>Skill Scores:</strong>
-                    Speaking: {{ r.skill_scores.speaking|floatformat:1 }} |
-                    Writing: {{ r.skill_scores.writing|floatformat:1 }} |
-                    Reading: {{ r.skill_scores.reading|floatformat:1 }} |
-                    Listening: {{ r.skill_scores.listening|floatformat:1 }}
+                    Speaking: {{ r.skill_scores.speaking|floatformat:2 }} |
+                    Writing: {{ r.skill_scores.writing|floatformat:2 }} |
+                    Reading: {{ r.skill_scores.reading|floatformat:2 }} |
+                    Listening: {{ r.skill_scores.listening|floatformat:2 }}
                 </div>
 
                 <!-- TRAIT SCORES -->

@@ -350,3 +350,91 @@ class RuleEvaluatorTests(TestCase):
         )
 
         self.assertEqual(result["evaluation"]["scores"]["reading"]["score"], 2.0)
+
+    def test_scores_drag_drop_by_correct_blanks_not_option_pool_size(self):
+        subsection = SubSection.objects.create(
+            section=self.section,
+            name="fib_drag_drop",
+            evaluation_type="rule",
+            rubric={"reading": {"max": 1}},
+        )
+        question = Question.objects.create(subsection=subsection, text="A ____ B ____ C ____ D ____")
+        correct_options = [
+            QuestionOption.objects.create(
+                question=question,
+                option_text=f"correct-{position}",
+                is_correct=True,
+                order_position=position,
+            )
+            for position in range(1, 5)
+        ]
+        distractors = [
+            QuestionOption.objects.create(
+                question=question,
+                option_text=f"distractor-{position}",
+                order_position=position,
+            )
+            for position in range(5, 10)
+        ]
+
+        class Answer:
+            answer_data = {
+                "1": correct_options[0].id,
+                "2": distractors[0].id,
+                "3": distractors[1].id,
+                "4": distractors[2].id,
+            }
+
+        result = run_rule_evaluation(
+            user_answer=Answer(),
+            question=question,
+            subsection=subsection,
+        )
+
+        self.assertEqual(result["evaluation"]["scores"]["reading"]["score"], 0.25)
+
+    def test_scores_reorder_paragraphs_by_adjacent_pairs(self):
+        subsection = SubSection.objects.create(
+            section=self.section,
+            name="reorder_paragraphs",
+            evaluation_type="rule",
+            rubric={"reading": {"max": 1}},
+        )
+        question = Question.objects.create(subsection=subsection, text="Reorder these paragraphs.")
+        options = [
+            QuestionOption.objects.create(
+                question=question,
+                option_text=f"paragraph-{position}",
+                order_position=position,
+            )
+            for position in range(1, 6)
+        ]
+
+        class Answer:
+            answer_data = {
+                "1": options[0].id,
+                "2": options[1].id,
+                "3": options[3].id,
+                "4": options[2].id,
+                "5": options[4].id,
+            }
+
+        result = run_rule_evaluation(
+            user_answer=Answer(),
+            question=question,
+            subsection=subsection,
+        )
+
+        self.assertEqual(result["evaluation"]["scores"]["reading"]["score"], 0.25)
+
+        Answer.answer_data = {
+            str(position): option.id
+            for position, option in enumerate(options, start=1)
+        }
+        result = run_rule_evaluation(
+            user_answer=Answer(),
+            question=question,
+            subsection=subsection,
+        )
+
+        self.assertEqual(result["evaluation"]["scores"]["reading"]["score"], 1.0)

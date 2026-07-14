@@ -64,6 +64,10 @@ RULE_QUESTION_CONFIG = {
 }
 
 
+class RuleConfigurationError(ValueError):
+    pass
+
+
 # -------------------------------------------------
 # CORRECT DATA SERIALIZER (ORM → JSON)
 # -------------------------------------------------
@@ -197,12 +201,15 @@ def _score_from_ratio(ratio, rubric):
 
 def _single_choice_ratio(question, answer_data):
     selected_ids = _as_id_set(answer_data)
-    if not selected_ids:
-        return 0
-
     correct_ids = set(
         question.options.filter(is_correct=True).values_list("id", flat=True)
     )
+    if len(correct_ids) != 1:
+        raise RuleConfigurationError(
+            f"Question {question.pk} must have exactly one correct option."
+        )
+    if not selected_ids:
+        return 0
     return 1 if selected_ids & correct_ids else 0
 
 
@@ -213,7 +220,9 @@ def _multiple_choice_ratio(question, answer_data):
     )
 
     if not correct_ids:
-        return 0
+        raise RuleConfigurationError(
+            f"Question {question.pk} has no correct options."
+        )
 
     correct_selected = len(selected_ids & correct_ids)
     incorrect_selected = len(selected_ids - correct_ids)
@@ -226,10 +235,17 @@ def _fib_dropdown_ratio(question, answer_data):
     subquestions = list(question.sub_questions.prefetch_related("options"))
 
     if not subquestions:
-        return 0
+        raise RuleConfigurationError(
+            f"Question {question.pk} has no configured blanks."
+        )
 
     awarded = 0
     for subquestion in subquestions:
+        correct_count = subquestion.options.filter(is_correct=True).count()
+        if correct_count != 1:
+            raise RuleConfigurationError(
+                f"Blank {subquestion.pk} must have exactly one correct option."
+            )
         selected = (
             answer.get(str(subquestion.blank_number))
             or answer.get(subquestion.blank_number)
@@ -246,32 +262,93 @@ def _fib_dropdown_ratio(question, answer_data):
     return awarded / len(subquestions)
 
 
-def _order_ratio(question, answer_data):
+def _submitted_position_mapping(answer_data, valid_option_ids):
     answer = _as_mapping(answer_data)
-    ordered_options = list(
-        question.options.exclude(order_position__isnull=True)
+    submitted = {}
+
+    for key, value in answer.items():
+        key_as_int = _to_int(key)
+        value_as_int = _to_int(value)
+
+        # The exam frontend submits {blank_or_position: option_id}.
+        if key_as_int is not None and value_as_int in valid_option_ids:
+            submitted[key_as_int] = value_as_int
+            continue
+
+        # Keep compatibility with older {option_id: position} payloads.
+        if key_as_int in valid_option_ids and value_as_int is not None:
+            submitted[value_as_int] = key_as_int
+
+    return submitted
+
+
+def _fib_drag_drop_ratio(question, answer_data):
+    correct_options = list(
+        question.options.filter(
+            is_correct=True,
+            order_position__isnull=False,
+        )
     )
 
-    if not ordered_options:
-        return 0
-
-    awarded = 0
-    for option in ordered_options:
-        submitted_position = (
-            answer.get(str(option.id))
-            or answer.get(option.id)
+    if not correct_options:
+        raise RuleConfigurationError(
+            f"Question {question.pk} has no correct drag-and-drop options."
         )
 
-        if submitted_position is None:
-            for key, value in answer.items():
-                if _to_int(value) == option.id:
-                    submitted_position = key
-                    break
+    valid_option_ids = set(
+        question.options.values_list("id", flat=True)
+    )
+    submitted = _submitted_position_mapping(answer_data, valid_option_ids)
+    correct_by_blank = {
+        option.order_position: option.id
+        for option in correct_options
+    }
+    if len(correct_by_blank) != len(correct_options):
+        raise RuleConfigurationError(
+            f"Question {question.pk} has duplicate correct blank positions."
+        )
 
-        if _to_int(submitted_position) == option.order_position:
-            awarded += 1
+    awarded = sum(
+        submitted.get(blank_position) == correct_option_id
+        for blank_position, correct_option_id in correct_by_blank.items()
+    )
+    return awarded / len(correct_by_blank)
 
-    return awarded / len(ordered_options)
+
+def _reorder_paragraphs_ratio(question, answer_data):
+    ordered_options = list(
+        question.options.exclude(order_position__isnull=True)
+        .order_by("order_position", "id")
+    )
+
+    if len(ordered_options) < 2:
+        raise RuleConfigurationError(
+            f"Question {question.pk} needs at least two ordered paragraphs."
+        )
+    if len(ordered_options) != question.options.count():
+        raise RuleConfigurationError(
+            f"Every paragraph in question {question.pk} needs an order position."
+        )
+    positions = [option.order_position for option in ordered_options]
+    if len(set(positions)) != len(positions):
+        raise RuleConfigurationError(
+            f"Question {question.pk} has duplicate paragraph positions."
+        )
+
+    valid_option_ids = {option.id for option in ordered_options}
+    submitted = _submitted_position_mapping(answer_data, valid_option_ids)
+    submitted_order = [
+        option_id
+        for _, option_id in sorted(submitted.items())
+        if option_id in valid_option_ids
+    ]
+    expected_order = [option.id for option in ordered_options]
+
+    expected_pairs = set(zip(expected_order, expected_order[1:]))
+    submitted_pairs = set(zip(submitted_order, submitted_order[1:]))
+    awarded = len(expected_pairs & submitted_pairs)
+
+    return awarded / len(expected_pairs)
 
 
 def _text_match_ratio(question, answer_data):
@@ -286,7 +363,9 @@ def _text_match_ratio(question, answer_data):
         correct_answers = _split_text_answer(question.correct_answer)
 
     if not correct_answers:
-        return 0
+        raise RuleConfigurationError(
+            f"Question {question.pk} has no configured correct text answers."
+        )
 
     awarded = 0
     for index, correct in enumerate(correct_answers):
@@ -304,21 +383,29 @@ def evaluate_deterministically(*, user_answer, question, subsection):
             "error": f"No rule configuration defined for {subsection.name}",
         }
 
-    if subsection.name == "fib_dropdown":
-        ratio = _fib_dropdown_ratio(question, user_answer.answer_data)
-    elif cfg["correctness_type"] == "order_position":
-        ratio = _order_ratio(question, user_answer.answer_data)
-    elif cfg["correctness_type"] == "text_match":
-        ratio = _text_match_ratio(question, user_answer.answer_data)
-    elif cfg["correctness_type"] == "is_correct_flag":
-        if cfg["answer_format"] == "list_of_ids":
-            ratio = _multiple_choice_ratio(question, user_answer.answer_data)
+    try:
+        if subsection.name == "fib_dropdown":
+            ratio = _fib_dropdown_ratio(question, user_answer.answer_data)
+        elif subsection.name == "fib_drag_drop":
+            ratio = _fib_drag_drop_ratio(question, user_answer.answer_data)
+        elif subsection.name == "reorder_paragraphs":
+            ratio = _reorder_paragraphs_ratio(question, user_answer.answer_data)
+        elif cfg["correctness_type"] == "text_match":
+            ratio = _text_match_ratio(question, user_answer.answer_data)
+        elif cfg["correctness_type"] == "is_correct_flag":
+            if cfg["answer_format"] == "list_of_ids":
+                ratio = _multiple_choice_ratio(question, user_answer.answer_data)
+            else:
+                ratio = _single_choice_ratio(question, user_answer.answer_data)
         else:
-            ratio = _single_choice_ratio(question, user_answer.answer_data)
-    else:
+            return {
+                "ok": False,
+                "error": f"Unsupported rule correctness type {cfg['correctness_type']}",
+            }
+    except RuleConfigurationError as exc:
         return {
             "ok": False,
-            "error": f"Unsupported rule correctness type {cfg['correctness_type']}",
+            "error": str(exc),
         }
 
     ratio = max(min(ratio, 1), 0)

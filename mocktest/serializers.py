@@ -6,7 +6,8 @@ from django.conf import settings
 class QuestionOptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = QuestionOption
-        fields = "__all__"
+        # Correctness and ordering metadata must never reach exam candidates.
+        fields = ["id", "option_text"]
 
 class SubQuestionSerializer(serializers.ModelSerializer):
     """Serializer for each blank inside a fill-in-the-blank question."""
@@ -19,7 +20,6 @@ class SubQuestionSerializer(serializers.ModelSerializer):
             "blank_number",
             "text_before_blank",
             "text_after_blank",
-            "correct_answer",
             "options"
         ]
 

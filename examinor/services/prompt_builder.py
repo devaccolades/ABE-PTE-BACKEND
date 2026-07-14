@@ -96,11 +96,20 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
     # -----------------------------
     feedback_shape = '"<short, specific feedback in 1 sentence>"'
     feedback_rules = ""
-    if task_type in {"summarize_written_text", "write_essay"}:
+    if task_type in {
+        "summarize_written_text",
+        "write_essay",
+        "summarize_spoken_text",
+    }:
+        improvement = (
+            "<one actionable improvement naming missing or inaccurate content>"
+            if task_type == "summarize_spoken_text"
+            else "<one actionable next step>"
+        )
         feedback_shape = (
             '{"summary":"<specific overall assessment>",'
             '"strengths":"<specific strength grounded in the response>",'
-            '"improvements":"<one actionable next step>",'
+            f'"improvements":"{improvement}",'
             '"errors":[{'
             '"type":"<spelling or grammar>",'
             '"text":"<exact verbatim error from the candidate response>",'
@@ -115,13 +124,8 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
 - Do not include style preferences as grammar errors.
 - Return an empty errors array when no clear spelling or grammar error exists.
 """
-    elif task_type == "summarize_spoken_text":
-        feedback_shape = (
-            '{"summary":"<specific overall assessment>",'
-            '"strengths":"<specific strength grounded in the response>",'
-            '"improvements":"<one actionable improvement naming missing or inaccurate content>"}'
-        )
-        feedback_rules = """
+        if task_type == "summarize_spoken_text":
+            feedback_rules += """
 - Judge content only against REFERENCE_MATERIAL.
 - Mention a concrete included, missing, or inaccurate idea in feedback.
 - Do not give generic advice without an example from the response.

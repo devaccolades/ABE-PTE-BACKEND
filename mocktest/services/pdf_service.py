@@ -179,6 +179,15 @@ def _answer_ids(value):
 def _response_answer_display(response):
     question = response.question
     subsection = question.subsection
+    if subsection and subsection.ai_input_type == "audio":
+        transcription = response.transcribed_audio_data or {}
+        transcript_text = (
+            transcription.get("transcription", {}).get("text", "")
+            if isinstance(transcription, dict)
+            else ""
+        )
+        if transcript_text:
+            return str(transcript_text)
     if subsection and subsection.name in CHOICE_SUBSECTIONS:
         selected_ids = _answer_ids(response.answer_data)
         options = {option.id: option for option in question.options.all()}
@@ -287,7 +296,7 @@ def _feedback_details(feedback):
     return details if isinstance(details, list) else []
 
 
-def _writing_errors(feedback):
+def _language_errors(feedback):
     if not isinstance(feedback, dict) or not isinstance(feedback.get("errors"), list):
         return []
 
@@ -474,9 +483,16 @@ def build_session_pdf_context(session):
         scores = evaluation.get("scores", {})
         feedback = evaluation.get("feedback", {})
         answer = _response_answer_display(r)
-        writing_errors = (
-            _writing_errors(feedback)
-            if "writing" in section_title.lower()
+        supports_language_annotations = (
+            "writing" in section_title.lower()
+            or (
+                subsection_obj
+                and subsection_obj.name == "summarize_spoken_text"
+            )
+        )
+        language_errors = (
+            _language_errors(feedback)
+            if supports_language_annotations
             else []
         )
 
@@ -485,8 +501,8 @@ def build_session_pdf_context(session):
         subsection_data["responses"].append({
             "question": question.text or question.name or f"Question {question.pk}",
             "answer": answer,
-            "answer_segments": _answer_segments(answer, writing_errors),
-            "writing_errors": writing_errors,
+            "answer_segments": _answer_segments(answer, language_errors),
+            "language_errors": language_errors,
             "response_id": r.id,
             "is_duplicate": r.id in duplicate_ids,
             "duplicate_count": len(duplicate_groups.get((r.user_session_id, r.question_id), [])),

@@ -153,35 +153,35 @@
             white-space: pre-wrap;
         }
 
-        .writing-legend {
+        .language-error-legend {
             color: #555;
             font-size: 9px;
             margin-top: 4px;
         }
 
-        .writing-error-spelling {
+        .language-error-spelling {
             background: #fee2e2;
             border-bottom: 1px solid #dc2626;
             color: #b91c1c;
             font-weight: bold;
         }
 
-        .writing-error-grammar {
+        .language-error-grammar {
             background: #dbeafe;
             border-bottom: 1px solid #2563eb;
             color: #1d4ed8;
             font-weight: bold;
         }
 
-        .writing-errors {
+        .language-errors {
             border-collapse: collapse;
             font-size: 9px;
             margin-top: 6px;
             width: 100%;
         }
 
-        .writing-errors th,
-        .writing-errors td {
+        .language-errors th,
+        .language-errors td {
             border: 1px solid #ddd;
             padding: 4px;
             text-align: left;
@@ -356,17 +356,17 @@
                 {% if r.answer %}
                 <div class="answer" style="font-size:10px; color:#555; margin-top:4px;">
                     <strong>Answer:</strong>
-                    {% for segment in r.answer_segments %}{% if segment.type %}<span class="writing-error-{{ segment.type }}">{{ segment.text }}</span>{% else %}{{ segment.text }}{% endif %}{% endfor %}
+                    {% for segment in r.answer_segments %}{% if segment.type %}<span class="language-error-{{ segment.type }}">{{ segment.text }}</span>{% else %}{{ segment.text }}{% endif %}{% endfor %}
                 </div>
                 {% endif %}
 
-                {% if r.writing_errors %}
-                <div class="writing-legend">
-                    <span class="writing-error-spelling">Red: spelling</span>
+                {% if r.language_errors %}
+                <div class="language-error-legend">
+                    <span class="language-error-spelling">Red: spelling</span>
                     &nbsp;
-                    <span class="writing-error-grammar">Blue: grammar</span>
+                    <span class="language-error-grammar">Blue: grammar</span>
                 </div>
-                <table class="writing-errors">
+                <table class="language-errors">
                     <thead>
                         <tr>
                             <th>Type</th>
@@ -376,9 +376,9 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for error in r.writing_errors %}
+                        {% for error in r.language_errors %}
                         <tr>
-                            <td class="writing-error-{{ error.type }}">{{ error.label }}</td>
+                            <td class="language-error-{{ error.type }}">{{ error.label }}</td>
                             <td>{{ error.text }}</td>
                             <td>{{ error.suggestion|default:"-" }}</td>
                             <td>{{ error.explanation|default:"-" }}</td>

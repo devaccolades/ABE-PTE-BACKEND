@@ -145,6 +145,41 @@
             color: #7a4f00;
             border-radius: 5px;
         }
+
+        .section-summary {
+            margin: 8px 0 12px;
+            padding: 8px;
+            border-left: 3px solid #4cc96b;
+            background: #f3fbf5;
+            font-size: 10px;
+            color: #2f5138;
+        }
+
+        .answer-review {
+            margin-top: 6px;
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 9px;
+        }
+
+        .answer-review th,
+        .answer-review td {
+            border: 1px solid #ddd;
+            padding: 4px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .status-correct {
+            color: #18753c;
+            font-weight: bold;
+        }
+
+        .status-incorrect,
+        .status-partial {
+            color: #9b3a24;
+            font-weight: bold;
+        }
     </style>
 </head>
 
@@ -164,22 +199,22 @@
         <div class="card-container">
             <div class="card speaking">
                 <h3>Speaking</h3>
-                <div class="score">{{ skills.speaking }}</div>
+                <div class="score">{{ skills.speaking|floatformat:1 }}</div>
             </div>
 
             <div class="card writing">
                 <h3>Writing</h3>
-                <div class="score">{{ skills.writing }}</div>
+                <div class="score">{{ skills.writing|floatformat:1 }}</div>
             </div>
 
             <div class="card reading">
                 <h3>Reading</h3>
-                <div class="score">{{ skills.reading }}</div>
+                <div class="score">{{ skills.reading|floatformat:1 }}</div>
             </div>
 
             <div class="card listening">
                 <h3>Listening</h3>
-                <div class="score">{{ skills.listening }}</div>
+                <div class="score">{{ skills.listening|floatformat:1 }}</div>
             </div>
         </div>
 
@@ -210,6 +245,16 @@
 
     <div class="section-title {{ section.css_class }}">{{ section.title }}</div>
 
+    {% if section.summary %}
+    <div class="section-summary">
+        <strong>Reading performance:</strong> {{ section.summary.accuracy|floatformat:1 }}%.
+        Strongest area: {{ section.summary.strongest }}
+        ({{ section.summary.strongest_percent|floatformat:1 }}%).
+        Focus next: {{ section.summary.focus }}
+        ({{ section.summary.focus_percent|floatformat:1 }}%).
+    </div>
+    {% endif %}
+
     <div class="section">
 
         {% for subsection in section.subsections %}
@@ -217,7 +262,10 @@
         <div class="subsection">
             <div style="display:flex; justify-content:space-between;">
                 <strong>{{ subsection.title }}</strong>
-                <strong>{{ subsection.avg_score|floatformat:0 }}</strong>
+                <strong>
+                    Average: {{ subsection.avg_score|floatformat:2 }} /
+                    {{ subsection.avg_max|floatformat:2 }}
+                </strong>
             </div>
 
             <div class="bar">
@@ -251,7 +299,8 @@
 
                 <!-- TOTAL SCORE -->
                 <div style="font-size:10px; margin-top:4px;">
-                    <strong>Score:</strong> {{ r.total_score|floatformat:0 }}
+                    <strong>Score:</strong> {{ r.total_score|floatformat:2 }} /
+                    {{ r.max_score|floatformat:2 }}
                 </div>
 
                 {% if r.evaluation_status != "completed" %}
@@ -265,10 +314,10 @@
                 <!-- SKILL SCORES -->
                 <div style="font-size:10px; margin-top:4px;">
                     <strong>Skill Scores:</strong>
-                    Speaking: {{ r.skill_scores.speaking|floatformat:1 }} |
-                    Writing: {{ r.skill_scores.writing|floatformat:1 }} |
-                    Reading: {{ r.skill_scores.reading|floatformat:1 }} |
-                    Listening: {{ r.skill_scores.listening|floatformat:1 }}
+                    Speaking: {{ r.skill_scores.speaking|floatformat:2 }} |
+                    Writing: {{ r.skill_scores.writing|floatformat:2 }} |
+                    Reading: {{ r.skill_scores.reading|floatformat:2 }} |
+                    Listening: {{ r.skill_scores.listening|floatformat:2 }}
                 </div>
 
                 <!-- TRAIT SCORES -->
@@ -288,6 +337,35 @@
                     {% for feedback in r.feedback %}
                     <div>{{ feedback.text }}</div>
                     {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if r.feedback_details %}
+                <table class="answer-review">
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>Result</th>
+                            <th>Your answer</th>
+                            <th>Correct answer</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for detail in r.feedback_details %}
+                        <tr>
+                            <td>{{ detail.label }}</td>
+                            <td class="status-{{ detail.status }}">{{ detail.status|title }}</td>
+                            <td>{{ detail.selected }}</td>
+                            <td>{{ detail.correct }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% endif %}
+
+                {% if r.answer_explanation %}
+                <div style="margin-top:6px; font-size:10px; color:#333;">
+                    <strong>Why:</strong> {{ r.answer_explanation }}
                 </div>
                 {% endif %}
 

@@ -150,11 +150,31 @@ def _section_css_class(section_name):
     return "section-listening"
 
 
-def _score_percent(score):
+def _score_percent(score, maximum=100):
     try:
-        return min(max(float(score or 0), 0), 100)
+        score = float(score or 0)
+        maximum = float(maximum or 0)
+        if maximum <= 0:
+            return 0
+        return min(max((score / maximum) * 100, 0), 100)
     except (TypeError, ValueError):
         return 0
+
+
+def _skill_score(responses, skill):
+    awarded_field = f"{skill}_score_awarded"
+    maximum_field = f"{skill}_score_max"
+    evaluated = [response for response in responses if response.evaluated]
+    awarded = sum(getattr(response, awarded_field) or 0 for response in evaluated)
+    maximum = sum(
+        getattr(response.question, maximum_field) or 0
+        for response in evaluated
+    )
+
+    if maximum <= 0:
+        return 0
+
+    return round(min((awarded / maximum) * 90, 90), 2)
 
 
 def _score_items(scores):
@@ -173,6 +193,9 @@ def _score_items(scores):
 
 
 def _feedback_items(feedback):
+    if isinstance(feedback, str):
+        return [{"label": "Feedback", "text": feedback}] if feedback.strip() else []
+
     if not isinstance(feedback, dict):
         return []
 
@@ -182,8 +205,35 @@ def _feedback_items(feedback):
             "text": _as_display_text(value),
         }
         for key, value in feedback.items()
+        if key not in {"details", "explanation"}
         if value not in (None, "")
     ]
+
+
+def _feedback_details(feedback):
+    if not isinstance(feedback, dict):
+        return []
+    details = feedback.get("details")
+    return details if isinstance(details, list) else []
+
+
+def _reading_section_summary(subsections):
+    scored = [subsection for subsection in subsections if subsection["total_max"] > 0]
+    if not scored:
+        return None
+
+    total_score = sum(subsection["total_score"] for subsection in scored)
+    total_max = sum(subsection["total_max"] for subsection in scored)
+    accuracy = round((total_score / total_max) * 100, 1)
+    strongest = max(scored, key=lambda subsection: subsection["percent"])
+    focus = min(scored, key=lambda subsection: subsection["percent"])
+    return {
+        "accuracy": accuracy,
+        "strongest": strongest["title"],
+        "strongest_percent": strongest["percent"],
+        "focus": focus["title"],
+        "focus_percent": focus["percent"],
+    }
 
 
 def _evaluation_summary(responses):
@@ -296,12 +346,24 @@ def build_session_pdf_context(session):
             },
             "scores": _score_items(scores),
             "feedback": _feedback_items(feedback),
+            "feedback_details": _feedback_details(feedback),
+            "answer_explanation": (
+                feedback.get("explanation", "")
+                if isinstance(feedback, dict)
+                else question.answer_explanation
+            ) or question.answer_explanation,
             "total_score": (
                 (r.speaking_score_awarded or 0) +
                 (r.writing_score_awarded or 0) +
                 (r.reading_score_awarded or 0) +
                 (r.listening_score_awarded or 0)
-            )
+            ),
+            "max_score": (
+                (question.speaking_score_max or 0) +
+                (question.writing_score_max or 0) +
+                (question.reading_score_max or 0) +
+                (question.listening_score_max or 0)
+            ),
         })
 
     # avg calculation
@@ -311,13 +373,24 @@ def build_session_pdf_context(session):
         for subsection_data in section_data["subsections"].values():
             items = subsection_data["responses"]
             total = sum(i["total_score"] for i in items)
+            maximum = sum(i["max_score"] for i in items)
             count = len(items) or 1
             avg_score = round(total / count, 2)
+            avg_max = round(maximum / count, 2)
             subsection_data["avg_score"] = avg_score
-            subsection_data["avg_percent"] = _score_percent(avg_score)
+            subsection_data["avg_max"] = avg_max
+            subsection_data["avg_percent"] = _score_percent(avg_score, avg_max)
+            subsection_data["total_score"] = total
+            subsection_data["total_max"] = maximum
+            subsection_data["percent"] = round(_score_percent(total, maximum), 1)
             subsections.append(subsection_data)
 
         section_data["subsections"] = subsections
+        section_data["summary"] = (
+            _reading_section_summary(subsections)
+            if "reading" in section_data["title"].lower()
+            else None
+        )
         sections.append(section_data)
 
     return {
@@ -327,10 +400,10 @@ def build_session_pdf_context(session):
             "started_at": localtime(session.started_at),
         },
         "skills": {
-            "speaking": session.speaking_score_awarded,
-            "writing": session.writing_score_awarded,
-            "reading": session.reading_score_awarded,
-            "listening": session.listening_score_awarded,
+            "speaking": _skill_score(responses, "speaking"),
+            "writing": _skill_score(responses, "writing"),
+            "reading": _skill_score(responses, "reading"),
+            "listening": _skill_score(responses, "listening"),
             "overall": session.total_score,
         },
         "evaluation_summary": _evaluation_summary(responses),

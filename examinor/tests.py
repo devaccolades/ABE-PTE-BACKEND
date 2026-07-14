@@ -1,4 +1,5 @@
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from django.test import SimpleTestCase, TestCase
 from django.test import override_settings
@@ -13,6 +14,7 @@ from examinor.services.orchestrator import (
 )
 from examinor.services.prompt_builder import build_prompt, normalize_answer_text
 from examinor.services.rule_evaluator import run_rule_evaluation
+from examinor.services.explanation_drafter import draft_question_explanation
 from mocktest.services.transcription import transcribe_audio
 from mocktest.models import Question, QuestionOption, Section, SubQuestion, SubSection
 
@@ -350,3 +352,130 @@ class RuleEvaluatorTests(TestCase):
         )
 
         self.assertEqual(result["evaluation"]["scores"]["reading"]["score"], 2.0)
+
+    def test_scores_drag_drop_by_correct_blanks_not_option_pool_size(self):
+        subsection = SubSection.objects.create(
+            section=self.section,
+            name="fib_drag_drop",
+            evaluation_type="rule",
+            rubric={"reading": {"max": 1}},
+        )
+        question = Question.objects.create(subsection=subsection, text="A ____ B ____ C ____ D ____")
+        correct_options = [
+            QuestionOption.objects.create(
+                question=question,
+                option_text=f"correct-{position}",
+                is_correct=True,
+                order_position=position,
+            )
+            for position in range(1, 5)
+        ]
+        distractors = [
+            QuestionOption.objects.create(
+                question=question,
+                option_text=f"distractor-{position}",
+                order_position=position,
+            )
+            for position in range(5, 10)
+        ]
+
+        class Answer:
+            answer_data = {
+                "1": correct_options[0].id,
+                "2": distractors[0].id,
+                "3": distractors[1].id,
+                "4": distractors[2].id,
+            }
+
+        result = run_rule_evaluation(
+            user_answer=Answer(),
+            question=question,
+            subsection=subsection,
+        )
+
+        self.assertEqual(result["evaluation"]["scores"]["reading"]["score"], 0.25)
+        feedback = result["evaluation"]["feedback"]
+        self.assertEqual(feedback["summary"], "1 of 4 blanks were correct.")
+        self.assertEqual(len(feedback["details"]), 4)
+        self.assertEqual(feedback["details"][0]["status"], "correct")
+        self.assertEqual(feedback["details"][1]["status"], "incorrect")
+
+    def test_scores_reorder_paragraphs_by_adjacent_pairs(self):
+        subsection = SubSection.objects.create(
+            section=self.section,
+            name="reorder_paragraphs",
+            evaluation_type="rule",
+            rubric={"reading": {"max": 1}},
+        )
+        question = Question.objects.create(subsection=subsection, text="Reorder these paragraphs.")
+        options = [
+            QuestionOption.objects.create(
+                question=question,
+                option_text=f"paragraph-{position}",
+                order_position=position,
+            )
+            for position in range(1, 6)
+        ]
+
+        class Answer:
+            answer_data = {
+                "1": options[0].id,
+                "2": options[1].id,
+                "3": options[3].id,
+                "4": options[2].id,
+                "5": options[4].id,
+            }
+
+        result = run_rule_evaluation(
+            user_answer=Answer(),
+            question=question,
+            subsection=subsection,
+        )
+
+        self.assertEqual(result["evaluation"]["scores"]["reading"]["score"], 0.25)
+        self.assertEqual(
+            result["evaluation"]["feedback"]["summary"],
+            "1 of 4 adjacent paragraph pair(s) were correct.",
+        )
+
+        Answer.answer_data = {
+            str(position): option.id
+            for position, option in enumerate(options, start=1)
+        }
+        result = run_rule_evaluation(
+            user_answer=Answer(),
+            question=question,
+            subsection=subsection,
+        )
+
+        self.assertEqual(result["evaluation"]["scores"]["reading"]["score"], 1.0)
+
+
+class ExplanationDrafterTests(TestCase):
+    @patch("examinor.services.explanation_drafter.get_openai_client")
+    def test_drafts_reusable_explanation_from_correct_answer_data(self, get_client):
+        section = Section.objects.create(name="Reading")
+        subsection = SubSection.objects.create(section=section, name="mc_single")
+        question = Question.objects.create(
+            subsection=subsection,
+            text="Which option is correct?",
+        )
+        QuestionOption.objects.create(
+            question=question,
+            option_text="Correct option",
+            is_correct=True,
+        )
+        create = get_client.return_value.responses.create
+        create.return_value = SimpleNamespace(
+            output_text="The correct option follows directly from the passage."
+        )
+
+        explanation = draft_question_explanation(question)
+
+        self.assertEqual(
+            explanation,
+            "The correct option follows directly from the passage.",
+        )
+        prompt = create.call_args.kwargs["input"]
+        self.assertIn("Correct option", prompt)
+        self.assertIn("Which option is correct?", prompt)

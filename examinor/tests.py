@@ -271,6 +271,19 @@ class PromptBuilderTests(SimpleTestCase):
         self.assertIn('"""Candidate answer"""', prompt)
         self.assertNotIn("{'text': 'Candidate answer'}", prompt)
 
+    def test_writing_prompt_requests_exact_spelling_and_grammar_errors(self):
+        prompt, _ = build_prompt(
+            "write_essay",
+            "Question text",
+            {"answer_data": "This are a bad sentnce."},
+            {"grammar": {"max": 2}, "spelling": {"max": 2}},
+        )
+
+        self.assertIn('"errors":[{', prompt)
+        self.assertIn('"type":"<spelling or grammar>"', prompt)
+        self.assertIn("exact, case-preserving substring", prompt)
+        self.assertIn("Do not include style preferences as grammar errors", prompt)
+
     def test_structured_answer_fallback_is_stable_json(self):
         first = normalize_answer_text({"b": 2, "a": 1})
         second = normalize_answer_text({"a": 1, "b": 2})

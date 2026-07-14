@@ -1,4 +1,5 @@
 import json
+import re
 from collections import OrderedDict
 
 from reportlab.platypus import (
@@ -204,6 +205,21 @@ def _section_css_class(section_name):
     return "section-listening"
 
 
+def _section_anchor(section_name):
+    slug = re.sub(r"[^a-z0-9]+", "-", str(section_name or "section").lower())
+    return f"section-{slug.strip('-') or 'other'}"
+
+
+def _section_links(sections):
+    links = {}
+    for section in sections:
+        title = section["title"].lower()
+        for skill in ("speaking", "writing", "reading", "listening"):
+            if skill in title and skill not in links:
+                links[skill] = f"#{section['anchor']}"
+    return links
+
+
 def _score_percent(score, maximum=100):
     try:
         score = float(score or 0)
@@ -259,7 +275,7 @@ def _feedback_items(feedback):
             "text": _as_display_text(value),
         }
         for key, value in feedback.items()
-        if key not in {"details", "explanation"}
+        if key not in {"details", "errors", "explanation"}
         if value not in (None, "")
     ]
 
@@ -269,6 +285,80 @@ def _feedback_details(feedback):
         return []
     details = feedback.get("details")
     return details if isinstance(details, list) else []
+
+
+def _writing_errors(feedback):
+    if not isinstance(feedback, dict) or not isinstance(feedback.get("errors"), list):
+        return []
+
+    errors = []
+    for item in feedback["errors"]:
+        if not isinstance(item, dict):
+            continue
+        error_type = str(item.get("type") or "").strip().lower()
+        text = str(item.get("text") or item.get("original") or "").strip()
+        if error_type not in {"spelling", "grammar"} or not text:
+            continue
+        errors.append({
+            "type": error_type,
+            "label": error_type.title(),
+            "text": text,
+            "suggestion": str(item.get("suggestion") or "").strip(),
+            "explanation": str(item.get("explanation") or "").strip(),
+        })
+    return errors
+
+
+def _answer_segments(answer, errors):
+    answer = str(answer or "")
+    if not answer:
+        return []
+
+    candidates = []
+    for error in errors:
+        for match in re.finditer(re.escape(error["text"]), answer, flags=re.IGNORECASE):
+            candidates.append({
+                "start": match.start(),
+                "end": match.end(),
+                "type": error["type"],
+                "suggestion": error["suggestion"],
+                "explanation": error["explanation"],
+            })
+
+    # Spelling wins when model-provided grammar and spelling spans overlap.
+    priority = {"spelling": 0, "grammar": 1}
+    selected = []
+    for candidate in sorted(
+        candidates,
+        key=lambda item: (
+            priority[item["type"]],
+            -(item["end"] - item["start"]),
+            item["start"],
+        ),
+    ):
+        if any(
+            candidate["start"] < existing["end"]
+            and candidate["end"] > existing["start"]
+            for existing in selected
+        ):
+            continue
+        selected.append(candidate)
+
+    segments = []
+    cursor = 0
+    for span in sorted(selected, key=lambda item: item["start"]):
+        if span["start"] > cursor:
+            segments.append({"text": answer[cursor:span["start"]], "type": ""})
+        segments.append({
+            "text": answer[span["start"]:span["end"]],
+            "type": span["type"],
+            "suggestion": span["suggestion"],
+            "explanation": span["explanation"],
+        })
+        cursor = span["end"]
+    if cursor < len(answer):
+        segments.append({"text": answer[cursor:], "type": ""})
+    return segments or [{"text": answer, "type": ""}]
 
 
 def _section_performance_summary(subsections, label):
@@ -365,6 +455,7 @@ def build_session_pdf_context(session):
         section_data = structured.setdefault(section_title, {
             "title": section_title,
             "css_class": _section_css_class(section_title),
+            "anchor": _section_anchor(section_title),
             "subsections": OrderedDict(),
         })
         subsection_data = section_data["subsections"].setdefault(subsection_title, {
@@ -382,12 +473,20 @@ def build_session_pdf_context(session):
         )
         scores = evaluation.get("scores", {})
         feedback = evaluation.get("feedback", {})
+        answer = _response_answer_display(r)
+        writing_errors = (
+            _writing_errors(feedback)
+            if "writing" in section_title.lower()
+            else []
+        )
 
         display_status = "completed" if r.evaluated else r.evaluation_status
 
         subsection_data["responses"].append({
             "question": question.text or question.name or f"Question {question.pk}",
-            "answer": _response_answer_display(r),
+            "answer": answer,
+            "answer_segments": _answer_segments(answer, writing_errors),
+            "writing_errors": writing_errors,
             "response_id": r.id,
             "is_duplicate": r.id in duplicate_ids,
             "duplicate_count": len(duplicate_groups.get((r.user_session_id, r.question_id), [])),
@@ -469,6 +568,7 @@ def build_session_pdf_context(session):
             "listening": _skill_score(responses, "listening"),
             "overall": session.total_score,
         },
+        "section_links": _section_links(sections),
         "evaluation_summary": _evaluation_summary(responses),
         "sections": sections,
     }

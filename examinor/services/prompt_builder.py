@@ -96,7 +96,26 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
     # -----------------------------
     feedback_shape = '"<short, specific feedback in 1 sentence>"'
     feedback_rules = ""
-    if task_type == "summarize_spoken_text":
+    if task_type in {"summarize_written_text", "write_essay"}:
+        feedback_shape = (
+            '{"summary":"<specific overall assessment>",'
+            '"strengths":"<specific strength grounded in the response>",'
+            '"improvements":"<one actionable next step>",'
+            '"errors":[{'
+            '"type":"<spelling or grammar>",'
+            '"text":"<exact verbatim error from the candidate response>",'
+            '"suggestion":"<corrected text>",'
+            '"explanation":"<brief reason>"}]}'
+        )
+        feedback_rules = """
+- Return every clear spelling and grammar error in feedback.errors.
+- error.type must be exactly "spelling" or "grammar".
+- error.text must be an exact, case-preserving substring copied from CANDIDATE_RESPONSE.
+- Keep error.text to the shortest useful word or phrase; do not paraphrase it.
+- Do not include style preferences as grammar errors.
+- Return an empty errors array when no clear spelling or grammar error exists.
+"""
+    elif task_type == "summarize_spoken_text":
         feedback_shape = (
             '{"summary":"<specific overall assessment>",'
             '"strengths":"<specific strength grounded in the response>",'

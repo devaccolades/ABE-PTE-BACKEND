@@ -34,6 +34,85 @@ from mocktest.tasks import evaluate_user_response, recover_stale_evaluations
 
 
 class SessionPdfContextTests(TestCase):
+    def test_writing_errors_are_highlighted_and_score_cards_link_to_sections(self):
+        mock_test = MockTest.objects.create(title="PTE Mock Test")
+        section = Section.objects.create(name="Writing Section")
+        mock_test_section = MockTestSection.objects.create(
+            mock_test=mock_test,
+            section=section,
+            order=1,
+        )
+        subsection = SubSection.objects.create(
+            section=section,
+            name="write_essay",
+            order=1,
+        )
+        question = Question.objects.create(
+            mock_test_section=mock_test_section,
+            subsection=subsection,
+            text="Write an essay.",
+            writing_score_max=4,
+        )
+        session = UserMockTestSession.objects.create(
+            name="Writer",
+            session_id="writing-highlight-session",
+            mock_test=mock_test,
+            writing_score_awarded=2,
+            total_score=2,
+        )
+        UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            answer_data={"text": "This are a sentnce."},
+            writing_score_awarded=2,
+            evaluation_result={
+                "evaluation": {
+                    "scores": {
+                        "grammar": {"score": 0, "max": 2},
+                        "spelling": {"score": 0, "max": 2},
+                    },
+                    "feedback": {
+                        "summary": "The response contains two clear errors.",
+                        "errors": [
+                            {
+                                "type": "grammar",
+                                "text": "This are",
+                                "suggestion": "This is",
+                                "explanation": "Subject-verb agreement.",
+                            },
+                            {
+                                "type": "spelling",
+                                "text": "sentnce",
+                                "suggestion": "sentence",
+                                "explanation": "Misspelled word.",
+                            },
+                        ],
+                    },
+                }
+            },
+            evaluated=True,
+            evaluation_status="completed",
+        )
+
+        context = build_session_pdf_context(session)
+        response = context["sections"][0]["subsections"][0]["responses"][0]
+
+        self.assertEqual(context["section_links"]["writing"], "#section-writing-section")
+        self.assertEqual(
+            [segment["type"] for segment in response["answer_segments"] if segment["type"]],
+            ["grammar", "spelling"],
+        )
+
+        html = render_to_string("pdf/session_report.html", context)
+
+        self.assertIn('href="#section-writing-section"', html)
+        self.assertIn('id="section-writing-section"', html)
+        self.assertIn('class="writing-error-grammar">This are</span>', html)
+        self.assertIn('class="writing-error-spelling">sentnce</span>', html)
+        self.assertIn("Overall Score", html)
+        self.assertIn("2.00 / 90", html)
+
     def test_context_and_template_include_sections_subsections_and_questions(self):
         mock_test = MockTest.objects.create(title="PTE Mock Test")
         section = Section.objects.create(name="Speaking")
@@ -545,6 +624,46 @@ class QuestionBankAuditCommandTests(TestCase):
         self.assertEqual(rows[0]["affected_session_count"], "1")
         self.assertIn("Student Session Name", rows[0]["affected_sessions"])
         self.assertIn("session-reference-123", rows[0]["affected_sessions"])
+
+    def test_read_aloud_reports_shared_mapping_and_reading_max_not_listening_max(self):
+        mock_test = MockTest.objects.create(title="Speaking Test")
+        section = Section.objects.create(name="Speaking")
+        mock_test_section = MockTestSection.objects.create(
+            mock_test=mock_test,
+            section=section,
+        )
+        subsection = SubSection.objects.create(
+            section=section,
+            name="read_aloud",
+            rubric={"content": {"max": 6}},
+            trait_skill_map={"content": ["speaking", "listening"]},
+        )
+        Question.objects.create(
+            mock_test_section=mock_test_section,
+            subsection=subsection,
+            name="RA-1",
+            text="Read this aloud.",
+            speaking_score_max=6,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = f"{directory}/audit.csv"
+            with self.assertRaises(CommandError):
+                call_command(
+                    "check_question_bank",
+                    "--skip-media-check",
+                    "--output",
+                    output,
+                    stdout=StringIO(),
+                )
+            with open(output, encoding="utf-8") as report:
+                rows = list(csv.DictReader(report))
+
+        codes = {row["code"] for row in rows}
+        problems = " ".join(row["problem"] for row in rows)
+        self.assertIn("invalid_trait_skill_contract", codes)
+        self.assertIn("reading maximum is zero", problems)
+        self.assertNotIn("listening maximum is zero", problems)
 
 
 class DraftReadingExplanationsCommandTests(TestCase):

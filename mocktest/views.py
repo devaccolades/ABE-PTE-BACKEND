@@ -16,7 +16,10 @@ from django.shortcuts import get_object_or_404
 from rest_framework.generics import ListAPIView
 from rest_framework.exceptions import NotFound
 from .services.pdf_service import generate_session_pdf
-from .services.evaluation_status import build_session_evaluation_status
+from .services.evaluation_status import (
+    build_session_evaluation_status,
+    can_download_session_pdf,
+)
 from .services.evaluation_queue import (
     EvaluationQueueUnavailable,
     question_requires_audio,
@@ -135,6 +138,15 @@ def is_final_mock_test_question(question, mock_test):
 class SessionPDFView(APIView):
     def get(self, request, pk):
         session = get_object_or_404(UserMockTestSession, pk=pk)
+
+        if not can_download_session_pdf(session):
+            return Response(
+                {
+                    "error": "The final PDF is unavailable until all submitted responses are evaluated.",
+                    "code": "evaluation_incomplete",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         file_path = f"/tmp/session_{session.id}.pdf"
 
@@ -606,8 +618,8 @@ class APIListingQuestions(APIView):
                 session.mark_completed()
                 return Response(
                     {
-                        "message": "All sections completed",
-                        "is_completed": True,
+                        "message": "All sections submitted; evaluation is in progress",
+                        "is_completed": session.is_completed,
                         "completed_at": session.completed_at,
                     },
                     status=200,
@@ -650,8 +662,8 @@ class APIListingQuestions(APIView):
                     session.mark_completed()
                     return Response(
                         {
-                            "message": "All sections completed",
-                            "is_completed": True,
+                            "message": "All sections submitted; evaluation is in progress",
+                            "is_completed": session.is_completed,
                             "completed_at": session.completed_at,
                         },
                         status=200,
@@ -684,8 +696,8 @@ class APIListingQuestions(APIView):
             session.mark_completed()
             return Response(
                 {
-                    "message": "All sections completed",
-                    "is_completed": True,
+                    "message": "All sections submitted; evaluation is in progress",
+                    "is_completed": session.is_completed,
                     "completed_at": session.completed_at,
                 },
                 status=200,

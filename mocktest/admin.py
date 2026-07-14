@@ -11,6 +11,7 @@ from .models import *
 from .forms import QuestionAdminForm
 from .services.pdf_service import generate_session_pdf
 from .services.question_config import SUBQUESTION_SUBSECTIONS
+from .services.evaluation_status import can_download_session_pdf
 from .services.evaluation_queue import (
     EvaluationQueueUnavailable,
     queue_response_evaluation,
@@ -346,6 +347,7 @@ class UserMockTestSessionAdmin(ModelAdmin):
         'completed_sections',
         'started_at',
         'completed_at',
+        'is_completed',
         'total_score'
     )
 
@@ -387,13 +389,19 @@ class UserMockTestSessionAdmin(ModelAdmin):
     def status_badge(self, obj):
         if obj.is_completed:
             return format_html('<span style="color:#22c55e;font-weight:bold;">Completed</span>')
-        return format_html('<span style="color:#f59e0b;font-weight:bold;">Pending</span>')
+        if obj.completed_at:
+            return format_html('<span style="color:#f59e0b;font-weight:bold;">Evaluation pending</span>')
+        return format_html('<span style="color:#94a3b8;font-weight:bold;">Exam in progress</span>')
     status_badge.short_description = "Status"
 
     # -------------------------
     # PDF BUTTON
     # -------------------------
     def download_pdf_button(self, obj):
+        if not can_download_session_pdf(obj):
+            return format_html(
+                '<span style="color:#94a3b8;" title="Available after every response is evaluated">Pending</span>'
+            )
         return format_html(
             '<a class="button" href="download-pdf/{}/" target="_blank">PDF</a>',
             obj.pk
@@ -413,15 +421,15 @@ class UserMockTestSessionAdmin(ModelAdmin):
     # -------------------------
     # BULK ACTION
     # -------------------------
-    actions = ['mark_as_completed', 'retry_failed_or_pending_evaluations', 'recalculate_scores']
+    actions = ['sync_completion_status', 'retry_failed_or_pending_evaluations', 'recalculate_scores']
 
-    def mark_as_completed(self, request, queryset):
+    def sync_completion_status(self, request, queryset):
         updated = 0
         for session in queryset:
-            if session.mark_completed():
+            if session.sync_evaluation_completion():
                 updated += 1
-        self.message_user(request, f"{updated} sessions marked as completed.")
-    mark_as_completed.short_description = "Mark selected sessions as completed"
+        self.message_user(request, f"{updated} session completion status(es) synchronized.")
+    sync_completion_status.short_description = "Synchronize evaluation completion status"
 
     def _queue_retryable_session_responses(self, sessions):
         responses = (
@@ -518,6 +526,14 @@ class UserMockTestSessionAdmin(ModelAdmin):
             )
         except UserMockTestSession.DoesNotExist:
             raise Http404("Session not found")
+
+        if not can_download_session_pdf(session):
+            self.message_user(
+                request,
+                "PDF download is unavailable until every submitted response is evaluated.",
+                level=messages.WARNING,
+            )
+            return redirect(request.META.get("HTTP_REFERER") or "../")
 
         file_path = f"/tmp/session_{session.id}.pdf"
         generate_session_pdf(session, file_path)

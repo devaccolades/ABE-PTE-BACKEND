@@ -29,6 +29,13 @@ def incomplete_sessions_badge(request):
 
 
 def dashboard_callback(request, context):
+    latest_sessions = list(
+        UserMockTestSession.objects.select_related("mock_test")
+        .order_by("-started_at")[:8]
+    )
+    for session in latest_sessions:
+        session.sync_evaluation_completion()
+
     response_counts = {
         row["evaluation_status"]: row["count"]
         for row in UserResponse.objects.values("evaluation_status").annotate(
@@ -86,8 +93,7 @@ def dashboard_callback(request, context):
                 "failed": failed,
                 "quota_failures": quota_failures,
             },
-            "latest_sessions": UserMockTestSession.objects.select_related("mock_test")
-            .order_by("-started_at")[:8],
+            "latest_sessions": latest_sessions,
             "session_list_url": reverse(
                 "admin:mocktest_usermocktestsession_changelist"
             ),

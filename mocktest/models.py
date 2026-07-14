@@ -274,15 +274,40 @@ class UserMockTestSession(models.Model):
     reading_score_awarded = models.FloatField(default=0)
     listening_score_awarded = models.FloatField(default=0)
 
-    def mark_completed(self):
-        """Idempotently record that the candidate finished submitting the exam."""
-        if self.is_completed and self.completed_at:
+    def evaluations_are_complete(self):
+        responses = self.userresponse_set.all()
+        if not responses.exists():
+            return False
+        return not responses.exclude(
+            evaluated=True,
+        ).exclude(
+            evaluation_status="completed",
+        ).exists()
+
+    def sync_evaluation_completion(self):
+        """Keep is_completed aligned with submission and evaluation state."""
+        should_be_completed = bool(
+            self.completed_at and self.evaluations_are_complete()
+        )
+        if self.is_completed == should_be_completed:
             return False
 
-        self.is_completed = True
-        self.completed_at = self.completed_at or timezone.now()
-        self.save(update_fields=["is_completed", "completed_at"])
+        self.is_completed = should_be_completed
+        self.save(update_fields=["is_completed"])
         return True
+
+    def mark_submission_completed(self):
+        """Idempotently record that the candidate finished submitting the exam."""
+        changed = self.completed_at is None
+        if changed:
+            self.completed_at = timezone.now()
+            self.save(update_fields=["completed_at"])
+        self.sync_evaluation_completion()
+        return changed
+
+    def mark_completed(self):
+        """Compatibility alias for callers completing exam submission."""
+        return self.mark_submission_completed()
 
     def aggregate_scores(self):
         """
@@ -317,6 +342,7 @@ class UserMockTestSession(models.Model):
                 "total_score",
             ]
         )
+        self.sync_evaluation_completion()
 
     def calculate_overall_raw_score(self):
         qs = self.userresponse_set.filter(evaluated=True)

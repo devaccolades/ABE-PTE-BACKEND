@@ -14,6 +14,9 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from corsheaders.defaults import default_headers
+from django.templatetags.static import static
+from django.urls import reverse_lazy
+from django.utils.translation import gettext_lazy as _
 
 # Load environment variables from .env file
 load_dotenv()
@@ -39,6 +42,7 @@ ALLOWED_HOSTS = ["*"]
 # Application definition
 
 INSTALLED_APPS = [
+    "unfold",
     "corsheaders",
     "django.contrib.admin",
     "django.contrib.auth",
@@ -50,6 +54,140 @@ INSTALLED_APPS = [
     "mocktest",
     "examinor",
 ]
+
+UNFOLD = {
+    "SITE_TITLE": "ABE PTE Administration",
+    "SITE_HEADER": "ABE PTE",
+    "SITE_SUBHEADER": "Evaluation operations",
+    "SITE_URL": "/admin/",
+    "SHOW_HISTORY": True,
+    "SHOW_VIEW_ON_SITE": False,
+    "DASHBOARD_CALLBACK": "abe_pte.admin_dashboard.dashboard_callback",
+    "STYLES": [lambda request: static("admin/css/theme.css")],
+    "COLORS": {
+        "base": {
+            "50": "#f8fafc",
+            "100": "#f1f5f9",
+            "200": "#e5e7eb",
+            "300": "#cbd5e1",
+            "400": "#94a3b8",
+            "500": "#64748b",
+            "600": "#475569",
+            "700": "#334155",
+            "800": "#1e293b",
+            "900": "#0f172a",
+            "950": "#020617",
+        },
+        "primary": {
+            "50": "#e8f8fe",
+            "100": "#d0f1fd",
+            "200": "#a5e3fa",
+            "300": "#6fd2f6",
+            "400": "#38c1f2",
+            "500": "#14b3ef",
+            "600": "#0e9ed6",
+            "700": "#0b7fae",
+            "800": "#0d668a",
+            "900": "#104f69",
+            "950": "#082f3f",
+        },
+        "font": {
+            "subtle-light": "#94a3b8",
+            "subtle-dark": "#94a3b8",
+            "default-light": "#475569",
+            "default-dark": "#cbd5e1",
+            "important-light": "#1e293b",
+            "important-dark": "#f8fafc",
+        },
+    },
+    "COMMAND": {
+        "search_models": True,
+        "show_history": True,
+    },
+    "SIDEBAR": {
+        "show_search": True,
+        "command_search": True,
+        "show_all_applications": False,
+        "navigation": [
+            {
+                "title": _("Operations"),
+                "separator": False,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Dashboard"),
+                        "icon": "dashboard",
+                        "link": reverse_lazy("admin:index"),
+                    },
+                    {
+                        "title": _("Mock tests"),
+                        "icon": "assignment",
+                        "link": reverse_lazy("admin:mocktest_mocktest_changelist"),
+                    },
+                    {
+                        "title": _("Test sessions"),
+                        "icon": "history_edu",
+                        "link": reverse_lazy("admin:mocktest_usermocktestsession_changelist"),
+                        "badge": "abe_pte.admin_dashboard.incomplete_sessions_badge",
+                    },
+                    {
+                        "title": _("User responses"),
+                        "icon": "grading",
+                        "link": reverse_lazy("admin:mocktest_userresponse_changelist"),
+                        "badge": "abe_pte.admin_dashboard.failed_evaluations_badge",
+                    },
+                    {
+                        "title": _("Single evaluations"),
+                        "icon": "task_alt",
+                        "link": reverse_lazy("admin:mocktest_singleresponse_changelist"),
+                    },
+                    {
+                        "title": _("Evaluation cache"),
+                        "icon": "cached",
+                        "link": reverse_lazy("admin:examinor_evaluationcache_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": _("Question bank"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Questions"),
+                        "icon": "quiz",
+                        "link": reverse_lazy("admin:mocktest_question_changelist"),
+                    },
+                    {
+                        "title": _("Subsections"),
+                        "icon": "account_tree",
+                        "link": reverse_lazy("admin:mocktest_subsection_changelist"),
+                    },
+                    {
+                        "title": _("Sections"),
+                        "icon": "category",
+                        "link": reverse_lazy("admin:mocktest_section_changelist"),
+                    },
+                    {
+                        "title": _("Question options"),
+                        "icon": "list_alt",
+                        "link": reverse_lazy("admin:mocktest_questionoption_changelist"),
+                    },
+                    {
+                        "title": _("Blank definitions"),
+                        "icon": "view_list",
+                        "link": reverse_lazy("admin:mocktest_subquestion_changelist"),
+                    },
+                    {
+                        "title": _("Rubrics"),
+                        "icon": "rule",
+                        "link": reverse_lazy("admin:mocktest_globalrubric_changelist"),
+                    },
+                ],
+            },
+        ],
+    },
+}
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",

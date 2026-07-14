@@ -1,0 +1,88 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}Operations | {{ site_title }}{% endblock %}
+
+{% block branding %}
+    {% include "unfold/helpers/site_branding.html" %}
+{% endblock %}
+
+{% block content %}
+<div class="flex flex-col gap-8">
+    <div>
+        <h1 class="font-semibold text-2xl text-font-important-light dark:text-font-important-dark">
+            Evaluation operations
+        </h1>
+        <p class="mt-1 text-sm text-font-subtle-light dark:text-font-subtle-dark">
+            Current exam activity and evaluation health
+        </p>
+    </div>
+
+    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {% for metric in dashboard_metrics %}
+        <a href="{{ metric.url }}" class="bg-white border border-base-200 flex items-center gap-4 p-5 rounded-default shadow-xs transition hover:border-primary-500 dark:bg-base-900 dark:border-base-800">
+            <span class="bg-base-100 flex h-10 items-center justify-center rounded-default text-primary-600 w-10 dark:bg-base-800 dark:text-primary-400">
+                <span class="material-symbols-outlined">{{ metric.icon }}</span>
+            </span>
+            <span>
+                <span class="block font-semibold text-2xl text-font-important-light dark:text-font-important-dark">{{ metric.value }}</span>
+                <span class="block text-sm text-font-subtle-light dark:text-font-subtle-dark">{{ metric.label }}</span>
+            </span>
+        </a>
+        {% endfor %}
+    </div>
+
+    <div class="grid gap-6 xl:grid-cols-3">
+        <section class="bg-white border border-base-200 p-6 rounded-default shadow-xs dark:bg-base-900 dark:border-base-800">
+            <div class="flex items-center justify-between mb-5">
+                <h2 class="font-semibold text-base text-font-important-light dark:text-font-important-dark">Evaluation health</h2>
+                <a href="{{ response_list_url }}" class="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400">View responses</a>
+            </div>
+            <dl class="flex flex-col gap-4 text-sm">
+                <div class="flex items-center justify-between"><dt>Completed</dt><dd class="abe-status-success font-semibold">{{ evaluation_health.completed }}</dd></div>
+                <div class="flex items-center justify-between"><dt>Processing</dt><dd class="abe-status-primary font-semibold">{{ evaluation_health.processing }}</dd></div>
+                <div class="flex items-center justify-between"><dt>Pending</dt><dd class="abe-status-warning font-semibold">{{ evaluation_health.pending }}</dd></div>
+                <div class="flex items-center justify-between"><dt>Failed</dt><dd class="abe-status-danger font-semibold">{{ evaluation_health.failed }}</dd></div>
+                <div class="border-t border-base-200 flex items-center justify-between pt-4 dark:border-base-800"><dt>API limit failures</dt><dd class="font-semibold {% if evaluation_health.quota_failures %}abe-status-danger{% endif %}">{{ evaluation_health.quota_failures }}</dd></div>
+            </dl>
+        </section>
+
+        <section class="bg-white border border-base-200 overflow-hidden rounded-default shadow-xs xl:col-span-2 dark:bg-base-900 dark:border-base-800">
+            <div class="border-b border-base-200 flex items-center justify-between px-6 py-4 dark:border-base-800">
+                <h2 class="font-semibold text-base text-font-important-light dark:text-font-important-dark">Recent test sessions</h2>
+                <a href="{{ session_list_url }}" class="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400">View all</a>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-base-50 text-font-subtle-light dark:bg-base-800 dark:text-font-subtle-dark">
+                        <tr>
+                            <th class="font-medium px-6 py-3 text-left">Student</th>
+                            <th class="font-medium px-6 py-3 text-left">Mock test</th>
+                            <th class="font-medium px-6 py-3 text-left">Status</th>
+                            <th class="font-medium px-6 py-3 text-right">Score</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-base-200 dark:divide-base-800">
+                        {% for session in latest_sessions %}
+                        <tr>
+                            <td class="px-6 py-3"><a class="font-medium text-primary-600 dark:text-primary-400" href="{% url 'admin:mocktest_usermocktestsession_change' session.pk %}">{{ session.name }}</a></td>
+                            <td class="px-6 py-3">{{ session.mock_test.title }}</td>
+                            <td class="px-6 py-3">
+                                {% if session.is_completed %}
+                                <span class="abe-status-success font-medium">Completed</span>
+                                {% else %}
+                                <span class="abe-status-warning font-medium">In progress</span>
+                                {% endif %}
+                            </td>
+                            <td class="font-semibold px-6 py-3 text-right">{{ session.total_score|floatformat:1 }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td class="px-6 py-8 text-center text-font-subtle-light dark:text-font-subtle-dark" colspan="4">No test sessions yet.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}

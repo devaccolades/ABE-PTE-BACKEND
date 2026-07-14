@@ -5,6 +5,7 @@ from django.http import FileResponse, Http404
 from django.shortcuts import redirect
 from django.utils.html import format_html
 from django.db.models import F, Max, Prefetch, Q
+from unfold.admin import ModelAdmin, TabularInline
 
 from .models import *
 from .services.pdf_service import generate_session_pdf
@@ -76,29 +77,29 @@ def add_api_limit_warning(modeladmin, request, response_model):
 
 def evaluation_status_badge(obj):
     if obj.evaluation_status == "completed" or obj.evaluated:
-        return format_html('<span style="color:green;font-weight:bold;">Evaluated</span>')
+        return format_html('<span style="color:#22c55e;font-weight:bold;">Evaluated</span>')
 
     if obj.evaluation_status == "failed":
         return format_html(
-            '<span style="color:#b45309;font-weight:bold;">Error: {}</span>',
+            '<span style="color:#ef4444;font-weight:bold;">Error: {}</span>',
             obj.evaluation_error or "Evaluation failed",
         )
 
     if obj.evaluation_status == "transcribing":
-        return format_html('<span style="color:#2563eb;">Transcribing</span>')
+        return format_html('<span style="color:#0e9ed6;">Transcribing</span>')
 
     if obj.evaluation_status == "evaluating":
-        return format_html('<span style="color:#2563eb;">Evaluating</span>')
+        return format_html('<span style="color:#0e9ed6;">Evaluating</span>')
 
     if obj.answer_audio and not obj.transcribed_audio_data:
-        return format_html('<span style="color:#6b7280;">Pending transcription</span>')
+        return format_html('<span style="color:#94a3b8;">Pending transcription</span>')
 
-    return format_html('<span style="color:#6b7280;">Pending evaluation</span>')
+    return format_html('<span style="color:#94a3b8;">Pending evaluation</span>')
 
 
 def audio_recording_link(obj):
     if not obj.answer_audio:
-        return format_html('<span style="color:#6b7280;">No audio</span>')
+        return format_html('<span style="color:#94a3b8;">No audio</span>')
 
     try:
         exists = obj.answer_audio.storage.exists(obj.answer_audio.name)
@@ -107,7 +108,7 @@ def audio_recording_link(obj):
 
     if not exists:
         return format_html(
-            '<span style="color:#b91c1c;">File missing: {}</span>',
+            '<span style="color:#ef4444;">File missing: {}</span>',
             obj.answer_audio.name,
         )
 
@@ -124,33 +125,33 @@ audio_recording_link.short_description = "Audio recording"
 # INLINES
 # =========================
 
-class SubSectionInline(admin.TabularInline):
+class SubSectionInline(TabularInline):
     model = SubSection
     extra = 1
     ordering = ['order']
 
 
-class QuestionOptionInline(admin.TabularInline):
+class QuestionOptionInline(TabularInline):
     model = QuestionOption
     extra = 2
     fields = ['option_text', 'is_correct', 'order_position']
     show_change_link = True
 
 
-class SubQuestionInline(admin.TabularInline):
+class SubQuestionInline(TabularInline):
     model = SubQuestion
     extra = 1
     fields = ['blank_number', 'text_before_blank', 'text_after_blank', 'correct_answer']
     show_change_link = True
 
 
-class MockTestSectionInline(admin.TabularInline):
+class MockTestSectionInline(TabularInline):
     model = MockTestSection
     extra = 1
     ordering = ['order']
 
 
-class UserResponseInline(admin.TabularInline):
+class UserResponseInline(TabularInline):
     model = UserResponse
     extra = 0
     can_delete = False
@@ -207,7 +208,8 @@ class UserResponseInline(admin.TabularInline):
 # =========================
 
 @admin.register(Section)
-class SectionAdmin(admin.ModelAdmin):
+class SectionAdmin(ModelAdmin):
+    compressed_fields = True
     list_display = ('name',)
     search_fields = ('name',)
     inlines = [SubSectionInline]
@@ -215,14 +217,18 @@ class SectionAdmin(admin.ModelAdmin):
 
 
 @admin.register(SubSection)
-class SubSectionAdmin(admin.ModelAdmin):
+class SubSectionAdmin(ModelAdmin):
+    compressed_fields = True
     list_display = ('name', 'section', 'order')
     search_fields = ('name',)
     ordering = ['order']
 
 
 @admin.register(Question)
-class QuestionAdmin(admin.ModelAdmin):
+class QuestionAdmin(ModelAdmin):
+    compressed_fields = True
+    list_filter_submit = True
+    warn_unsaved_form = True
     list_display = (
         'name', 'id', 'question_type', 'subsection',
         'explanation_status', 'explanation_draft_status',
@@ -260,7 +266,8 @@ class QuestionAdmin(admin.ModelAdmin):
 
 
 @admin.register(QuestionOption)
-class QuestionOptionAdmin(admin.ModelAdmin):
+class QuestionOptionAdmin(ModelAdmin):
+    compressed_fields = True
     list_display = ('id', 'get_question_name', 'get_blank_number', 'option_text', 'is_correct')
     search_fields = ('option_text', 'question__name')
     list_filter = ('is_correct',)
@@ -274,7 +281,8 @@ class QuestionOptionAdmin(admin.ModelAdmin):
 
 
 @admin.register(SubQuestion)
-class SubQuestionAdmin(admin.ModelAdmin):
+class SubQuestionAdmin(ModelAdmin):
+    compressed_fields = True
     list_display = ('id', 'question', 'blank_number', 'correct_answer')
     search_fields = ('question__name', 'correct_answer')
     ordering = ['question', 'blank_number']
@@ -282,7 +290,9 @@ class SubQuestionAdmin(admin.ModelAdmin):
 
 
 @admin.register(MockTest)
-class MockTestAdmin(admin.ModelAdmin):
+class MockTestAdmin(ModelAdmin):
+    compressed_fields = True
+    warn_unsaved_form = True
     list_display = ('title', 'total_score', 'total_duration', 'is_active', 'created_at')
     list_filter = ('is_active',)
     search_fields = ('title', 'description')
@@ -291,7 +301,8 @@ class MockTestAdmin(admin.ModelAdmin):
 
 
 @admin.register(MockTestSection)
-class MockTestSectionAdmin(admin.ModelAdmin):
+class MockTestSectionAdmin(ModelAdmin):
+    compressed_fields = True
     list_display = ('id', 'mock_test', 'section', 'order')
     list_filter = ('mock_test',)
     ordering = ['mock_test', 'order']
@@ -302,7 +313,10 @@ class MockTestSectionAdmin(admin.ModelAdmin):
 # =========================
 
 @admin.register(UserMockTestSession)
-class UserMockTestSessionAdmin(admin.ModelAdmin):
+class UserMockTestSessionAdmin(ModelAdmin):
+    compressed_fields = True
+    list_filter_submit = True
+    list_fullwidth = True
 
     list_display = (
         'name',
@@ -365,8 +379,8 @@ class UserMockTestSessionAdmin(admin.ModelAdmin):
     # -------------------------
     def status_badge(self, obj):
         if obj.is_completed:
-            return format_html('<span style="color:green;font-weight:bold;">✔ Completed</span>')
-        return format_html('<span style="color:red;font-weight:bold;">✘ Pending</span>')
+            return format_html('<span style="color:#22c55e;font-weight:bold;">Completed</span>')
+        return format_html('<span style="color:#f59e0b;font-weight:bold;">Pending</span>')
     status_badge.short_description = "Status"
 
     # -------------------------
@@ -374,7 +388,7 @@ class UserMockTestSessionAdmin(admin.ModelAdmin):
     # -------------------------
     def download_pdf_button(self, obj):
         return format_html(
-            '<a style="padding:4px 8px;background:#28a745;color:white;border-radius:4px;text-decoration:none;" href="download-pdf/{}/" target="_blank">PDF</a>',
+            '<a class="button" href="download-pdf/{}/" target="_blank">PDF</a>',
             obj.pk
         )
 
@@ -383,7 +397,7 @@ class UserMockTestSessionAdmin(admin.ModelAdmin):
     def retry_evaluations_button(self, obj):
         url = reverse("admin:retry-session-evaluations", args=[obj.pk])
         return format_html(
-            '<a style="padding:4px 8px;background:#2563eb;color:white;border-radius:4px;text-decoration:none;" href="{}">Retry</a>',
+            '<a class="button" href="{}">Retry</a>',
             url,
         )
 
@@ -512,7 +526,10 @@ class UserMockTestSessionAdmin(admin.ModelAdmin):
 # =========================
 
 @admin.register(UserResponse)
-class UserResponseAdmin(admin.ModelAdmin):
+class UserResponseAdmin(ModelAdmin):
+    compressed_fields = True
+    list_filter_submit = True
+    list_fullwidth = True
     list_display = (
         'user_session',
         'id',
@@ -556,7 +573,7 @@ class UserResponseAdmin(admin.ModelAdmin):
 
     def retry_evaluation(self, obj):
         if obj.evaluation_status in ("transcribing", "evaluating"):
-            return format_html('<span style="color:#6b7280;">In progress</span>')
+            return format_html('<span style="color:#94a3b8;">In progress</span>')
 
         url = reverse("admin:mocktest_userresponse_retry_evaluation", args=[obj.pk])
         label = "Try again" if obj.evaluation_status == "failed" else "Requeue"
@@ -623,13 +640,17 @@ class UserResponseAdmin(admin.ModelAdmin):
 # =========================
 
 @admin.register(GlobalRubric)
-class GlobalRubricAdmin(admin.ModelAdmin):
+class GlobalRubricAdmin(ModelAdmin):
+    compressed_fields = True
     list_display = ('key', 'rubric')
     search_fields = ('key',)
 
 
 @admin.register(SingleResponse)
-class SingleResponseAdmin(admin.ModelAdmin):
+class SingleResponseAdmin(ModelAdmin):
+    compressed_fields = True
+    list_filter_submit = True
+    list_fullwidth = True
     list_display = (
         'name',
         'question',
@@ -674,7 +695,7 @@ class SingleResponseAdmin(admin.ModelAdmin):
 
     def retry_evaluation(self, obj):
         if obj.evaluation_status in ("transcribing", "evaluating"):
-            return format_html('<span style="color:#6b7280;">In progress</span>')
+            return format_html('<span style="color:#94a3b8;">In progress</span>')
 
         url = reverse("admin:mocktest_singleresponse_retry_evaluation", args=[obj.pk])
         label = "Try again" if obj.evaluation_status == "failed" else "Requeue"

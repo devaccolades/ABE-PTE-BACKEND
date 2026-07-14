@@ -14,6 +14,9 @@ from mocktest.models import Question
 VALID_SKILLS = {"speaking", "writing", "reading", "listening"}
 MEDIA_REQUIRED_SECTIONS = {"Listening"}
 IMAGE_REQUIRED_SUBSECTIONS = {"describe_image"}
+REQUIRED_TRAIT_SKILLS = {
+    ("read_aloud", "content"): {"speaking", "reading"},
+}
 
 
 class EmptyAnswer:
@@ -43,6 +46,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         self._context_cache = {}
+        self._subsection_issues = set()
         questions = (
             Question.objects.select_related(
                 "subsection__section",
@@ -202,6 +206,7 @@ class Command(BaseCommand):
             )
 
         trait_map = subsection.trait_skill_map or {}
+        mapped_skills = set()
         if not trait_map:
             add(
                 "error",
@@ -230,17 +235,53 @@ class Command(BaseCommand):
                         f"Trait '{trait}' maps to unsupported skill(s): {', '.join(invalid)}.",
                         "Use only speaking, writing, reading, and listening.",
                     )
-                for skill in set(skills) & VALID_SKILLS:
-                    maximum = getattr(question, f"{skill}_score_max") or 0
-                    if maximum <= 0:
-                        add(
-                            "error",
-                            "missing_question_skill_max",
-                            f"Trait '{trait}' awards {skill}, but the question {skill} maximum is zero.",
-                            f"Set Question.{skill}_score_max to the intended maximum.",
+                mapped_skills.update(set(skills) & VALID_SKILLS)
+
+                required = REQUIRED_TRAIT_SKILLS.get((subsection.name, trait))
+                if required:
+                    actual = set(skills) & VALID_SKILLS
+                    missing = sorted(required - actual)
+                    unexpected = sorted(actual - required)
+                    if missing or unexpected:
+                        parts = []
+                        if missing:
+                            parts.append(f"missing {', '.join(missing)}")
+                        if unexpected:
+                            parts.append(f"must not award {', '.join(unexpected)}")
+                        self._add_subsection_issue(
+                            issues,
+                            question,
+                            "invalid_trait_skill_contract",
+                            (
+                                f"Shared {subsection.name} trait '{trait}' mapping is invalid: "
+                                f"{'; '.join(parts)}."
+                            ),
+                            (
+                                f"Set SubSection.trait_skill_map['{trait}'] to "
+                                f"{sorted(required)}. This is a shared subsection fix."
+                            ),
                         )
+                    mapped_skills.difference_update(actual - required)
+                    mapped_skills.update(required)
+
+            for skill in sorted(mapped_skills):
+                maximum = getattr(question, f"{skill}_score_max") or 0
+                if maximum <= 0:
+                    add(
+                        "error",
+                        "missing_question_skill_max",
+                        f"Question awards {skill}, but its {skill} maximum is zero.",
+                        f"Set Question.{skill}_score_max to the intended maximum.",
+                    )
 
         return issues
+
+    def _add_subsection_issue(self, issues, question, code, problem, fix):
+        key = (question.subsection_id, code, problem)
+        if key in self._subsection_issues:
+            return
+        self._subsection_issues.add(key)
+        issues.append(self._issue_row(question, "error", code, problem, fix))
 
     def _check_file(self, question, field, kind, check_storage, add):
         if not field:

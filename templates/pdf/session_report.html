@@ -33,16 +33,40 @@
             margin: 20px 0;
         }
 
+        .overall-score {
+            align-items: center;
+            background: #0f172a;
+            border-left: 6px solid #14b3ef;
+            border-radius: 6px;
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            padding: 12px 16px;
+        }
+
+        .overall-score .label {
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        .overall-score .value {
+            font-size: 26px;
+            font-weight: bold;
+        }
+
         .card-container {
             display: flex;
             gap: 10px;
         }
 
         .card {
+            display: block;
             flex: 1;
             padding: 10px;
             border-radius: 6px;
             color: white;
+            text-decoration: none;
         }
 
         .speaking {
@@ -129,6 +153,41 @@
             white-space: pre-wrap;
         }
 
+        .writing-legend {
+            color: #555;
+            font-size: 9px;
+            margin-top: 4px;
+        }
+
+        .writing-error-spelling {
+            background: #fee2e2;
+            border-bottom: 1px solid #dc2626;
+            color: #b91c1c;
+            font-weight: bold;
+        }
+
+        .writing-error-grammar {
+            background: #dbeafe;
+            border-bottom: 1px solid #2563eb;
+            color: #1d4ed8;
+            font-weight: bold;
+        }
+
+        .writing-errors {
+            border-collapse: collapse;
+            font-size: 9px;
+            margin-top: 6px;
+            width: 100%;
+        }
+
+        .writing-errors th,
+        .writing-errors td {
+            border: 1px solid #ddd;
+            padding: 4px;
+            text-align: left;
+            vertical-align: top;
+        }
+
         .empty-section {
             margin-top: 20px;
             padding: 10px;
@@ -196,29 +255,32 @@
 
     <!-- SKILL CARDS -->
     <div class="skills">
-        <div class="card-container">
-            <div class="card speaking">
-                <h3>Speaking</h3>
-                <div class="score">{{ skills.speaking|floatformat:1 }}</div>
-            </div>
-
-            <div class="card writing">
-                <h3>Writing</h3>
-                <div class="score">{{ skills.writing|floatformat:1 }}</div>
-            </div>
-
-            <div class="card reading">
-                <h3>Reading</h3>
-                <div class="score">{{ skills.reading|floatformat:1 }}</div>
-            </div>
-
-            <div class="card listening">
-                <h3>Listening</h3>
-                <div class="score">{{ skills.listening|floatformat:1 }}</div>
-            </div>
+        <div class="overall-score">
+            <span class="label">Overall Score</span>
+            <span class="value">{{ skills.overall|floatformat:2 }} / 90</span>
         </div>
 
-        <p style="margin-top:10px;"><strong>Overall Score:</strong> {{ skills.overall|floatformat:2 }}</p>
+        <div class="card-container">
+            <a class="card speaking" href="{{ section_links.speaking|default:'#' }}">
+                <h3>Speaking</h3>
+                <div class="score">{{ skills.speaking|floatformat:1 }}</div>
+            </a>
+
+            <a class="card writing" href="{{ section_links.writing|default:'#' }}">
+                <h3>Writing</h3>
+                <div class="score">{{ skills.writing|floatformat:1 }}</div>
+            </a>
+
+            <a class="card reading" href="{{ section_links.reading|default:'#' }}">
+                <h3>Reading</h3>
+                <div class="score">{{ skills.reading|floatformat:1 }}</div>
+            </a>
+
+            <a class="card listening" href="{{ section_links.listening|default:'#' }}">
+                <h3>Listening</h3>
+                <div class="score">{{ skills.listening|floatformat:1 }}</div>
+            </a>
+        </div>
     </div>
 
     {% if not evaluation_summary.is_complete %}
@@ -243,7 +305,7 @@
     <!-- SECTIONS -->
     {% for section in sections %}
 
-    <div class="section-title {{ section.css_class }}">{{ section.title }}</div>
+    <div id="{{ section.anchor }}" class="section-title {{ section.css_class }}">{{ section.title }}</div>
 
     {% if section.summary %}
     <div class="section-summary">
@@ -293,8 +355,37 @@
                 <!-- ANSWER -->
                 {% if r.answer %}
                 <div class="answer" style="font-size:10px; color:#555; margin-top:4px;">
-                    <strong>Answer:</strong> {{ r.answer }}
+                    <strong>Answer:</strong>
+                    {% for segment in r.answer_segments %}{% if segment.type %}<span class="writing-error-{{ segment.type }}">{{ segment.text }}</span>{% else %}{{ segment.text }}{% endif %}{% endfor %}
                 </div>
+                {% endif %}
+
+                {% if r.writing_errors %}
+                <div class="writing-legend">
+                    <span class="writing-error-spelling">Red: spelling</span>
+                    &nbsp;
+                    <span class="writing-error-grammar">Blue: grammar</span>
+                </div>
+                <table class="writing-errors">
+                    <thead>
+                        <tr>
+                            <th>Type</th>
+                            <th>Original</th>
+                            <th>Correction</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for error in r.writing_errors %}
+                        <tr>
+                            <td class="writing-error-{{ error.type }}">{{ error.label }}</td>
+                            <td>{{ error.text }}</td>
+                            <td>{{ error.suggestion|default:"-" }}</td>
+                            <td>{{ error.explanation|default:"-" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
                 {% endif %}
 
                 <!-- TOTAL SCORE -->

@@ -50,6 +50,10 @@ class QuestionSerializer(serializers.ModelSerializer):
         source='subsection.instructions',
         read_only=True
     )
+    ai_input_type = serializers.CharField(
+        source='subsection.ai_input_type',
+        read_only=True,
+    )
     audio = serializers.SerializerMethodField()
     image = serializers.SerializerMethodField()
 
@@ -67,6 +71,7 @@ class QuestionSerializer(serializers.ModelSerializer):
             'mocktest_section',
             'subsection',
             'subsection_instruction',
+            'ai_input_type',
             'options',
             'sub_questions',
         ]
@@ -100,6 +105,10 @@ class SingleQuestionSerializer(serializers.ModelSerializer):
         source='subsection.instructions',
         read_only=True
     )
+    ai_input_type = serializers.CharField(
+        source='subsection.ai_input_type',
+        read_only=True,
+    )
 
     audio = serializers.SerializerMethodField()
     image = serializers.SerializerMethodField()
@@ -118,6 +127,7 @@ class SingleQuestionSerializer(serializers.ModelSerializer):
             'mocktest_section',
             'subsection',
             'subsection_instruction',
+            'ai_input_type',
             'options',
             'sub_questions',
         ]

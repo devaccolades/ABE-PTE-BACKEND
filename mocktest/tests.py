@@ -486,9 +486,29 @@ class UserResponseSubmissionTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("answer_audio is required", response.json()["error"])
+        self.assertEqual(response.json()["code"], "audio_upload_required")
+        self.assertIn("answer_audio", response.json()["error"])
         self.assertFalse(UserResponse.objects.exists())
         mock_delay.assert_not_called()
+
+    def test_question_api_declares_audio_input_requirement(self):
+        mock_test = MockTest.objects.create(title="Audio Contract Test")
+        question = self._create_question_set(mock_test, "Speaking", "RA-1")
+        question.subsection.ai_input_type = "audio"
+        question.subsection.save(update_fields=["ai_input_type"])
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="audio-contract-session",
+            mock_test=mock_test,
+        )
+
+        response = self.client.get(
+            "/mocktest/get-question/",
+            {"session_id": session.session_id},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["results"][0]["ai_input_type"], "audio")
 
     @patch("mocktest.services.evaluation_queue.evaluate_single_response.delay")
     def test_single_response_requires_audio_file_for_audio_question(self, mock_delay):
@@ -504,7 +524,8 @@ class UserResponseSubmissionTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("answer_audio is required", response.json()["error"])
+        self.assertEqual(response.json()["code"], "audio_upload_required")
+        self.assertIn("answer_audio", response.json()["error"])
         self.assertFalse(SingleResponse.objects.exists())
         mock_delay.assert_not_called()
 

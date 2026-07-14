@@ -13,7 +13,7 @@ from examinor.services.orchestrator import (
     save_evaluation_cache,
 )
 from examinor.services.prompt_builder import build_prompt, normalize_answer_text
-from examinor.services.rule_evaluator import run_rule_evaluation
+from examinor.services.rule_evaluator import run_rule_evaluation, uses_rule_evaluation
 from examinor.services.explanation_drafter import draft_question_explanation
 from mocktest.services.transcription import transcribe_audio
 from mocktest.models import Question, QuestionOption, Section, SubQuestion, SubSection
@@ -121,6 +121,25 @@ class EvaluationOrchestratorTests(TestCase):
 
         self.assertFalse(result["ok"])
         self.assertIn("Duplicate subsection name", result["error"])
+
+    @patch("examinor.services.orchestrator.evaluate_with_openai")
+    def test_summarize_spoken_text_requires_reference_material(self, mock_evaluate):
+        section = Section.objects.create(name="Listening")
+        subsection = SubSection.objects.create(
+            section=section,
+            name="summarize_spoken_text",
+            rubric={"content": {"max": 4}},
+        )
+
+        result = run_evaluation_for_subsection(
+            subsection,
+            "SST-1",
+            {"answer_data": "Candidate summary"},
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertIn("requires a reference transcript", result["error"])
+        mock_evaluate.assert_not_called()
 
     @patch("examinor.services.orchestrator.evaluate_with_openai")
     def test_object_based_evaluation_uses_linked_subsection_rubric(self, mock_evaluate):
@@ -258,6 +277,22 @@ class PromptBuilderTests(SimpleTestCase):
 
         self.assertEqual(first, second)
         self.assertEqual(first, '{"a": 1, "b": 2}')
+
+    def test_summarize_spoken_text_prompt_is_grounded_and_requests_specific_feedback(self):
+        prompt, _ = build_prompt(
+            "summarize_spoken_text",
+            "SST-1",
+            {
+                "answer_data": "Candidate summary",
+                "reference_answer": "The lecture explains cultural exchange.",
+            },
+            {"content": {"max": 4}},
+        )
+
+        self.assertIn('"""The lecture explains cultural exchange."""', prompt)
+        self.assertIn('"strengths"', prompt)
+        self.assertIn('"improvements"', prompt)
+        self.assertIn("Judge content only against REFERENCE_MATERIAL", prompt)
 
 
 class RuleEvaluatorTests(TestCase):
@@ -449,6 +484,128 @@ class RuleEvaluatorTests(TestCase):
         )
 
         self.assertEqual(result["evaluation"]["scores"]["reading"]["score"], 1.0)
+
+    def test_scores_listening_blanks_per_position_from_pipe_delimited_answer(self):
+        subsection = SubSection.objects.create(
+            section=self.section,
+            name="l_fill_in_blanks",
+            evaluation_type="ai",
+            rubric={"listening_and_writing": {"max": 4}},
+        )
+        question = Question.objects.create(subsection=subsection, text="A ____ B ____ C ____ D ____")
+        for position, answer in enumerate(("alpha", "beta", "gamma", "delta"), start=1):
+            SubQuestion.objects.create(
+                question=question,
+                blank_number=position,
+                correct_answer=answer,
+            )
+
+        class Answer:
+            answer_data = "alpha|wrong|gamma|delta"
+
+        result = run_rule_evaluation(
+            user_answer=Answer(),
+            question=question,
+            subsection=subsection,
+        )
+
+        self.assertTrue(uses_rule_evaluation(subsection))
+        self.assertEqual(
+            result["evaluation"]["scores"]["listening_and_writing"]["score"],
+            3.0,
+        )
+        self.assertEqual(
+            result["evaluation"]["feedback"]["summary"],
+            "3 of 4 answer(s) were correct.",
+        )
+
+    def test_scores_write_from_dictation_by_correct_words_in_sequence(self):
+        subsection = SubSection.objects.create(
+            section=self.section,
+            name="write_from_dictation",
+            evaluation_type="ai",
+            rubric={"listening_and_writing": {"max": 10}},
+        )
+        question = Question.objects.create(
+            subsection=subsection,
+            correct_answer="The author expressed an idea which modern readers cannot accept",
+        )
+
+        class Answer:
+            answer_data = "The author expressed an idea which modern readers cant accept."
+
+        result = run_rule_evaluation(
+            user_answer=Answer(),
+            question=question,
+            subsection=subsection,
+        )
+
+        self.assertEqual(
+            result["evaluation"]["scores"]["listening_and_writing"]["score"],
+            9.0,
+        )
+        self.assertEqual(
+            result["evaluation"]["feedback"]["summary"],
+            "9 of 10 words were correct and in sequence.",
+        )
+
+    def test_highlight_incorrect_words_applies_wrong_selection_penalty(self):
+        subsection = SubSection.objects.create(
+            section=self.section,
+            name="highlight_incorrect_words",
+            evaluation_type="rule",
+            rubric={"listening_and_reading": {"max": 3}},
+        )
+        question = Question.objects.create(
+            subsection=subsection,
+            text="Displayed transcript",
+            correct_answer="ordinary|confusion|upset",
+        )
+
+        class Answer:
+            answer_data = "ordinary,confusion,science"
+
+        result = run_rule_evaluation(
+            user_answer=Answer(),
+            question=question,
+            subsection=subsection,
+        )
+
+        self.assertEqual(
+            result["evaluation"]["scores"]["listening_and_reading"]["score"],
+            1.0,
+        )
+        self.assertIn(
+            "2 correct word(s), 1 incorrect word(s)",
+            result["evaluation"]["feedback"]["summary"],
+        )
+
+    def test_highlight_incorrect_words_can_compare_reference_transcript(self):
+        subsection = SubSection.objects.create(
+            section=self.section,
+            name="highlight_incorrect_words",
+            evaluation_type="rule",
+            rubric={"listening_and_reading": {"max": 1}},
+        )
+        question = Question.objects.create(
+            subsection=subsection,
+            text="Science can continue to upset us in surprising ways today.",
+            correct_answer="Science can continue to surprise us in surprising ways today.",
+        )
+
+        class Answer:
+            answer_data = "upset"
+
+        result = run_rule_evaluation(
+            user_answer=Answer(),
+            question=question,
+            subsection=subsection,
+        )
+
+        self.assertEqual(
+            result["evaluation"]["scores"]["listening_and_reading"]["score"],
+            1.0,
+        )
 
 
 class ExplanationDrafterTests(TestCase):

@@ -1,3 +1,5 @@
+from collections import Counter
+from difflib import SequenceMatcher
 import re
 from examinor.scoring.validators import rubric_maxima
 
@@ -59,13 +61,25 @@ RULE_QUESTION_CONFIG = {
     "highlight_incorrect_words": {
         "answer_format": "delimited_text",
         "options_location": "none",
-        "correctness_type": "text_match",
+        "correctness_type": "penalized_word_selection",
+    },
+    "write_from_dictation": {
+        "answer_format": "free_text",
+        "options_location": "none",
+        "correctness_type": "word_sequence",
     },
 }
 
 
 class RuleConfigurationError(ValueError):
     pass
+
+
+def uses_rule_evaluation(subsection):
+    return (
+        subsection.name in RULE_QUESTION_CONFIG
+        or subsection.evaluation_type == "rule"
+    )
 
 
 # -------------------------------------------------
@@ -168,6 +182,13 @@ def _as_mapping(answer_data):
 def _split_text_answer(answer_data):
     answer = _unwrap_answer(answer_data)
 
+    if isinstance(answer, dict):
+        def sort_key(item):
+            key = _to_int(item[0])
+            return (key is None, key if key is not None else str(item[0]))
+
+        answer = [value for _, value in sorted(answer.items(), key=sort_key)]
+
     if isinstance(answer, (list, tuple)):
         return [str(value).strip().lower() for value in answer if str(value).strip()]
 
@@ -177,6 +198,103 @@ def _split_text_answer(answer_data):
     text = str(answer)
     parts = re.split(r"[,|\n;]+", text)
     return [part.strip().lower() for part in parts if part.strip()]
+
+
+WORD_RE = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
+
+
+def _word_tokens(value):
+    return [token.lower() for token in WORD_RE.findall(str(value or ""))]
+
+
+def _normalized_text(value):
+    return " ".join(_word_tokens(value))
+
+
+def _configured_text_answers(question):
+    answers = [
+        subquestion.correct_answer
+        for subquestion in question.sub_questions.order_by("blank_number", "id")
+        if subquestion.correct_answer
+    ]
+    if not answers and question.correct_answer:
+        answers = _split_text_answer(question.correct_answer)
+    return [answer for answer in answers if _normalized_text(answer)]
+
+
+def _dictation_reference(question):
+    reference = question.correct_answer
+    if not _word_tokens(reference):
+        raise RuleConfigurationError(
+            f"Question {question.pk} has no configured dictation transcript."
+        )
+    return reference
+
+
+def _write_from_dictation_ratio(question, answer_data):
+    expected = _word_tokens(_dictation_reference(question))
+    submitted = _word_tokens(_unwrap_answer(answer_data))
+    matcher = SequenceMatcher(None, expected, submitted, autojunk=False)
+    matched = sum(block.size for block in matcher.get_matching_blocks())
+    return matched / len(expected)
+
+
+def _looks_like_word_list(value):
+    text = str(value or "")
+    if any(separator in text for separator in ("|", ";", "\n")):
+        return True
+    parts = [part.strip() for part in text.split(",") if part.strip()]
+    return (
+        len(parts) > 1
+        and sum(len(_word_tokens(part)) for part in parts) <= 24
+        and all(len(_word_tokens(part)) <= 4 for part in parts)
+    )
+
+
+def _highlight_incorrect_expected_words(question):
+    configured = _configured_text_answers(question)
+    if question.sub_questions.exists() or _looks_like_word_list(question.correct_answer):
+        return [word for answer in configured for word in _word_tokens(answer)]
+
+    reference = question.correct_answer
+    displayed = question.text
+    if not _word_tokens(reference) or not _word_tokens(displayed):
+        raise RuleConfigurationError(
+            f"Question {question.pk} needs incorrect words or a reference transcript."
+        )
+
+    displayed_words = WORD_RE.findall(displayed)
+    displayed_normalized = [word.lower() for word in displayed_words]
+    reference_normalized = _word_tokens(reference)
+    matcher = SequenceMatcher(
+        None,
+        displayed_normalized,
+        reference_normalized,
+        autojunk=False,
+    )
+    incorrect = []
+    for tag, start, end, _, _ in matcher.get_opcodes():
+        if tag in {"replace", "delete"}:
+            incorrect.extend(displayed_normalized[start:end])
+
+    if not incorrect:
+        raise RuleConfigurationError(
+            f"Question {question.pk} has no detectable incorrect transcript words."
+        )
+    return incorrect
+
+
+def _highlight_incorrect_ratio(question, answer_data):
+    selected = Counter(
+        word
+        for answer in _split_text_answer(answer_data)
+        for word in _word_tokens(answer)
+    )
+    expected = Counter(_highlight_incorrect_expected_words(question))
+    correct_selected = sum((selected & expected).values())
+    incorrect_selected = sum((selected - expected).values())
+    awarded = max(correct_selected - incorrect_selected, 0)
+    return awarded / sum(expected.values())
 
 
 def _score_from_ratio(ratio, rubric):
@@ -353,14 +471,7 @@ def _reorder_paragraphs_ratio(question, answer_data):
 
 def _text_match_ratio(question, answer_data):
     answers = _split_text_answer(answer_data)
-    correct_answers = [
-        subquestion.correct_answer.strip().lower()
-        for subquestion in question.sub_questions.all()
-        if subquestion.correct_answer
-    ]
-
-    if not correct_answers and question.correct_answer:
-        correct_answers = _split_text_answer(question.correct_answer)
+    correct_answers = _configured_text_answers(question)
 
     if not correct_answers:
         raise RuleConfigurationError(
@@ -369,7 +480,10 @@ def _text_match_ratio(question, answer_data):
 
     awarded = 0
     for index, correct in enumerate(correct_answers):
-        if index < len(answers) and answers[index] == correct:
+        if (
+            index < len(answers)
+            and _normalized_text(answers[index]) == _normalized_text(correct)
+        ):
             awarded += 1
 
     return awarded / len(correct_answers)
@@ -518,19 +632,13 @@ def _reorder_feedback(question, answer_data, ratio):
 
 def _text_match_feedback(question, answer_data, ratio):
     selected = _split_text_answer(answer_data)
-    correct = [
-        subquestion.correct_answer.strip()
-        for subquestion in question.sub_questions.all()
-        if subquestion.correct_answer
-    ]
-    if not correct and question.correct_answer:
-        correct = _split_text_answer(question.correct_answer)
+    correct = _configured_text_answers(question)
     details = []
     for index, expected in enumerate(correct, start=1):
         actual = selected[index - 1] if index <= len(selected) else "No answer"
         details.append({
             "label": f"Answer {index}",
-            "status": "correct" if str(actual).lower() == str(expected).lower() else "incorrect",
+            "status": "correct" if _normalized_text(actual) == _normalized_text(expected) else "incorrect",
             "selected": actual,
             "correct": expected,
         })
@@ -541,6 +649,50 @@ def _text_match_feedback(question, answer_data, ratio):
     }
 
 
+def _write_from_dictation_feedback(question, answer_data, ratio):
+    reference = _dictation_reference(question)
+    selected = str(_unwrap_answer(answer_data) or "").strip()
+    expected_words = _word_tokens(reference)
+    selected_words = _word_tokens(selected)
+    matcher = SequenceMatcher(None, expected_words, selected_words, autojunk=False)
+    matched = sum(block.size for block in matcher.get_matching_blocks())
+    return {
+        "summary": f"{matched} of {len(expected_words)} words were correct and in sequence.",
+        "details": [{
+            "label": "Dictation",
+            "status": _feedback_status(ratio),
+            "selected": selected or "No answer",
+            "correct": reference,
+        }],
+    }
+
+
+def _highlight_incorrect_feedback(question, answer_data, ratio):
+    selected = [
+        word
+        for answer in _split_text_answer(answer_data)
+        for word in _word_tokens(answer)
+    ]
+    expected = _highlight_incorrect_expected_words(question)
+    selected_counter = Counter(selected)
+    expected_counter = Counter(expected)
+    correct_selected = sum((selected_counter & expected_counter).values())
+    incorrect_selected = sum((selected_counter - expected_counter).values())
+    missed = sum((expected_counter - selected_counter).values())
+    return {
+        "summary": (
+            f"Selected {correct_selected} correct word(s), "
+            f"{incorrect_selected} incorrect word(s), and missed {missed}."
+        ),
+        "details": [{
+            "label": "Highlighted words",
+            "status": _feedback_status(ratio),
+            "selected": ", ".join(selected) or "No answer",
+            "correct": ", ".join(expected),
+        }],
+    }
+
+
 def build_rule_feedback(*, question, subsection, answer_data, ratio):
     if subsection.name == "fib_dropdown":
         feedback = _fib_dropdown_feedback(question, answer_data, ratio)
@@ -548,6 +700,10 @@ def build_rule_feedback(*, question, subsection, answer_data, ratio):
         feedback = _fib_drag_drop_feedback(question, answer_data, ratio)
     elif subsection.name == "reorder_paragraphs":
         feedback = _reorder_feedback(question, answer_data, ratio)
+    elif subsection.name == "write_from_dictation":
+        feedback = _write_from_dictation_feedback(question, answer_data, ratio)
+    elif subsection.name == "highlight_incorrect_words":
+        feedback = _highlight_incorrect_feedback(question, answer_data, ratio)
     elif subsection.name in {"mc_multiple", "l_mc_multiple"}:
         feedback = _multiple_choice_feedback(question, answer_data, ratio)
     elif subsection.name in {
@@ -579,6 +735,10 @@ def evaluate_deterministically(*, user_answer, question, subsection):
             ratio = _fib_drag_drop_ratio(question, user_answer.answer_data)
         elif subsection.name == "reorder_paragraphs":
             ratio = _reorder_paragraphs_ratio(question, user_answer.answer_data)
+        elif subsection.name == "write_from_dictation":
+            ratio = _write_from_dictation_ratio(question, user_answer.answer_data)
+        elif subsection.name == "highlight_incorrect_words":
+            ratio = _highlight_incorrect_ratio(question, user_answer.answer_data)
         elif cfg["correctness_type"] == "text_match":
             ratio = _text_match_ratio(question, user_answer.answer_data)
         elif cfg["correctness_type"] == "is_correct_flag":

@@ -137,6 +137,60 @@ def _as_display_text(value):
     return str(value)
 
 
+CHOICE_SUBSECTIONS = {
+    "mc_single",
+    "mc_multiple",
+    "l_mc_single",
+    "l_mc_multiple",
+    "highlight_correct_summary",
+    "select_missing_word",
+}
+
+
+def _answer_ids(value):
+    if isinstance(value, dict):
+        for key in (
+            "answer",
+            "selected",
+            "selected_id",
+            "selected_option_id",
+            "selected_options",
+            "selected_ids",
+            "option_id",
+            "option_ids",
+        ):
+            if key in value:
+                return _answer_ids(value[key])
+        value = list(value.values())
+
+    if not isinstance(value, (list, tuple, set)):
+        value = [value]
+
+    ids = []
+    for item in value:
+        try:
+            ids.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return ids
+
+
+def _response_answer_display(response):
+    question = response.question
+    subsection = question.subsection
+    if subsection and subsection.name in CHOICE_SUBSECTIONS:
+        selected_ids = _answer_ids(response.answer_data)
+        options = {option.id: option for option in question.options.all()}
+        labels = [
+            str(options[option_id].option_text or f"Option {option_id}").strip()
+            for option_id in selected_ids
+            if option_id in options
+        ]
+        if labels:
+            return ", ".join(labels)
+    return _as_display_text(response.answer_data)
+
+
 def _section_css_class(section_name):
     section_name = (section_name or "").lower()
 
@@ -217,7 +271,7 @@ def _feedback_details(feedback):
     return details if isinstance(details, list) else []
 
 
-def _reading_section_summary(subsections):
+def _section_performance_summary(subsections, label):
     scored = [subsection for subsection in subsections if subsection["total_max"] > 0]
     if not scored:
         return None
@@ -228,6 +282,7 @@ def _reading_section_summary(subsections):
     strongest = max(scored, key=lambda subsection: subsection["percent"])
     focus = min(scored, key=lambda subsection: subsection["percent"])
     return {
+        "label": label,
         "accuracy": accuracy,
         "strongest": strongest["title"],
         "strongest_percent": strongest["percent"],
@@ -273,6 +328,7 @@ def build_session_pdf_context(session):
         UserResponse.objects
         .filter(user_session_id=session.pk)
         .select_related("question__subsection__section")
+        .prefetch_related("question__options")
         .order_by(
             "question__mock_test_section__order",
             "question__subsection__order",
@@ -331,7 +387,7 @@ def build_session_pdf_context(session):
 
         subsection_data["responses"].append({
             "question": question.text or question.name or f"Question {question.pk}",
-            "answer": _as_display_text(r.answer_data),
+            "answer": _response_answer_display(r),
             "response_id": r.id,
             "is_duplicate": r.id in duplicate_ids,
             "duplicate_count": len(duplicate_groups.get((r.user_session_id, r.question_id), [])),
@@ -386,11 +442,18 @@ def build_session_pdf_context(session):
             subsections.append(subsection_data)
 
         section_data["subsections"] = subsections
-        section_data["summary"] = (
-            _reading_section_summary(subsections)
-            if "reading" in section_data["title"].lower()
-            else None
-        )
+        section_name = section_data["title"].lower()
+        section_data["summary"] = None
+        if "reading" in section_name:
+            section_data["summary"] = _section_performance_summary(
+                subsections,
+                "Reading",
+            )
+        elif "listening" in section_name:
+            section_data["summary"] = _section_performance_summary(
+                subsections,
+                "Listening",
+            )
         sections.append(section_data)
 
     return {

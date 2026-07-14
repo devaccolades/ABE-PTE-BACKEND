@@ -1,6 +1,7 @@
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import Q
 
-from examinor.services.rule_evaluator import run_rule_evaluation
+from examinor.services.rule_evaluator import RULE_QUESTION_CONFIG, run_rule_evaluation
 from mocktest.models import Question
 
 
@@ -9,7 +10,7 @@ class EmptyAnswer:
 
 
 class Command(BaseCommand):
-    help = "Validate correctness metadata for rule-based questions."
+    help = "Validate correctness metadata for deterministic questions and AI references."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -19,8 +20,10 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         questions = Question.objects.filter(
-            subsection__evaluation_type="rule",
-        ).select_related("subsection__section")
+            Q(subsection__evaluation_type="rule")
+            | Q(subsection__name__in=RULE_QUESTION_CONFIG)
+            | Q(subsection__name="summarize_spoken_text"),
+        ).select_related("subsection__section").distinct()
 
         if options["section"]:
             questions = questions.filter(
@@ -31,6 +34,15 @@ class Command(BaseCommand):
         total = 0
         for question in questions.order_by("pk"):
             total += 1
+            if question.subsection.name == "summarize_spoken_text":
+                if not question.correct_answer:
+                    errors.append(
+                        f"question={question.pk} subsection=summarize_spoken_text: "
+                        "Missing reference transcript, model answer, or key points "
+                        "in question.correct_answer."
+                    )
+                continue
+
             result = run_rule_evaluation(
                 user_answer=EmptyAnswer(),
                 question=question,
@@ -42,8 +54,8 @@ class Command(BaseCommand):
                     f"{result.get('error', 'Invalid rule configuration')}"
                 )
 
-        self.stdout.write("Rule question configuration check")
-        self.stdout.write("=================================")
+        self.stdout.write("Question evaluation configuration check")
+        self.stdout.write("=======================================")
         self.stdout.write(f"Questions checked: {total}")
         self.stdout.write(f"Configuration errors: {len(errors)}")
 
@@ -51,6 +63,8 @@ class Command(BaseCommand):
             self.stderr.write(error)
 
         if errors:
-            raise CommandError("Rule question configuration is not healthy.")
+            raise CommandError("Question evaluation configuration is not healthy.")
 
-        self.stdout.write(self.style.SUCCESS("Rule question configuration looks healthy."))
+        self.stdout.write(
+            self.style.SUCCESS("Question evaluation configuration looks healthy.")
+        )

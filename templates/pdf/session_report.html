@@ -218,7 +218,7 @@
             </div>
         </div>
 
-        <p style="margin-top:10px;"><strong>Overall Score:</strong> {{ skills.overall }}</p>
+        <p style="margin-top:10px;"><strong>Overall Score:</strong> {{ skills.overall|floatformat:2 }}</p>
     </div>
 
     {% if not evaluation_summary.is_complete %}
@@ -247,7 +247,7 @@
 
     {% if section.summary %}
     <div class="section-summary">
-        <strong>Reading performance:</strong> {{ section.summary.accuracy|floatformat:1 }}%.
+        <strong>{{ section.summary.label }} performance:</strong> {{ section.summary.accuracy|floatformat:1 }}%.
         Strongest area: {{ section.summary.strongest }}
         ({{ section.summary.strongest_percent|floatformat:1 }}%).
         Focus next: {{ section.summary.focus }}

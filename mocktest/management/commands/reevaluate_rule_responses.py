@@ -1,8 +1,9 @@
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.db.models import Q
 
 from examinor.scoring.validators import validate_and_normalize_evaluation_result
-from examinor.services.rule_evaluator import run_rule_evaluation
+from examinor.services.rule_evaluator import RULE_QUESTION_CONFIG, run_rule_evaluation
 from mocktest.models import UserMockTestSession
 
 
@@ -31,8 +32,10 @@ class Command(BaseCommand):
         session = self._get_session(options)
         responses = list(
             session.userresponse_set.filter(
-                question__subsection__evaluation_type="rule",
                 question__subsection__section__name__iexact=options["section"],
+            ).filter(
+                Q(question__subsection__evaluation_type="rule")
+                | Q(question__subsection__name__in=RULE_QUESTION_CONFIG)
             ).select_related("question__subsection__section")
         )
 

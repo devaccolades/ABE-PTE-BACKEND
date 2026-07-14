@@ -47,6 +47,9 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
     # ANSWER + OPTIONAL METADATA
     # -----------------------------
     answer_text = normalize_answer_text(evaluation_payload.get("answer_data"))
+    reference_text = normalize_answer_text(
+        evaluation_payload.get("reference_answer")
+    )
     analytics_block = ""
 
     if evaluation_payload.get("transcribed_audio_data"):
@@ -65,6 +68,7 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
         )
 
     answer_excerpt = Truncator(answer_text).chars(1500)
+    reference_excerpt = Truncator(reference_text).chars(3000)
 
     # -----------------------------
     # COMPACT RUBRIC
@@ -90,6 +94,20 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
     # -----------------------------
     # PROMPT
     # -----------------------------
+    feedback_shape = '"<short, specific feedback in 1 sentence>"'
+    feedback_rules = ""
+    if task_type == "summarize_spoken_text":
+        feedback_shape = (
+            '{"summary":"<specific overall assessment>",'
+            '"strengths":"<specific strength grounded in the response>",'
+            '"improvements":"<one actionable improvement naming missing or inaccurate content>"}'
+        )
+        feedback_rules = """
+- Judge content only against REFERENCE_MATERIAL.
+- Mention a concrete included, missing, or inaccurate idea in feedback.
+- Do not give generic advice without an example from the response.
+"""
+
     prompt = f"""
 You are a strict, deterministic PTE examiner.
 You MUST follow rubric keys EXACTLY as given.
@@ -108,6 +126,9 @@ QUESTION_TEXT:
 CANDIDATE_RESPONSE:
 \"\"\"{answer_excerpt}\"\"\"
 
+REFERENCE_MATERIAL (source transcript, model answer, or key points):
+\"\"\"{reference_excerpt}\"\"\"
+
 ANALYTICS_METADATA (FOR ANALYSIS ONLY — NOT THE ANSWER):
 {analytics_block}
 
@@ -121,6 +142,7 @@ SCORING INSTRUCTIONS:
 - Do NOT create weights unless explicitly given in rubric.
 - weighted_score = sum(score values)
 - max_score = sum(max values)
+{feedback_rules}
 
 OUTPUT STRICTLY AS:
 {{
@@ -132,7 +154,7 @@ OUTPUT STRICTLY AS:
   }},
   "weighted_score": <number>,
   "max_score": <number>,
-  "feedback": "<short feedback in 1 sentence>"
+  "feedback": {feedback_shape}
 }}
 
 RULE:

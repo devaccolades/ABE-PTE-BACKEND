@@ -8,6 +8,7 @@ ACTIVE_STATUSES = {"pending", "transcribing", "evaluating"}
 
 
 def build_session_evaluation_status(session, include_responses=False):
+    session.sync_evaluation_completion()
     responses = (
         UserResponse.objects
         .filter(user_session=session)
@@ -52,7 +53,12 @@ def build_session_evaluation_status(session, include_responses=False):
         "is_complete": total > 0 and completed == total,
         "has_failures": failed > 0,
         "has_duplicates": duplicate_group_count > 0,
-        "can_download_final_pdf": total > 0 and completed == total and duplicate_group_count == 0,
+        "can_download_final_pdf": (
+            session.is_completed
+            and total > 0
+            and completed == total
+            and duplicate_group_count == 0
+        ),
     }
 
     if include_responses:
@@ -77,3 +83,7 @@ def build_session_evaluation_status(session, include_responses=False):
         ]
 
     return payload
+
+
+def can_download_session_pdf(session):
+    return build_session_evaluation_status(session)["can_download_final_pdf"]

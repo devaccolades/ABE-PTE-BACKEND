@@ -169,6 +169,13 @@ UNFOLD = {
                         "link": reverse_lazy("admin:mocktest_section_changelist"),
                     },
                     {
+                        "title": _("Mock test sections"),
+                        "icon": "view_module",
+                        "link": reverse_lazy(
+                            "admin:mocktest_mocktestsection_changelist"
+                        ),
+                    },
+                    {
                         "title": _("Question options"),
                         "icon": "list_alt",
                         "link": reverse_lazy("admin:mocktest_questionoption_changelist"),

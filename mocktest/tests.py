@@ -1322,7 +1322,7 @@ class UserResponseSubmissionTests(TestCase):
                 mock_chain.return_value.delay.assert_called_once()
 
     @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
-    def test_final_answer_marks_session_completed(self, mock_delay):
+    def test_final_answer_marks_submission_but_not_evaluation_completed(self, mock_delay):
         mock_test = MockTest.objects.create(title="Completion Test")
         first_question = self._create_question_set(mock_test, "Writing One", "Q-1")
         final_question = self._create_question_set(mock_test, "Writing Two", "Q-2")
@@ -1358,9 +1358,41 @@ class UserResponseSubmissionTests(TestCase):
 
         session.refresh_from_db()
         self.assertEqual(final_response.status_code, 201)
-        self.assertTrue(final_response.json()["session"]["is_completed"])
-        self.assertTrue(session.is_completed)
+        self.assertFalse(final_response.json()["session"]["is_completed"])
+        self.assertFalse(session.is_completed)
         self.assertIsNotNone(session.completed_at)
+
+    def test_last_evaluation_marks_submitted_session_completed(self):
+        mock_test = MockTest.objects.create(title="Evaluation Completion Test")
+        question = self._create_question_set(mock_test, "Writing", "Q-1")
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="evaluation-completion-session",
+            mock_test=mock_test,
+        )
+        response = UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            evaluated=False,
+            evaluation_status="pending",
+        )
+        session.mark_submission_completed()
+
+        self.assertFalse(session.is_completed)
+
+        response.evaluated = True
+        response.evaluation_status = "completed"
+        response.save(update_fields=["evaluated", "evaluation_status"])
+        session.aggregate_scores()
+        session.refresh_from_db()
+
+        self.assertTrue(session.is_completed)
+        status_response = self.client.get(
+            "/mocktest/session-evaluation-status/",
+            {"session_id": session.session_id},
+        )
+        self.assertTrue(status_response.json()["can_download_final_pdf"])
 
     def test_complete_session_endpoint_is_idempotent(self):
         mock_test = MockTest.objects.create(title="Completion Endpoint Test")
@@ -1387,8 +1419,10 @@ class UserResponseSubmissionTests(TestCase):
 
         self.assertEqual(first_response.status_code, 200)
         self.assertFalse(first_response.json()["already_completed"])
+        self.assertFalse(first_response.json()["is_completed"])
         self.assertEqual(second_response.status_code, 200)
         self.assertTrue(second_response.json()["already_completed"])
+        self.assertFalse(second_response.json()["is_completed"])
         self.assertEqual(session.completed_at, completed_at)
 
     def test_timer_exit_from_final_section_marks_session_completed(self):
@@ -1409,8 +1443,8 @@ class UserResponseSubmissionTests(TestCase):
 
         session.refresh_from_db()
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()["is_completed"])
-        self.assertTrue(session.is_completed)
+        self.assertFalse(response.json()["is_completed"])
+        self.assertFalse(session.is_completed)
         self.assertIsNotNone(session.completed_at)
 
     @patch("mocktest.services.evaluation_queue.evaluate_single_response.delay")
@@ -1478,6 +1512,30 @@ class UserResponseSubmissionTests(TestCase):
         response = self.client.get("/mocktest/session-evaluation-status/")
 
         self.assertEqual(response.status_code, 400)
+
+    @patch("mocktest.views.generate_session_pdf")
+    def test_pdf_download_is_blocked_until_evaluation_completes(self, generate_pdf):
+        mock_test = MockTest.objects.create(title="Incomplete PDF Test")
+        question = self._create_question_set(mock_test, "Writing", "Q-1")
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="incomplete-pdf-session",
+            mock_test=mock_test,
+        )
+        UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            evaluated=False,
+            evaluation_status="evaluating",
+        )
+        session.mark_submission_completed()
+
+        response = self.client.get(f"/mocktest/sessions/{session.pk}/pdf/")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "evaluation_incomplete")
+        generate_pdf.assert_not_called()
 
 
 class EvaluationRepairToolTests(TestCase):

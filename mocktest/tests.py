@@ -35,6 +35,101 @@ from mocktest.services.evaluation_queue import (
 from mocktest.tasks import evaluate_user_response, recover_stale_evaluations
 
 
+class ConfigureListeningFillBlanksCommandTests(TestCase):
+    def setUp(self):
+        section = Section.objects.create(name="Listening")
+        subsection = SubSection.objects.create(
+            section=section,
+            name="l_fill_in_blanks",
+            evaluation_type="rule",
+        )
+        self.question = Question.objects.create(
+            subsection=subsection,
+            text="First ______ second __________ third.",
+        )
+
+    def test_dry_run_does_not_create_rows(self):
+        output = StringIO()
+
+        call_command(
+            "configure_listening_fill_blanks",
+            self.question.pk,
+            "--answer",
+            "alpha",
+            "--answer",
+            "beta",
+            stdout=output,
+        )
+
+        self.assertEqual(self.question.sub_questions.count(), 0)
+        self.assertIn("Dry run only", output.getvalue())
+
+    def test_apply_creates_ordered_rows(self):
+        call_command(
+            "configure_listening_fill_blanks",
+            self.question.pk,
+            "--answer",
+            "alpha",
+            "--answer",
+            "beta",
+            "--apply",
+            stdout=StringIO(),
+        )
+
+        rows = list(
+            self.question.sub_questions.order_by("blank_number").values_list(
+                "blank_number",
+                "correct_answer",
+                "text_before_blank",
+                "text_after_blank",
+            )
+        )
+        self.assertEqual(
+            rows,
+            [
+                (1, "alpha", "First", "second"),
+                (2, "beta", "second", "third."),
+            ],
+        )
+
+    def test_refuses_answer_count_mismatch(self):
+        with self.assertRaisesMessage(
+            CommandError,
+            "has 2 visible blank(s), but 1 answer(s) were supplied",
+        ):
+            call_command(
+                "configure_listening_fill_blanks",
+                self.question.pk,
+                "--answer",
+                "alpha",
+            )
+
+    def test_refuses_duplicate_existing_blank_numbers(self):
+        SubQuestion.objects.create(
+            question=self.question,
+            blank_number=1,
+            correct_answer="alpha",
+        )
+        SubQuestion.objects.create(
+            question=self.question,
+            blank_number=1,
+            correct_answer="duplicate",
+        )
+
+        with self.assertRaisesMessage(
+            CommandError,
+            "Duplicate existing blank number(s): 1",
+        ):
+            call_command(
+                "configure_listening_fill_blanks",
+                self.question.pk,
+                "--answer",
+                "alpha",
+                "--answer",
+                "beta",
+            )
+
+
 class SessionPdfContextTests(TestCase):
     def test_summarize_spoken_text_annotates_the_saved_transcript(self):
         mock_test = MockTest.objects.create(title="PTE Mock Test")
@@ -648,6 +743,44 @@ class RuleQuestionConfigCommandTests(TestCase):
         )
 
         self.assertIn("Questions checked: 0", stdout.getvalue())
+        self.assertIn("looks healthy", stdout.getvalue())
+
+    def test_can_filter_configuration_check_by_subsection(self):
+        section = Section.objects.create(name="Listening")
+        listening_blanks = SubSection.objects.create(
+            section=section,
+            name="l_fill_in_blanks",
+            evaluation_type="rule",
+            rubric={"listening_and_writing": {"max": 1}},
+        )
+        other_subsection = SubSection.objects.create(
+            section=section,
+            name="l_mc_single",
+            evaluation_type="rule",
+            rubric={"listening": {"max": 1}},
+        )
+        blanks_question = Question.objects.create(
+            subsection=listening_blanks,
+            text="A ____ B",
+        )
+        SubQuestion.objects.create(
+            question=blanks_question,
+            blank_number=1,
+            correct_answer="word",
+        )
+        Question.objects.create(subsection=other_subsection)
+        stdout = StringIO()
+
+        call_command(
+            "check_rule_question_config",
+            "--section",
+            "Listening",
+            "--subsection",
+            "l_fill_in_blanks",
+            stdout=stdout,
+        )
+
+        self.assertIn("Questions checked: 1", stdout.getvalue())
         self.assertIn("looks healthy", stdout.getvalue())
 
 
@@ -1974,6 +2107,48 @@ class EvaluationRepairToolTests(TestCase):
         self.assertEqual(mock_queue.call_count, 1)
         self.assertEqual(mock_queue.call_args.args[0].id, old_failed.id)
         self.assertIn("1 responses queued.", stdout.getvalue())
+
+    @patch("mocktest.management.commands.requeue_pending_evaluations.queue_response_evaluation")
+    def test_requeue_command_filters_by_question(self, mock_queue):
+        mock_test, question = self._create_question()
+        other_question = Question.objects.create(
+            mock_test_section=question.mock_test_section,
+            subsection=question.subsection,
+            text="Other question",
+        )
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="question-requeue-session",
+            mock_test=mock_test,
+        )
+        target = UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            answer_data={"text": "target"},
+            evaluated=False,
+            evaluation_status="failed",
+        )
+        UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=other_question,
+            answer_data={"text": "other"},
+            evaluated=False,
+            evaluation_status="failed",
+        )
+
+        call_command(
+            "requeue_pending_evaluations",
+            "--question-id",
+            str(question.pk),
+            "--status",
+            "failed",
+            stdout=StringIO(),
+        )
+
+        self.assertEqual(mock_queue.call_count, 1)
+        self.assertEqual(mock_queue.call_args.args[0].id, target.id)
 
     @patch("mocktest.services.evaluation_queue.queue_response_evaluation")
     def test_recovery_task_only_requeues_stale_active_responses(self, mock_queue):

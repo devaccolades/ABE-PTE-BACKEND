@@ -203,6 +203,7 @@ def _split_text_answer(answer_data):
 
 
 WORD_RE = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
+BLANK_RE = re.compile(r"----|_{2,}")
 
 
 def _word_tokens(value):
@@ -211,6 +212,14 @@ def _word_tokens(value):
 
 def _normalized_text(value):
     return " ".join(_word_tokens(value))
+
+
+def listening_fill_blank_segments(text):
+    return BLANK_RE.split(str(text or ""))
+
+
+def listening_fill_blank_count(text):
+    return max(0, len(listening_fill_blank_segments(text)) - 1)
 
 
 def _configured_text_answers(question):
@@ -416,10 +425,16 @@ def _reorder_paragraphs_ratio(question, answer_data):
 def _text_match_ratio(question, answer_data):
     answers = _split_text_answer(answer_data)
     correct_answers = _configured_text_answers(question)
+    blank_count = listening_fill_blank_count(question.text)
 
     if not correct_answers:
         raise RuleConfigurationError(
             f"Question {question.pk} has no configured correct text answers."
+        )
+    if blank_count != len(correct_answers):
+        raise RuleConfigurationError(
+            f"Question {question.pk} has {blank_count} visible blank(s), but "
+            f"{len(correct_answers)} configured correct answer(s)."
         )
 
     awarded = 0

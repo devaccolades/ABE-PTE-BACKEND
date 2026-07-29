@@ -21,6 +21,10 @@ class Command(BaseCommand):
             "--section",
             help="Only inspect one section name, such as Reading.",
         )
+        parser.add_argument(
+            "--subsection",
+            help="Only inspect one subsection name, such as l_fill_in_blanks.",
+        )
 
     def handle(self, *args, **options):
         questions = Question.objects.filter(
@@ -35,6 +39,10 @@ class Command(BaseCommand):
         if options["section"]:
             questions = questions.filter(
                 subsection__section__name__iexact=options["section"],
+            )
+        if options["subsection"]:
+            questions = questions.filter(
+                subsection__name__iexact=options["subsection"],
             )
 
         errors = []

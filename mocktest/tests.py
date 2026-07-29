@@ -626,6 +626,30 @@ class RuleQuestionConfigCommandTests(TestCase):
 
         self.assertIn("looks healthy", stdout.getvalue())
 
+    def test_accepts_ai_highlight_incorrect_words_without_answer_key(self):
+        section = Section.objects.create(name="Listening")
+        subsection = SubSection.objects.create(
+            section=section,
+            name="highlight_incorrect_words",
+            evaluation_type="rule",
+            rubric={"listening_and_reading": {"max": 3}},
+        )
+        Question.objects.create(
+            subsection=subsection,
+            text="The displayed passage contains contextual word errors.",
+        )
+        stdout = StringIO()
+
+        call_command(
+            "check_rule_question_config",
+            "--section",
+            "Listening",
+            stdout=stdout,
+        )
+
+        self.assertIn("Questions checked: 0", stdout.getvalue())
+        self.assertIn("looks healthy", stdout.getvalue())
+
 
 class QuestionBankAuditCommandTests(TestCase):
     def _question(self, *, correct=True, reading_max=1):
@@ -1707,6 +1731,74 @@ class EvaluationRepairToolTests(TestCase):
         self.assertEqual(response.evaluation_status, "failed")
         self.assertEqual(response.evaluation_stage, "evaluation")
         self.assertIn("not a valid integer", response.evaluation_error)
+
+    @patch("mocktest.tasks.run_rule_evaluation")
+    @patch("mocktest.tasks.run_evaluation_for_subsection")
+    def test_highlight_incorrect_words_task_uses_ai_without_answer_key(
+        self,
+        run_ai_evaluation,
+        run_rule_evaluation,
+    ):
+        mock_test = MockTest.objects.create(title="Highlight AI Test")
+        section = Section.objects.create(name="Listening")
+        mock_test_section = MockTestSection.objects.create(
+            mock_test=mock_test,
+            section=section,
+            order=1,
+        )
+        subsection = SubSection.objects.create(
+            section=section,
+            name="highlight_incorrect_words",
+            evaluation_type="rule",
+            rubric={"listening_and_reading": {"max": 3}},
+            trait_skill_map={
+                "listening_and_reading": ["listening", "reading"],
+            },
+        )
+        question = Question.objects.create(
+            mock_test_section=mock_test_section,
+            subsection=subsection,
+            name="HIW-1",
+            text="The policy created several ordinary benefits.",
+            correct_answer="legacy|answer|key",
+            listening_score_max=3,
+            reading_score_max=3,
+        )
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="highlight-ai-session",
+            mock_test=mock_test,
+        )
+        response = UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            answer_data="ordinary",
+        )
+        run_ai_evaluation.return_value = {
+            "ok": True,
+            "evaluation": {
+                "scores": {
+                    "listening_and_reading": {"score": 2, "max": 3},
+                },
+                "weighted_score": 2,
+                "max_score": 3,
+                "feedback": {"summary": "The selection is contextually questionable."},
+            },
+        }
+
+        result = evaluate_user_response.apply(args=(response.id, question.id))
+
+        response.refresh_from_db()
+        self.assertTrue(result.successful())
+        self.assertTrue(response.evaluated)
+        self.assertEqual(response.evaluation_status, "completed")
+        run_rule_evaluation.assert_not_called()
+        run_ai_evaluation.assert_called_once_with(
+            subsection,
+            question.text,
+            {"answer_data": "ordinary"},
+        )
 
     def test_evaluation_task_reports_missing_audio_as_celery_failure(self):
         mock_test, question = self._create_question()

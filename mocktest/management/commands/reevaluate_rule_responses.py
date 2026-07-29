@@ -3,7 +3,11 @@ from django.db import transaction
 from django.db.models import Q
 
 from examinor.scoring.validators import validate_and_normalize_evaluation_result
-from examinor.services.rule_evaluator import RULE_QUESTION_CONFIG, run_rule_evaluation
+from examinor.services.rule_evaluator import (
+    AI_ONLY_SUBSECTIONS,
+    RULE_QUESTION_CONFIG,
+    run_rule_evaluation,
+)
 from mocktest.models import UserMockTestSession
 
 
@@ -36,6 +40,8 @@ class Command(BaseCommand):
             ).filter(
                 Q(question__subsection__evaluation_type="rule")
                 | Q(question__subsection__name__in=RULE_QUESTION_CONFIG)
+            ).exclude(
+                question__subsection__name__in=AI_ONLY_SUBSECTIONS,
             ).select_related("question__subsection__section")
         )
 

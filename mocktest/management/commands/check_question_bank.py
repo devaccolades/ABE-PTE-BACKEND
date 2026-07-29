@@ -5,8 +5,8 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 
 from examinor.services.rule_evaluator import (
-    RULE_QUESTION_CONFIG,
     run_rule_evaluation,
+    uses_rule_evaluation,
 )
 from mocktest.models import Question
 from mocktest.services.question_config import (
@@ -182,7 +182,7 @@ class Command(BaseCommand):
                     "Summarize Spoken Text has no reference material.",
                     "Add a source transcript, model answer, or key points to Question.correct_answer.",
                 )
-        elif subsection.name in RULE_QUESTION_CONFIG or subsection.evaluation_type == "rule":
+        elif uses_rule_evaluation(subsection):
             result = run_rule_evaluation(
                 user_answer=EmptyAnswer(),
                 question=question,
@@ -365,8 +365,6 @@ class Command(BaseCommand):
     def _answer_key_fix(self, subsection_name):
         if subsection_name == "l_fill_in_blanks":
             return "Add each missing word to ordered SubQuestion.correct_answer rows."
-        if subsection_name == "highlight_incorrect_words":
-            return "Set Question.correct_answer to the accurate transcript or pipe-separated incorrect words."
         if subsection_name == "write_from_dictation":
             return "Set Question.correct_answer to the exact spoken sentence."
         if subsection_name in {

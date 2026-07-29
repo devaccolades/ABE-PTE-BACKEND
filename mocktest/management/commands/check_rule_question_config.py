@@ -1,7 +1,11 @@
 from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Q
 
-from examinor.services.rule_evaluator import RULE_QUESTION_CONFIG, run_rule_evaluation
+from examinor.services.rule_evaluator import (
+    AI_ONLY_SUBSECTIONS,
+    RULE_QUESTION_CONFIG,
+    run_rule_evaluation,
+)
 from mocktest.models import Question
 
 
@@ -20,7 +24,10 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         questions = Question.objects.filter(
-            Q(subsection__evaluation_type="rule")
+            (
+                Q(subsection__evaluation_type="rule")
+                & ~Q(subsection__name__in=AI_ONLY_SUBSECTIONS)
+            )
             | Q(subsection__name__in=RULE_QUESTION_CONFIG)
             | Q(subsection__name="summarize_spoken_text"),
         ).select_related("subsection__section").distinct()

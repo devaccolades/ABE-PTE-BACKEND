@@ -96,7 +96,31 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
     # -----------------------------
     feedback_shape = '"<short, specific feedback in 1 sentence>"'
     feedback_rules = ""
-    if task_type in {
+    if task_type == "highlight_incorrect_words":
+        feedback_shape = (
+            '{"summary":"<specific assessment of the highlighted words>",'
+            '"selected_words":"<candidate selections>",'
+            '"likely_correct_selections":["<selected word that is contextually incorrect>"],'
+            '"likely_wrong_selections":["<selected word that fits the passage>"],'
+            '"likely_missed_words":["<unselected word that appears contextually incorrect>"],'
+            '"reasoning":"<brief contextual explanation>"}'
+        )
+        feedback_rules = """
+- This is Highlight Incorrect Words. QUESTION_TEXT is the displayed transcript and
+  CANDIDATE_RESPONSE is the comma-separated list of words selected by the candidate.
+- No answer key or reference material is provided or required.
+- First infer which words in QUESTION_TEXT are contextually incorrect, unnatural,
+  contradictory, or semantically implausible. Then compare those inferred words
+  with the candidate's selections.
+- Do not assume an unselected word was selected.
+- Give zero when CANDIDATE_RESPONSE is empty or contains no defensible selection.
+- Reward a selected inferred-incorrect word, penalize a selected word that fits the
+  passage, and reduce the score for inferred-incorrect words the candidate missed.
+- Scale each rubric score according to both selection precision and coverage.
+- In feedback, copy selected words exactly and keep the explanation specific to
+  QUESTION_TEXT. Do not claim access to an answer key or source transcript.
+"""
+    elif task_type in {
         "summarize_written_text",
         "write_essay",
         "summarize_spoken_text",

@@ -27,6 +27,11 @@ class Command(BaseCommand):
             help="Only queue one response by id.",
         )
         parser.add_argument(
+            "--question-id",
+            type=int,
+            help="Only queue responses for a specific Question primary key.",
+        )
+        parser.add_argument(
             "--single",
             action="store_true",
             help="Queue SingleResponse rows instead of UserResponse rows.",
@@ -89,6 +94,9 @@ class Command(BaseCommand):
 
         if options["response_id"]:
             responses = responses.filter(id=options["response_id"])
+
+        if options["question_id"]:
+            responses = responses.filter(question_id=options["question_id"])
 
         if options["status"]:
             responses = responses.filter(evaluation_status=options["status"])

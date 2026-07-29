@@ -29,6 +29,10 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--section", help="Only inspect one section name.")
         parser.add_argument(
+            "--subsection",
+            help="Only inspect one subsection name.",
+        )
+        parser.add_argument(
             "--output",
             default="question_bank_audit.csv",
             help="CSV report path (default: question_bank_audit.csv).",
@@ -59,6 +63,10 @@ class Command(BaseCommand):
         if options["section"]:
             questions = questions.filter(
                 subsection__section__name__iexact=options["section"]
+            )
+        if options["subsection"]:
+            questions = questions.filter(
+                subsection__name__iexact=options["subsection"]
             )
 
         issues = []

@@ -579,6 +579,39 @@ class RuleEvaluatorTests(TestCase):
             "3 of 4 answer(s) were correct.",
         )
 
+    def test_rejects_listening_blank_key_with_wrong_number_of_answers(self):
+        subsection = SubSection.objects.create(
+            section=self.section,
+            name="l_fill_in_blanks",
+            evaluation_type="rule",
+            rubric={"listening_and_writing": {"max": 3}},
+        )
+        question = Question.objects.create(
+            subsection=subsection,
+            text="A ____ B ____ C ____ D",
+        )
+        SubQuestion.objects.create(
+            question=question,
+            blank_number=1,
+            correct_answer="alpha",
+        )
+
+        class Answer:
+            answer_data = "alpha|beta|gamma"
+
+        result = run_rule_evaluation(
+            user_answer=Answer(),
+            question=question,
+            subsection=subsection,
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(
+            result["error"],
+            f"Question {question.pk} has 3 visible blank(s), but "
+            "1 configured correct answer(s).",
+        )
+
     def test_scores_write_from_dictation_by_correct_words_in_sequence(self):
         subsection = SubSection.objects.create(
             section=self.section,

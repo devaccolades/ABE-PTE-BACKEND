@@ -381,7 +381,7 @@ LOGGING = {
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-        },
+        },  
     },
     "loggers": {
         "": {  # root logger

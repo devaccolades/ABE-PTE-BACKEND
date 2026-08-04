@@ -351,10 +351,10 @@ The publish validator must check:
 ### Exit Gate
 
 - [ ] Every client example has an automated expected-score test.
-- [ ] Every supported subsection has valid and invalid payload tests.
-- [ ] Gate policies are explicit and task-specific.
+- [x] Every supported subsection has valid and invalid payload tests.
+- [x] Gate policies are explicit and task-specific.
 - [ ] Active exams cannot bypass the publish validator.
-- [ ] No rubric or question data has been silently modified.
+- [x] No rubric or question data has been silently modified.
 
 ---
 
@@ -1188,7 +1188,7 @@ When results stop completing:
 | Phase | Status | Owner | Pull request | Staging evidence | Production date |
 |---|---|---|---|---|---|
 | 0. Migration and backup baseline | In progress | Engineering |  | Local baseline captured; production evidence pending |  |
-| 1. Evaluation contract and golden tests | Not started |  |  |  |  |
+| 1. Evaluation contract and golden tests | In progress | Engineering |  | V2 scoring contract, 22-task payload registry, read-only payload audit, and focused suites pass locally |  |
 | 2. Central score compiler | Not started |  |  |  |  |
 | 3. Evaluation jobs and attempts | Not started |  |  |  |  |
 | 4. Session snapshot and finalization | Not started |  |  |  |  |

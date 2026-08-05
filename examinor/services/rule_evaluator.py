@@ -1,6 +1,10 @@
 from collections import Counter
 from difflib import SequenceMatcher
 import re
+from examinor.scoring.task_contracts import (
+    PayloadStatus,
+    inspect_answer_payload,
+)
 from examinor.scoring.validators import rubric_maxima
 
 # -------------------------------------------------
@@ -172,6 +176,13 @@ def _as_id_set(answer_data):
     return {value} if value is not None else set()
 
 
+def _as_multiple_id_set(answer_data):
+    inspection = inspect_answer_payload("mc_multiple", answer_data)
+    if inspection.status == PayloadStatus.INVALID:
+        return set()
+    return set(inspection.normalized)
+
+
 def _as_mapping(answer_data):
     answer = _unwrap_answer(answer_data)
 
@@ -285,7 +296,7 @@ def _single_choice_ratio(question, answer_data):
 
 
 def _multiple_choice_ratio(question, answer_data):
-    selected_ids = _as_id_set(answer_data)
+    selected_ids = _as_multiple_id_set(answer_data)
     correct_ids = set(
         question.options.filter(is_correct=True).values_list("id", flat=True)
     )
@@ -484,7 +495,7 @@ def _single_choice_feedback(question, answer_data, ratio):
 
 def _multiple_choice_feedback(question, answer_data, ratio):
     options = {option.id: option for option in question.options.all()}
-    selected_ids = _as_id_set(answer_data)
+    selected_ids = _as_multiple_id_set(answer_data)
     correct_ids = {option.id for option in options.values() if option.is_correct}
     correct_selected = selected_ids & correct_ids
     incorrect_selected = selected_ids - correct_ids

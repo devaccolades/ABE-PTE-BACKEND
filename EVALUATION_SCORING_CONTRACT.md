@@ -87,6 +87,11 @@ alone is not a substitute for a missing recording. Structural validation also
 rejects empty answers, malformed identifiers, duplicate option selections,
 ambiguous wrappers, and invalid mappings.
 
+Comma-delimited multiple-choice IDs such as `"1609,1607"` are classified as
+legacy-compatible and normalized to `[1609, 1607]`. They are not interpreted as
+one option ID. The deterministic evaluator uses the normalized IDs for negative
+marking.
+
 This classification is audit-only during Phase 1. It is deliberately not yet
 enforced in live submission or retry paths because production contains older
 mixed payloads. Question-aware validation of option ownership, blank ownership,
@@ -101,6 +106,38 @@ python manage.py audit_answer_payloads \
 
 It exports model and object IDs, subsection, classification, issue codes, media
 presence, and evaluation status. It never exports candidate answer content.
+
+## Targeted Legacy Repair
+
+The production audit on 2026-08-04 found 18 Listening MCQ Multiple responses
+stored as comma-delimited IDs. All selected IDs were verified to belong to their
+questions. The old parser awarded zero because it treated the whole string as a
+single integer. Twelve responses have a corrected non-zero score; six remain
+zero after proper negative marking.
+
+The repair command is dry-run by default:
+
+```bash
+python manage.py repair_delimited_multiple_choice_responses \
+  --model user \
+  --subsection l_mc_multiple
+```
+
+The confirmed form requires the exact eligible count observed during the dry
+run:
+
+```bash
+python manage.py repair_delimited_multiple_choice_responses \
+  --model user \
+  --subsection l_mc_multiple \
+  --confirm \
+  --expected-count 18
+```
+
+Before writing, it revalidates payload shape and option ownership under a
+transaction. It then stores canonical option-ID lists, recomputes only those
+deterministic evaluations, and recalculates only affected sessions. It never
+calls an AI provider.
 
 ## Precision
 

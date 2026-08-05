@@ -8,7 +8,7 @@ from django.db.models import F, Max, Prefetch, Q
 from unfold.admin import ModelAdmin, TabularInline
 
 from .models import *
-from .forms import QuestionAdminForm
+from .forms import MockTestAdminForm, QuestionAdminForm
 from .services.pdf_service import generate_session_pdf
 from .services.question_config import SUBQUESTION_SUBSECTIONS
 from .services.evaluation_status import can_download_session_pdf
@@ -308,6 +308,7 @@ class SubQuestionAdmin(ModelAdmin):
 
 @admin.register(MockTest)
 class MockTestAdmin(ModelAdmin):
+    form = MockTestAdminForm
     compressed_fields = True
     warn_unsaved_form = True
     list_display = ('title', 'total_score', 'total_duration', 'is_active', 'created_at')

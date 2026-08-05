@@ -208,6 +208,27 @@ dropdown blank, and option IDs outside the question. A confirmed repair runs in
 one transaction, stores canonical answers, recomputes only deterministic
 results, and recalculates only affected sessions.
 
+## Mock-Test Publication Gate
+
+New mock tests are drafts by default. Changing `is_active` from false to true
+requires the complete mock test to pass the same centralized question-bank
+contract used by the audit command. The gate checks section structure, question
+ownership, prompts, required media and storage availability, deterministic
+answer keys, rubric traits, global pronunciation/fluency rubrics, trait-to-skill
+maps, and question skill maxima.
+
+The Django admin reports actionable question-level errors and refuses the
+activation. `MockTest.save()` enforces the same transition check so ordinary
+application code cannot bypass the admin gate. Existing active tests are not
+automatically disabled during rollout; they can be audited together with:
+
+```bash
+python manage.py check_mock_test_publication --active
+```
+
+One draft can be checked by UUID or exact title. Media field requirements can be
+audited without accessing storage by adding `--skip-media-check`.
+
 ## Precision
 
 Calculations use decimal arithmetic. Scores are not rounded during compilation;

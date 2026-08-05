@@ -2,25 +2,14 @@ import csv
 from collections import Counter
 from pathlib import Path
 
+from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 
-from examinor.services.rule_evaluator import (
-    run_rule_evaluation,
-    uses_rule_evaluation,
+from mocktest.models import MockTest
+from mocktest.services.question_bank_validation import (
+    QuestionBankAuditor,
+    question_bank_queryset,
 )
-from mocktest.models import Question
-from mocktest.services.question_config import (
-    CANONICAL_TRAIT_SKILL_CONTRACTS,
-    VALID_SKILLS,
-)
-
-
-MEDIA_REQUIRED_SECTIONS = {"Listening"}
-IMAGE_REQUIRED_SUBSECTIONS = {"describe_image"}
-
-
-class EmptyAnswer:
-    answer_data = {}
 
 
 class Command(BaseCommand):
@@ -28,9 +17,10 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--section", help="Only inspect one section name.")
+        parser.add_argument("--subsection", help="Only inspect one subsection name.")
         parser.add_argument(
-            "--subsection",
-            help="Only inspect one subsection name.",
+            "--mock-test",
+            help="Only inspect one mock test by UUID or exact title.",
         )
         parser.add_argument(
             "--output",
@@ -49,40 +39,22 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        self._context_cache = {}
-        self._subsection_issues = set()
-        questions = (
-            Question.objects.select_related(
-                "subsection__section",
-                "mock_test_section__mock_test",
-                "mock_test_section__section",
-            )
-            .prefetch_related("sub_questions", "options")
-            .order_by("pk")
+        mock_test = self._mock_test(options["mock_test"])
+        questions = question_bank_queryset(
+            section=options["section"],
+            subsection=options["subsection"],
+            mock_test=mock_test,
         )
-        if options["section"]:
-            questions = questions.filter(
-                subsection__section__name__iexact=options["section"]
-            )
-        if options["subsection"]:
-            questions = questions.filter(
-                subsection__name__iexact=options["subsection"]
-            )
-
-        issues = []
-        question_count = 0
-        for question in questions:
-            question_count += 1
-            issues.extend(
-                self._question_issues(
-                    question,
-                    check_storage=not options["skip_media_check"],
-                )
-            )
+        question_count = questions.count()
+        issues = QuestionBankAuditor(
+            check_storage=not options["skip_media_check"],
+        ).audit(questions)
 
         self._write_report(options["output"], issues)
         counts = Counter(issue["severity"] for issue in issues)
-        affected = len({issue["question_id"] for issue in issues})
+        affected = len(
+            {issue["question_id"] for issue in issues if issue["question_id"]}
+        )
 
         self.stdout.write("Question bank audit")
         self.stdout.write("===================")
@@ -115,277 +87,21 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS("Question bank configuration looks healthy."))
 
-    def _question_issues(self, question, check_storage):
-        issues = []
-
-        def add(severity, code, problem, fix):
-            issues.append(self._issue_row(question, severity, code, problem, fix))
-
-        subsection = question.subsection
-        if subsection is None:
-            add(
-                "error",
-                "missing_subsection",
-                "Question has no subsection.",
-                "Assign the question to the correct subsection.",
-            )
-            return issues
-
-        section = subsection.section
-        if section is None:
-            add(
-                "error",
-                "missing_section",
-                "The question subsection has no section.",
-                "Assign the subsection to Speaking, Writing, Reading, or Listening.",
-            )
-
-        if question.mock_test_section is None:
-            add(
-                "warning",
-                "unassigned_mock_test",
-                "Question is not assigned to a mock-test section.",
-                "Assign a mock-test section or confirm this is an intentionally unused bank question.",
-            )
-        elif section and question.mock_test_section.section_id != section.id:
-            add(
-                "error",
-                "section_mismatch",
-                "Question subsection and mock-test section belong to different sections.",
-                "Make both associations point to the same exam section.",
-            )
-
-        if not question.name and not question.text:
-            add(
-                "error",
-                "missing_prompt",
-                "Question has neither a name nor prompt text.",
-                "Add a stable question name and the candidate-facing prompt where applicable.",
-            )
-
-        section_name = section.name if section and section.name else ""
-        if section_name in MEDIA_REQUIRED_SECTIONS:
-            self._check_file(
-                question,
-                question.audio,
-                "audio",
-                check_storage,
-                add,
-            )
-
-        if subsection.name in IMAGE_REQUIRED_SUBSECTIONS:
-            self._check_file(
-                question,
-                question.image,
-                "image",
-                check_storage,
-                add,
-            )
-
-        if subsection.name == "summarize_spoken_text":
-            if not question.correct_answer:
-                add(
-                    "error",
-                    "missing_ai_reference",
-                    "Summarize Spoken Text has no reference material.",
-                    "Add a source transcript, model answer, or key points to Question.correct_answer.",
-                )
-        elif uses_rule_evaluation(subsection):
-            result = run_rule_evaluation(
-                user_answer=EmptyAnswer(),
-                question=question,
-                subsection=subsection,
-            )
-            if not result.get("ok", False):
-                add(
-                    "error",
-                    "invalid_answer_key",
-                    result.get("error", "Invalid deterministic answer configuration."),
-                    self._answer_key_fix(subsection.name),
-                )
-
-        rubric = subsection.rubric or {}
-        if not rubric:
-            add(
-                "error",
-                "missing_rubric",
-                "Subsection rubric is empty, so no score can be calculated.",
-                "Configure the scoring rubric on the subsection.",
-            )
-
-        trait_map = subsection.trait_skill_map or {}
-        mapped_skills = set()
-        if not trait_map:
-            add(
-                "error",
-                "missing_trait_skill_map",
-                "Subsection trait-to-skill map is empty, so awarded traits become zero skill points.",
-                "Map every rubric trait to its PTE skill or skills.",
-            )
-        else:
-            for trait in rubric:
-                skills = trait_map.get(trait)
-                if not skills:
-                    add(
-                        "error",
-                        "unmapped_rubric_trait",
-                        f"Rubric trait '{trait}' is not mapped to a skill.",
-                        f"Add '{trait}' to SubSection.trait_skill_map.",
-                    )
-                    continue
-                if isinstance(skills, str):
-                    skills = [skills]
-                invalid = sorted(set(skills) - VALID_SKILLS)
-                if invalid:
-                    add(
-                        "error",
-                        "invalid_skill_name",
-                        f"Trait '{trait}' maps to unsupported skill(s): {', '.join(invalid)}.",
-                        "Use only speaking, writing, reading, and listening.",
-                    )
-                mapped_skills.update(set(skills) & VALID_SKILLS)
-
-                required = CANONICAL_TRAIT_SKILL_CONTRACTS.get(
-                    (subsection.name, trait)
-                )
-                if required:
-                    actual = set(skills) & VALID_SKILLS
-                    missing = sorted(required - actual)
-                    unexpected = sorted(actual - required)
-                    if missing or unexpected:
-                        parts = []
-                        if missing:
-                            parts.append(f"missing {', '.join(missing)}")
-                        if unexpected:
-                            parts.append(f"must not award {', '.join(unexpected)}")
-                        self._add_subsection_issue(
-                            issues,
-                            question,
-                            "invalid_trait_skill_contract",
-                            (
-                                f"Shared {subsection.name} trait '{trait}' mapping is invalid: "
-                                f"{'; '.join(parts)}."
-                            ),
-                            (
-                                f"Set SubSection.trait_skill_map['{trait}'] to "
-                                f"{sorted(required)}. This is a shared subsection fix."
-                            ),
-                        )
-                    mapped_skills.difference_update(actual - required)
-                    mapped_skills.update(required)
-
-            for skill in sorted(mapped_skills):
-                maximum = getattr(question, f"{skill}_score_max") or 0
-                if maximum <= 0:
-                    add(
-                        "error",
-                        "missing_question_skill_max",
-                        f"Question awards {skill}, but its {skill} maximum is zero.",
-                        f"Set Question.{skill}_score_max to the intended maximum.",
-                    )
-
-        return issues
-
-    def _add_subsection_issue(self, issues, question, code, problem, fix):
-        key = (question.subsection_id, code, problem)
-        if key in self._subsection_issues:
-            return
-        self._subsection_issues.add(key)
-        issues.append(self._issue_row(question, "error", code, problem, fix))
-
-    def _check_file(self, question, field, kind, check_storage, add):
-        if not field:
-            add(
-                "error",
-                f"missing_{kind}",
-                f"Question has no configured {kind} file.",
-                f"Upload the required question {kind} file.",
-            )
-            return
-        if not check_storage:
-            return
+    def _mock_test(self, identifier):
+        if not identifier:
+            return None
         try:
-            exists = field.storage.exists(field.name)
-        except Exception as exc:
-            add(
-                "error",
-                f"{kind}_storage_error",
-                f"Could not verify {kind} file '{field.name}': {exc}",
-                "Check media storage credentials and file availability.",
+            by_id = MockTest.objects.filter(pk=identifier).first()
+        except (TypeError, ValueError, ValidationError):
+            by_id = None
+        if by_id:
+            return by_id
+        matches = MockTest.objects.filter(title=identifier)
+        if matches.count() != 1:
+            raise CommandError(
+                "--mock-test must match exactly one mock test UUID or title."
             )
-            return
-        if not exists:
-            add(
-                "error",
-                f"missing_{kind}_file",
-                f"Configured {kind} file does not exist in storage: {field.name}",
-                "Restore the media file from backup or upload a replacement.",
-            )
-
-    def _issue_row(self, question, severity, code, problem, fix):
-        context = self._question_context(question)
-        return {
-            "severity": severity,
-            "code": code,
-            **context,
-            "problem": problem,
-            "manual_fix": fix,
-        }
-
-    def _question_context(self, question):
-        if question.pk in self._context_cache:
-            return self._context_cache[question.pk]
-
-        subsection = question.subsection
-        section = subsection.section if subsection else None
-        mock_test = (
-            question.mock_test_section.mock_test
-            if question.mock_test_section and question.mock_test_section.mock_test
-            else None
-        )
-        response_sessions = list(
-            question.userresponse_set.select_related("user_session", "mock_test")
-            .order_by("user_session__name", "user_session__session_id")
-            .values_list(
-                "user_session__name",
-                "user_session__session_id",
-                "mock_test__title",
-            )
-            .distinct()
-        )
-        session_labels = [f"{name} [{session_id}]" for name, session_id, _ in response_sessions]
-        response_test_titles = sorted({title for _, _, title in response_sessions if title})
-        mock_test_title = mock_test.title if mock_test else ", ".join(response_test_titles)
-
-        context = {
-            "mock_test": mock_test_title or "Unassigned",
-            "mock_test_id": str(mock_test.pk) if mock_test else "",
-            "question_id": question.pk,
-            "question_name": question.name or "-",
-            "section": section.name if section and section.name else "Unassigned",
-            "subsection": subsection.name if subsection else "Unassigned",
-            "affected_session_count": len(session_labels),
-            "affected_sessions": "; ".join(session_labels),
-        }
-        self._context_cache[question.pk] = context
-        return context
-
-    def _answer_key_fix(self, subsection_name):
-        if subsection_name == "l_fill_in_blanks":
-            return "Add each missing word to ordered SubQuestion.correct_answer rows."
-        if subsection_name == "write_from_dictation":
-            return "Set Question.correct_answer to the exact spoken sentence."
-        if subsection_name in {
-            "mc_single",
-            "l_mc_single",
-            "highlight_correct_summary",
-            "select_missing_word",
-            "fib_dropdown",
-            "mc_multiple",
-            "l_mc_multiple",
-        }:
-            return "Review the options and mark the required option or options as correct."
-        return "Correct the answer metadata described in the problem column."
+        return matches.get()
 
     def _write_report(self, output, issues):
         path = Path(output)

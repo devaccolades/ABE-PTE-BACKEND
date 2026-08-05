@@ -3,6 +3,8 @@ from django.db import models
 from django.utils import timezone
 import logging
 
+from django.core.exceptions import ValidationError
+
 logger = logging.getLogger(__name__)
 
 
@@ -17,7 +19,46 @@ class MockTest(models.Model):
         help_text="Duration in seconds", null=True, blank=True
     )
     created_at = models.DateTimeField(auto_now_add=True)
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(
+        default=False,
+        help_text="Draft mock tests must pass publication validation before activation.",
+    )
+
+    def save(self, *args, **kwargs):
+        if self._is_being_activated() and not getattr(
+            self, "_publication_validation_passed", False
+        ):
+            if not self.pk:
+                raise ValidationError(
+                    {"is_active": "Save the mock test as a draft before activating it."}
+                )
+            from mocktest.services.question_bank_validation import publication_errors
+
+            errors = publication_errors(self)
+            if errors:
+                details = "; ".join(
+                    f"{issue['code']}: {issue['problem']}" for issue in errors[:10]
+                )
+                if len(errors) > 10:
+                    details += f"; and {len(errors) - 10} more error(s)"
+                raise ValidationError(
+                    {"is_active": f"Mock test cannot be activated. {details}"}
+                )
+        try:
+            super().save(*args, **kwargs)
+        finally:
+            if hasattr(self, "_publication_validation_passed"):
+                del self._publication_validation_passed
+
+    def _is_being_activated(self):
+        if not self.is_active:
+            return False
+        if not self.pk:
+            return True
+        previous = type(self).objects.filter(pk=self.pk).values_list(
+            "is_active", flat=True
+        ).first()
+        return previous is False
 
     def __str__(self):
         return self.title

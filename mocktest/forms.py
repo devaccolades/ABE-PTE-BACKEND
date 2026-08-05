@@ -1,6 +1,50 @@
 from django import forms
-from .models import Question
+from .models import MockTest, Question
 from .services.question_config import expected_question_skill_maxima
+from .services.question_bank_validation import publication_errors
+
+
+class MockTestAdminForm(forms.ModelForm):
+    class Meta:
+        model = MockTest
+        exclude = ("test_id",)
+
+    def clean_is_active(self):
+        is_active = self.cleaned_data.get("is_active", False)
+        if not is_active:
+            return False
+
+        if not self.instance.pk:
+            raise forms.ValidationError(
+                "Save the mock test as a draft, add its sections and questions, then activate it."
+            )
+
+        was_active = MockTest.objects.filter(pk=self.instance.pk).values_list(
+            "is_active", flat=True
+        ).first()
+        if was_active:
+            return True
+
+        errors = publication_errors(self.instance)
+        if errors:
+            details = [
+                self._format_publication_error(issue) for issue in errors[:10]
+            ]
+            if len(errors) > 10:
+                details.append(f"And {len(errors) - 10} more error(s).")
+            raise forms.ValidationError(details)
+
+        self.instance._publication_validation_passed = True
+        return True
+
+    @staticmethod
+    def _format_publication_error(issue):
+        question = (
+            f"Question {issue['question_id']} ({issue['question_name']}): "
+            if issue["question_id"]
+            else ""
+        )
+        return f"{question}{issue['problem']} Fix: {issue['manual_fix']}"
 
 
 class QuestionAdminForm(forms.ModelForm):

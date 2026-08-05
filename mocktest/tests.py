@@ -4,6 +4,7 @@ import tempfile
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.core.exceptions import ValidationError
 from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.template.loader import render_to_string
@@ -24,7 +25,7 @@ from mocktest.models import (
     UserResponse,
     SingleResponse,
 )
-from mocktest.forms import QuestionAdminForm
+from mocktest.forms import MockTestAdminForm, QuestionAdminForm
 from mocktest.services.pdf_service import build_session_pdf_context
 from mocktest.serializers import QuestionSerializer
 from mocktest.services.evaluation_queue import (
@@ -905,6 +906,94 @@ class QuestionBankAuditCommandTests(TestCase):
         self.assertIn("invalid_trait_skill_contract", codes)
         self.assertIn("reading maximum is zero", problems)
         self.assertNotIn("listening maximum is zero", problems)
+
+
+class MockTestPublicationGateTests(TestCase):
+    def _mock_test(self, *, valid=True):
+        mock_test = MockTest.objects.create(title="Publication Test")
+        section = Section.objects.create(name="Reading")
+        mock_test_section = MockTestSection.objects.create(
+            mock_test=mock_test,
+            section=section,
+            order=1,
+        )
+        subsection = SubSection.objects.create(
+            section=section,
+            name="mc_single",
+            evaluation_type="rule",
+            rubric={"reading": {"max": 1}},
+            trait_skill_map={"reading": ["reading"]},
+        )
+        question = Question.objects.create(
+            mock_test_section=mock_test_section,
+            subsection=subsection,
+            name="Reading-Q1",
+            text="Choose the correct answer.",
+            reading_score_max=1,
+        )
+        QuestionOption.objects.create(
+            question=question,
+            option_text="Answer A",
+            is_correct=valid,
+        )
+        return mock_test
+
+    def _activation_form(self, mock_test):
+        return MockTestAdminForm(
+            instance=mock_test,
+            data={
+                "title": mock_test.title,
+                "description": mock_test.description or "",
+                "total_score": mock_test.total_score,
+                "total_duration": mock_test.total_duration or "",
+                "is_active": True,
+            },
+        )
+
+    def test_new_mock_tests_are_drafts(self):
+        mock_test = MockTest.objects.create(title="Draft Test")
+
+        self.assertFalse(mock_test.is_active)
+
+    def test_valid_mock_test_can_be_activated(self):
+        mock_test = self._mock_test()
+        form = self._activation_form(mock_test)
+
+        self.assertTrue(form.is_valid(), form.errors)
+        activated = form.save()
+
+        self.assertTrue(activated.is_active)
+
+    def test_invalid_mock_test_cannot_be_activated_in_admin(self):
+        mock_test = self._mock_test(valid=False)
+        form = self._activation_form(mock_test)
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("exactly one correct option", str(form.errors).lower())
+
+    def test_direct_save_cannot_bypass_publication_validation(self):
+        mock_test = self._mock_test(valid=False)
+        mock_test.is_active = True
+
+        with self.assertRaises(ValidationError):
+            mock_test.save(update_fields=["is_active"])
+
+        mock_test.refresh_from_db()
+        self.assertFalse(mock_test.is_active)
+
+    def test_publication_command_can_check_one_mock_test_by_title(self):
+        self._mock_test()
+        stdout = StringIO()
+
+        call_command(
+            "check_mock_test_publication",
+            "Publication Test",
+            "--skip-media-check",
+            stdout=stdout,
+        )
+
+        self.assertIn("PASS", stdout.getvalue())
+        self.assertIn("Publication errors: 0", stdout.getvalue())
 
 
 class RepairQuestionBankSystemConfigCommandTests(TestCase):

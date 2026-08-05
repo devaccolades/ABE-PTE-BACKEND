@@ -3,15 +3,12 @@ from django.db import transaction
 
 from mocktest.models import Question, SingleResponse, SubSection, UserResponse
 from mocktest.services.question_config import canonical_trait_skill_map
-from mocktest.services.question_maximum_policy import (
-    question_skill_maximum_expectations,
-)
 
 
 class Command(BaseCommand):
     help = (
-        "Repair shared question-bank scoring configuration and derive missing "
-        "question skill maxima. Dry-run unless --apply is supplied."
+        "Repair authoritative shared question-bank scoring configuration. "
+        "Question skill maxima are never guessed. Dry-run unless --apply is supplied."
     )
 
     def add_arguments(self, parser):
@@ -51,13 +48,6 @@ class Command(BaseCommand):
             if subsection.pk in repaired_maps:
                 subsection.trait_skill_map = repaired_maps[subsection.pk]
                 changed_question_ids.add(question.pk)
-            for expectation in question_skill_maximum_expectations(question):
-                field = f"{expectation.skill}_score_max"
-                if (getattr(question, field) or 0) <= 0:
-                    maximum_repairs.append(
-                        (question, field, expectation.maximum)
-                    )
-                    changed_question_ids.add(question.pk)
 
         self.stdout.write("Question-bank system configuration repair")
         self.stdout.write("=========================================")
@@ -81,7 +71,7 @@ class Command(BaseCommand):
         ).count()
 
         self.stdout.write(f"Shared subsection repairs: {len(subsection_repairs)}")
-        self.stdout.write(f"Missing maximum repairs: {len(maximum_repairs)}")
+        self.stdout.write(f"Authoritative maximum repairs: {len(maximum_repairs)}")
         self.stdout.write(f"Affected questions: {len(changed_question_ids)}")
         self.stdout.write(f"Stored user responses eligible for rescoring: {user_response_count}")
         self.stdout.write(f"Stored single responses eligible for rescoring: {single_response_count}")

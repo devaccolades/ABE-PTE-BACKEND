@@ -1,5 +1,7 @@
 import csv
-from collections import Counter
+import math
+import statistics
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from django.core.exceptions import ValidationError
@@ -48,9 +50,10 @@ class Command(BaseCommand):
         if options["active"]:
             questions = questions.filter(mock_test_section__mock_test__is_active=True)
 
+        questions = list(questions)
         rows = []
-        question_count = questions.count()
-        covered_questions = set()
+        question_count = len(questions)
+        reference_questions = set()
         review_questions = set()
         for question in questions:
             context = self._context(question)
@@ -58,8 +61,9 @@ class Command(BaseCommand):
             if any(row["status"] == "review_required" for row in policy_rows):
                 review_questions.add(question.pk)
             else:
-                covered_questions.add(question.pk)
+                reference_questions.add(question.pk)
             rows.extend({**context, **row} for row in policy_rows)
+        rows.extend(self._peer_outlier_rows(questions))
 
         self._write_report(options["output"], rows)
         statuses = Counter(row["status"] for row in rows)
@@ -68,9 +72,13 @@ class Command(BaseCommand):
         self.stdout.write("Question skill maximum policy audit")
         self.stdout.write("===================================")
         self.stdout.write(f"Questions checked: {question_count}")
-        self.stdout.write(f"Policy-covered questions: {len(covered_questions)}")
+        self.stdout.write(f"Reference-covered questions: {len(reference_questions)}")
         self.stdout.write(f"Policy-review questions: {len(review_questions)}")
-        self.stdout.write(f"Matching maxima: {statuses['match']}")
+        self.stdout.write(f"Reference matches: {statuses['reference_match']}")
+        self.stdout.write(
+            f"Reference differences: {statuses['reference_difference']}"
+        )
+        self.stdout.write(f"Peer outliers: {statuses['peer_outlier']}")
         self.stdout.write(f"Authoritative errors: {error_count}")
         self.stdout.write(f"Report: {Path(options['output']).resolve()}")
         self.stdout.write("Read-only audit. No question or score data was changed.")
@@ -95,6 +103,55 @@ class Command(BaseCommand):
             "section": section.name if section else "Unassigned",
             "subsection": subsection.name if subsection else "Unassigned",
         }
+
+    def _peer_outlier_rows(self, questions):
+        groups = defaultdict(list)
+        for question in questions:
+            if not question.subsection_id or not question.mock_test_section_id:
+                continue
+            for skill in ("speaking", "writing", "reading", "listening"):
+                value = getattr(question, f"{skill}_score_max")
+                if value is None:
+                    continue
+                numeric = float(value)
+                if not math.isfinite(numeric) or numeric <= 0:
+                    continue
+                key = (
+                    question.mock_test_section.mock_test_id,
+                    question.subsection.name,
+                    skill,
+                )
+                groups[key].append((question, numeric))
+
+        rows = []
+        for (_mock_test_id, _subsection, skill), peers in groups.items():
+            if len(peers) < 3:
+                continue
+            median = statistics.median(value for _question, value in peers)
+            if median <= 0:
+                continue
+            for question, value in peers:
+                ratio = max(value / median, median / value)
+                if ratio < 3 or abs(value - median) < 1:
+                    continue
+                rows.append({
+                    **self._context(question),
+                    "status": "peer_outlier",
+                    "severity": "warning",
+                    "skill": skill,
+                    "configured_maximum": value,
+                    "expected_maximum": median,
+                    "delta": value - median,
+                    "basis": (
+                        f"Median of {len(peers)} questions in the same mock test, "
+                        f"subsection, and skill."
+                    ),
+                    "manual_action": (
+                        "Review this value against its peer questions and the "
+                        "exam-version weighting sheet; do not change it automatically."
+                    ),
+                })
+        return rows
 
     @staticmethod
     def _mock_test(identifier):

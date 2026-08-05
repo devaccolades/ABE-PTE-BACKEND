@@ -9,13 +9,13 @@ BLANK_RE = re.compile(r"----|_{2,}")
 
 
 @dataclass(frozen=True, slots=True)
-class SkillMaximumExpectation:
+class SkillMaximumReference:
     skill: str
     maximum: float
     basis: str
 
 
-FIXED_TASK_MAXIMA = {
+TASK_MAXIMUM_REFERENCES = {
     "repeat_sentence": {
         "speaking": (1.4, "approved Repeat Sentence scoring example"),
         "listening": (1.5, "approved Repeat Sentence scoring example"),
@@ -45,25 +45,16 @@ FIXED_TASK_MAXIMA = {
 }
 
 
-def fixed_subsection_skill_maxima(subsection_name):
-    return {
-        skill: maximum
-        for skill, (maximum, _basis) in FIXED_TASK_MAXIMA.get(
-            subsection_name, {}
-        ).items()
-    }
-
-
-def question_skill_maximum_expectations(question):
+def question_skill_maximum_references(question):
     subsection = question.subsection
     if subsection is None:
         return ()
 
-    fixed = FIXED_TASK_MAXIMA.get(subsection.name)
-    if fixed:
+    references = TASK_MAXIMUM_REFERENCES.get(subsection.name)
+    if references:
         return tuple(
-            SkillMaximumExpectation(skill, maximum, basis)
-            for skill, (maximum, basis) in fixed.items()
+            SkillMaximumReference(skill, maximum, basis)
+            for skill, (maximum, basis) in references.items()
         )
 
     structural = _structural_expectations(question, subsection.name)
@@ -78,11 +69,11 @@ def configured_question_skill_maxima(question):
 
 
 def maximum_policy_rows(question):
-    expectations = question_skill_maximum_expectations(question)
+    references = question_skill_maximum_references(question)
     configured = configured_question_skill_maxima(question)
     rows = []
 
-    if not expectations:
+    if not references:
         return [{
             "status": "review_required",
             "severity": "warning",
@@ -90,45 +81,28 @@ def maximum_policy_rows(question):
             "configured_maximum": _configured_summary(configured),
             "expected_maximum": "",
             "delta": "",
-            "basis": "No authoritative task-specific maximum policy is approved.",
+            "basis": "No universal task-specific maximum reference is approved.",
             "manual_action": (
                 "Confirm the intended per-skill maxima with the rubric owner; "
                 "do not enable v2 scoring for this task until approved."
             ),
         }]
 
-    expected_skills = {expectation.skill for expectation in expectations}
-    for expectation in expectations:
-        current = configured[expectation.skill]
+    for reference in references:
+        current = configured[reference.skill]
         status, severity, delta, action = _compare_maximum(
             current,
-            expectation.maximum,
+            reference.maximum,
         )
         rows.append({
             "status": status,
             "severity": severity,
-            "skill": expectation.skill,
+            "skill": reference.skill,
             "configured_maximum": current if current is not None else "",
-            "expected_maximum": expectation.maximum,
+            "expected_maximum": reference.maximum,
             "delta": delta,
-            "basis": expectation.basis,
+            "basis": reference.basis,
             "manual_action": action,
-        })
-
-    for skill, current in configured.items():
-        if skill in expected_skills or current in (None, 0, 0.0):
-            continue
-        rows.append({
-            "status": "unexpected_skill",
-            "severity": "error",
-            "skill": skill,
-            "configured_maximum": current,
-            "expected_maximum": 0.0,
-            "delta": "",
-            "basis": "The approved task policy does not award this skill.",
-            "manual_action": (
-                f"Clear Question.{skill}_score_max or obtain explicit policy approval."
-            ),
         })
 
     return rows
@@ -159,12 +133,12 @@ def _structural_expectations(question, subsection_name):
         if count <= 0:
             return ()
         return (
-            SkillMaximumExpectation(
+            SkillMaximumReference(
                 "writing",
                 float(count),
                 "one writing point per word in the approved dictation transcript",
             ),
-            SkillMaximumExpectation(
+            SkillMaximumReference(
                 "listening",
                 1.0,
                 "approved Write From Dictation scoring example",
@@ -177,42 +151,45 @@ def _structural_expectations(question, subsection_name):
 def _one(skill, count, basis):
     if count <= 0:
         return ()
-    return (SkillMaximumExpectation(skill, float(count), basis),)
+    return (SkillMaximumReference(skill, float(count), basis),)
 
 
 def _compare_maximum(current, expected):
     if current is None:
         return (
-            "missing",
-            "error",
+            "reference_missing",
+            "warning",
             "",
-            f"Set the question maximum to {expected:g}.",
+            "Confirm the exam-version weighting before setting this maximum.",
         )
     try:
         numeric = float(current)
     except (TypeError, ValueError):
         return (
-            "invalid",
-            "error",
+            "reference_invalid",
+            "warning",
             "",
-            f"Replace the non-numeric maximum with {expected:g}.",
+            "Confirm the exam-version weighting and replace this invalid value.",
         )
     if not math.isfinite(numeric) or numeric <= 0:
         return (
-            "invalid",
-            "error",
+            "reference_invalid",
+            "warning",
             "",
-            f"Replace the non-positive or non-finite maximum with {expected:g}.",
+            "Confirm the exam-version weighting and replace this invalid value.",
         )
     delta = numeric - expected
     if not math.isclose(numeric, expected, rel_tol=1e-9, abs_tol=1e-9):
         return (
-            "mismatch",
-            "error",
+            "reference_difference",
+            "warning",
             delta,
-            f"Review and set the question maximum to {expected:g}.",
+            (
+                "Review the exam-version weighting. Do not replace it with the "
+                "reference value unless the rubric owner confirms that policy."
+            ),
         )
-    return "match", "ok", 0.0, "No change required."
+    return "reference_match", "ok", 0.0, "No change required."
 
 
 def _configured_summary(configured):

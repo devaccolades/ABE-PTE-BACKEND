@@ -282,20 +282,22 @@ contract errors have been reviewed.
 
 Question skill maxima are no longer inferred from the sum of subsection rubric
 bands. Rubric points describe criterion evidence; question maxima describe the
-task's contribution to each PTE skill, and the two values are not interchangeable.
+task's weighted contribution to each PTE skill within a particular exam version,
+and the two values are not interchangeable.
 
-`mocktest.services.question_maximum_policy` contains only authoritative policies:
+Golden examples and objective-task raw point counts are audit references, not
+universal maxima. Production evidence shows legitimate weights vary with exam
+composition. A Repeat Sentence reference of speaking `1.4` and listening `1.5`,
+for example, must not overwrite another reviewed exam version using `1.2` and
+`1.25`.
 
-- fixed maxima backed by an approved golden scoring example;
-- objective-task maxima derived from the question structure, such as blank count,
-  adjacent paragraph pairs, or dictation word count.
+Tasks without a reference are reported as `review_required`. Differences from a
+reference are warnings requiring rubric-owner review. The Django admin and repair
+commands never autofill or rewrite a question maximum from these references.
 
-Tasks without an approved policy are reported as `review_required`; the system
-does not guess their expected maxima. The Django admin only autofills fixed,
-approved task maxima. Structural values are checked once options, blanks, or the
-dictation transcript exist. The publication validator rejects an authoritative
-mismatch but does not block a draft merely because its task policy still needs
-rubric-owner review.
+The publication validator enforces only universal maximum invariants: each
+mapped skill requires a positive maximum, values must be finite and non-negative,
+and a positive maximum cannot award a skill with no mapped rubric trait.
 
 The read-only production audit is:
 
@@ -305,6 +307,9 @@ python manage.py audit_question_skill_maxima \
   --output /home/ubuntu/abe-phase0/active-question-skill-maxima.csv
 ```
 
-Add `--fail-on-error` in CI or a release gate. The CSV distinguishes matching
-values, authoritative errors, and tasks requiring policy approval. It never
-changes questions, responses, or session scores.
+The CSV distinguishes reference matches, reference differences, and tasks
+requiring policy approval. It never changes questions, responses, or session
+scores. It also flags values at least three times above or below the median of
+three or more same-exam, same-task, same-skill peers. Peer outliers are warnings,
+not automatic corrections. Reference differences must be resolved against the
+versioned exam weighting policy before v2 scoring is enabled.

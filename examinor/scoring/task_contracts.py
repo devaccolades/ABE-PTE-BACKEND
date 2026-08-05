@@ -28,6 +28,7 @@ class EvaluationEngine(str, Enum):
 class PayloadStatus(str, Enum):
     CANONICAL = "canonical"
     LEGACY_COMPATIBLE = "legacy_compatible"
+    UNANSWERED = "unanswered"
     INVALID = "invalid"
 
 
@@ -60,7 +61,10 @@ class AnswerPayloadInspection:
 
     @property
     def usable(self):
-        return self.status != PayloadStatus.INVALID
+        return self.status in {
+            PayloadStatus.CANONICAL,
+            PayloadStatus.LEGACY_COMPATIBLE,
+        }
 
     def as_dict(self):
         return {
@@ -310,6 +314,19 @@ def _compatible(normalized, issues):
     )
 
 
+def _unanswered(normalized, issues=()):
+    return AnswerPayloadInspection(
+        status=PayloadStatus.UNANSWERED,
+        normalized=normalized,
+        issues=tuple(issues) + (
+            _issue(
+                "answer_not_provided",
+                "No answer was submitted; the question receives zero.",
+            ),
+        ),
+    )
+
+
 def _invalid(*issues):
     return AnswerPayloadInspection(
         status=PayloadStatus.INVALID,
@@ -397,6 +414,16 @@ def _positive_integer(value):
     return None
 
 
+def _is_empty_answer_value(value):
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (Mapping, list, tuple, set)):
+        return not value
+    return False
+
+
 def _inspect_mapping(answer_data):
     value, issues, wrapper_error = _unwrap_legacy_wrapper(answer_data)
     if wrapper_error:
@@ -405,6 +432,8 @@ def _inspect_mapping(answer_data):
     value, json_issues, _ = _decode_json_container(value, "{")
     issues += json_issues
     if not isinstance(value, Mapping):
+        if _is_empty_answer_value(value):
+            return _unanswered({}, issues)
         return _invalid(
             _issue(
                 "mapping_required",
@@ -412,9 +441,7 @@ def _inspect_mapping(answer_data):
             )
         )
     if not value:
-        return _invalid(
-            _issue("answer_required", "At least one mapped answer is required.")
-        )
+        return _unanswered({}, issues)
 
     normalized = {}
     selected_ids = set()
@@ -457,6 +484,8 @@ def _inspect_single_option(answer_data):
         return _invalid(wrapper_error)
 
     if isinstance(value, (list, tuple)):
+        if not value:
+            return _unanswered(None, issues)
         if len(value) != 1:
             return _invalid(
                 _issue(
@@ -471,6 +500,9 @@ def _inspect_single_option(answer_data):
                 "A single-choice answer was stored as a one-item list.",
             ),
         )
+
+    if _is_empty_answer_value(value):
+        return _unanswered(None, issues)
 
     option_id = _positive_integer(value)
     if option_id is None:
@@ -493,6 +525,9 @@ def _inspect_multiple_options(answer_data):
     value, json_issues, _ = _decode_json_container(value, "[")
     issues += json_issues
 
+    if _is_empty_answer_value(value):
+        return _unanswered([], issues)
+
     if isinstance(value, str) and "," in value:
         parts = [part.strip() for part in value.split(",")]
         if not parts or any(not part for part in parts):
@@ -511,10 +546,6 @@ def _inspect_multiple_options(answer_data):
         )
 
     if not isinstance(value, (list, tuple)):
-        if isinstance(value, str) and not value.strip():
-            return _invalid(
-                _issue("answer_required", "At least one selected option is required.")
-            )
         option_id = _positive_integer(value)
         if option_id is None:
             return _invalid(
@@ -532,9 +563,7 @@ def _inspect_multiple_options(answer_data):
         )
 
     if not value:
-        return _invalid(
-            _issue("answer_required", "At least one selected option is required.")
-        )
+        return _unanswered([], issues)
 
     normalized = []
     seen = set()
@@ -580,9 +609,7 @@ def _inspect_delimited_text(answer_data):
                 )
             ordered.append((key, raw_value.strip()))
         if not ordered:
-            return _invalid(
-                _issue("answer_required", "At least one text answer is required.")
-            )
+            return _unanswered([], issues)
         value = [text for _, text in sorted(ordered)]
         issues += (
             _issue(
@@ -592,6 +619,8 @@ def _inspect_delimited_text(answer_data):
         )
 
     if isinstance(value, (list, tuple)):
+        if not value:
+            return _unanswered([], issues)
         normalized = [
             item.strip()
             for item in value
@@ -612,6 +641,8 @@ def _inspect_delimited_text(answer_data):
         )
         return _compatible(normalized, issues)
 
+    if _is_empty_answer_value(value):
+        return _unanswered([], issues)
     if not isinstance(value, str):
         return _invalid(
             _issue(
@@ -621,9 +652,7 @@ def _inspect_delimited_text(answer_data):
         )
     normalized = [item.strip() for item in DELIMITED_TEXT_RE.split(value) if item.strip()]
     if not normalized:
-        return _invalid(
-            _issue("answer_required", "At least one text answer is required.")
-        )
+        return _unanswered([], issues)
     if issues:
         return _compatible(normalized, issues)
     return _canonical(normalized)
@@ -633,12 +662,16 @@ def _inspect_free_text(answer_data):
     value, issues, wrapper_error = _unwrap_legacy_wrapper(answer_data)
     if wrapper_error:
         return _invalid(wrapper_error)
-    if not isinstance(value, str) or not value.strip():
+    if _is_empty_answer_value(value):
+        return _unanswered("", issues)
+    if not isinstance(value, str):
         return _invalid(
-            _issue("answer_required", "A non-empty text answer is required.")
+            _issue("text_answer_required", "The answer must be text.")
         )
 
     normalized = value.strip()
+    if not normalized:
+        return _unanswered("", issues)
     if issues:
         return _compatible(normalized, issues)
     return _canonical(normalized)

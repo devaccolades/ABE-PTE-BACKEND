@@ -10,6 +10,10 @@ from .models import *
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import DatabaseError
 from django.utils import timezone
+from mocktest.services.evaluation_input import (
+    question_requires_audio,
+    response_input_issue,
+)
 from mocktest.services.transcription import transcribe_and_analyse
 from examinor.scoring.task_contracts import (
     PayloadStatus,
@@ -122,6 +126,22 @@ def inspect_response_answer(response, subsection_name):
     )
 
 
+def save_missing_audio_failure(response):
+    input_issue = response_input_issue(response)
+    if input_issue:
+        error = input_issue.message
+        extra = {
+            "code": input_issue.code,
+            "retryable": input_issue.retryable,
+        }
+    else:
+        error = "Original response audio is unavailable for transcription."
+        extra = {"code": "response_audio_unavailable", "retryable": False}
+
+    save_evaluation_failure(response, "transcription", error, extra)
+    return error
+
+
 def validate_evaluation_or_fail(response, evaluation_result, subsection):
     is_valid, normalized_result, error = validate_and_normalize_evaluation_result(
         evaluation_result,
@@ -201,12 +221,15 @@ def normalize_queued_question_id(response, question_id):
     # return {"status": "success", "transcription": transcription}
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def transcribe_task(self,user_response_id,):
-    user_response = UserResponse.objects.get(id=user_response_id)
+    user_response = (
+        UserResponse.objects
+        .select_related("question__subsection")
+        .get(id=user_response_id)
+    )
     mark_evaluation_attempt(user_response, "transcribing", "transcription")
 
     if not user_response.answer_audio:
-        error = "Audio answer file is missing; transcription cannot start."
-        save_evaluation_failure(user_response, "transcription", error)
+        error = save_missing_audio_failure(user_response)
         raise EvaluationTaskFailed(error)
 
     input_path = user_response.answer_audio.path
@@ -282,14 +305,27 @@ def evaluate_user_response(self, user_answer_id, question_id):
         subsection = question.subsection.name
         subsection_obj = question.subsection
 
-        if subsection_obj.ai_input_type == "audio":
-            if not user_answer.transcribed_audio_data:
-                error = (
-                    "Audio transcription is missing; queue transcription before evaluation."
-                    if user_answer.answer_audio
-                    else "Audio answer file is missing; transcription and evaluation cannot start."
+        if question_requires_audio(question):
+            if not has_usable_transcript(user_answer.transcribed_audio_data):
+                input_issue = response_input_issue(user_answer)
+                if input_issue:
+                    error = input_issue.message
+                    extra = {
+                        "code": input_issue.code,
+                        "retryable": input_issue.retryable,
+                    }
+                else:
+                    error = (
+                        "Audio transcription is missing; queue transcription "
+                        "before evaluation."
+                    )
+                    extra = None
+                save_evaluation_failure(
+                    user_answer,
+                    "transcription",
+                    error,
+                    extra,
                 )
-                save_evaluation_failure(user_answer, "transcription", error)
                 raise EvaluationTaskFailed(error)
             evaluation_payload["transcribed_audio_data"] = user_answer.transcribed_audio_data
 
@@ -386,12 +422,15 @@ def evaluate_user_response(self, user_answer_id, question_id):
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def transcribe_single_task(self,user_response_id,):
-    user_response = SingleResponse.objects.get(id=user_response_id)
+    user_response = (
+        SingleResponse.objects
+        .select_related("question__subsection")
+        .get(id=user_response_id)
+    )
     mark_evaluation_attempt(user_response, "transcribing", "transcription")
 
     if not user_response.answer_audio:
-        error = "Audio answer file is missing; transcription cannot start."
-        save_evaluation_failure(user_response, "transcription", error)
+        error = save_missing_audio_failure(user_response)
         raise EvaluationTaskFailed(error)
 
     input_path = user_response.answer_audio.path
@@ -465,14 +504,27 @@ def evaluate_single_response(self, user_answer_id, question_id):
         subsection = question.subsection.name
         subsection_obj = question.subsection
 
-        if subsection_obj.ai_input_type == "audio":
-            if not user_answer.transcribed_audio_data:
-                error = (
-                    "Audio transcription is missing; queue transcription before evaluation."
-                    if user_answer.answer_audio
-                    else "Audio answer file is missing; transcription and evaluation cannot start."
+        if question_requires_audio(question):
+            if not has_usable_transcript(user_answer.transcribed_audio_data):
+                input_issue = response_input_issue(user_answer)
+                if input_issue:
+                    error = input_issue.message
+                    extra = {
+                        "code": input_issue.code,
+                        "retryable": input_issue.retryable,
+                    }
+                else:
+                    error = (
+                        "Audio transcription is missing; queue transcription "
+                        "before evaluation."
+                    )
+                    extra = None
+                save_evaluation_failure(
+                    user_answer,
+                    "transcription",
+                    error,
+                    extra,
                 )
-                save_evaluation_failure(user_answer, "transcription", error)
                 raise EvaluationTaskFailed(error)
             evaluation_payload["transcribed_audio_data"] = user_answer.transcribed_audio_data
 

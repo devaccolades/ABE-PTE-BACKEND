@@ -2,7 +2,12 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Q
 from django.utils import timezone
 
+from examinor.scoring.task_contracts import has_usable_transcript
 from mocktest.models import SingleResponse, UserResponse
+from mocktest.services.evaluation_input import (
+    question_requires_audio,
+    response_input_issue,
+)
 from mocktest.services.evaluation_queue import (
     EvaluationQueueUnavailable,
     queue_response_evaluation,
@@ -117,9 +122,13 @@ class Command(BaseCommand):
 
         queued = 0
         queue_failures = 0
+        non_retryable = 0
         by_mode = {}
 
         for response in responses:
+            if response_input_issue(response):
+                non_retryable += 1
+                continue
             try:
                 mode = self._queue_or_preview(response, options["dry_run"])
             except EvaluationQueueUnavailable:
@@ -140,14 +149,19 @@ class Command(BaseCommand):
                     f"{queue_failures} response(s) could not be queued and were marked failed."
                 )
             )
+        if non_retryable:
+            self.stderr.write(
+                self.style.WARNING(
+                    f"{non_retryable} response(s) skipped because required "
+                    "evaluation input is missing."
+                )
+            )
 
     def _queue_or_preview(self, response, dry_run):
-        subsection = response.question.subsection
         needs_transcription = (
-            subsection
-            and subsection.ai_input_type == "audio"
+            question_requires_audio(response.question)
             and response.answer_audio
-            and not response.transcribed_audio_data
+            and not has_usable_transcript(response.transcribed_audio_data)
         )
 
         mode = "transcription_and_evaluation" if needs_transcription else "evaluation"

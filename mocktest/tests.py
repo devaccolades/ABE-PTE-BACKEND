@@ -1390,8 +1390,9 @@ class UserResponseSubmissionTests(TestCase):
     def test_user_response_requires_audio_file_for_audio_question(self, mock_delay):
         mock_test = MockTest.objects.create(title="Audio Test")
         question = self._create_question_set(mock_test, "Speaking", "RA-1")
-        question.subsection.ai_input_type = "audio"
-        question.subsection.save(update_fields=["ai_input_type"])
+        question.subsection.name = "read_aloud"
+        question.subsection.ai_input_type = "text"
+        question.subsection.save(update_fields=["name", "ai_input_type"])
         session = UserMockTestSession.objects.create(
             name="Student",
             session_id="missing-audio-session",
@@ -1416,8 +1417,9 @@ class UserResponseSubmissionTests(TestCase):
     def test_question_api_declares_audio_input_requirement(self):
         mock_test = MockTest.objects.create(title="Audio Contract Test")
         question = self._create_question_set(mock_test, "Speaking", "RA-1")
-        question.subsection.ai_input_type = "audio"
-        question.subsection.save(update_fields=["ai_input_type"])
+        question.subsection.name = "read_aloud"
+        question.subsection.ai_input_type = "text"
+        question.subsection.save(update_fields=["name", "ai_input_type"])
         session = UserMockTestSession.objects.create(
             name="Student",
             session_id="audio-contract-session",
@@ -1436,8 +1438,9 @@ class UserResponseSubmissionTests(TestCase):
     def test_audio_upload_is_stored_and_survives_response_updates(self, mock_chain):
         mock_test = MockTest.objects.create(title="Audio Storage Test")
         question = self._create_question_set(mock_test, "Speaking", "RA-1")
-        question.subsection.ai_input_type = "audio"
-        question.subsection.save(update_fields=["ai_input_type"])
+        question.subsection.name = "read_aloud"
+        question.subsection.ai_input_type = "text"
+        question.subsection.save(update_fields=["name", "ai_input_type"])
         session = UserMockTestSession.objects.create(
             name="Student",
             session_id="audio-storage-session",
@@ -1476,6 +1479,73 @@ class UserResponseSubmissionTests(TestCase):
 
                 self.assertTrue(saved.answer_audio)
                 self.assertTrue(saved.answer_audio.storage.exists(saved.answer_audio.name))
+                mock_chain.return_value.delay.assert_called_once()
+
+    @patch("mocktest.services.evaluation_queue.chain")
+    def test_missing_audio_response_can_be_repaired_without_duplicate_row(
+        self,
+        mock_chain,
+    ):
+        mock_test = MockTest.objects.create(title="Audio Recovery Test")
+        question = self._create_question_set(mock_test, "Speaking", "RA-1")
+        question.subsection.name = "read_aloud"
+        question.subsection.ai_input_type = "text"
+        question.subsection.save(update_fields=["name", "ai_input_type"])
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="audio-recovery-session",
+            mock_test=mock_test,
+        )
+        session.mark_submission_completed()
+        existing = UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            evaluation_status="failed",
+            evaluation_stage="submission",
+            evaluation_error="Original response audio is missing.",
+            evaluation_result={
+                "ok": False,
+                "code": "response_audio_missing",
+                "retryable": False,
+            },
+            speaking_score_awarded=2,
+        )
+
+        with tempfile.TemporaryDirectory() as media_root:
+            with override_settings(MEDIA_ROOT=media_root):
+                response = self.client.post(
+                    "/mocktest/user-response/",
+                    {
+                        "session_id": session.session_id,
+                        "question_id": question.id,
+                        "answer": "{}",
+                        "answer_audio": SimpleUploadedFile(
+                            "replacement.webm",
+                            b"replacement audio bytes",
+                            content_type="audio/webm",
+                        ),
+                    },
+                )
+
+                existing.refresh_from_db()
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response.json()["recovered_submission"])
+                self.assertEqual(UserResponse.objects.count(), 1)
+                self.assertEqual(existing.evaluation_status, "pending")
+                self.assertEqual(existing.evaluation_stage, "")
+                self.assertEqual(existing.evaluation_error, "")
+                self.assertEqual(existing.evaluation_result, {})
+                self.assertFalse(existing.evaluated)
+                self.assertEqual(existing.speaking_score_awarded, 0)
+                self.assertTrue(existing.answer_audio)
+                self.assertTrue(
+                    existing.answer_audio.storage.exists(existing.answer_audio.name)
+                )
+                self.assertEqual(
+                    existing.answer_audio.read(),
+                    b"replacement audio bytes",
+                )
                 mock_chain.return_value.delay.assert_called_once()
 
     @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
@@ -1608,8 +1678,9 @@ class UserResponseSubmissionTests(TestCase):
     def test_single_response_requires_audio_file_for_audio_question(self, mock_delay):
         mock_test = MockTest.objects.create(title="Single Audio Test")
         question = self._create_question_set(mock_test, "Speaking", "RA-1")
-        question.subsection.ai_input_type = "audio"
-        question.subsection.save(update_fields=["ai_input_type"])
+        question.subsection.name = "read_aloud"
+        question.subsection.ai_input_type = "text"
+        question.subsection.save(update_fields=["name", "ai_input_type"])
 
         response = self.client.post(
             "/mocktest/single-response/",
@@ -1664,6 +1735,40 @@ class UserResponseSubmissionTests(TestCase):
         self.assertTrue(data["has_failures"])
         self.assertFalse(data["can_download_final_pdf"])
         self.assertEqual(len(data["responses"]), 2)
+
+    def test_session_status_identifies_non_retryable_missing_audio(self):
+        mock_test = MockTest.objects.create(title="Missing Audio Status Test")
+        question = self._create_question_set(mock_test, "Speaking", "RA-1")
+        question.subsection.name = "read_aloud"
+        question.subsection.ai_input_type = "text"
+        question.subsection.save(update_fields=["name", "ai_input_type"])
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="missing-audio-status-session",
+            mock_test=mock_test,
+        )
+        UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            evaluation_status="failed",
+            evaluation_stage="submission",
+        )
+
+        response = self.client.get(
+            "/mocktest/session-evaluation-status/",
+            {"session_id": session.session_id, "include_responses": "true"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["input_required"], 1)
+        self.assertEqual(
+            data["responses"][0]["evaluation_code"],
+            "response_audio_missing",
+        )
+        self.assertFalse(data["responses"][0]["retryable"])
+        self.assertFalse(data["can_download_final_pdf"])
 
     def test_session_evaluation_status_requires_session_id(self):
         response = self.client.get("/mocktest/session-evaluation-status/")
@@ -1795,8 +1900,9 @@ class EvaluationRepairToolTests(TestCase):
     @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
     def test_queue_helper_rejects_audio_response_without_audio(self, mock_delay):
         mock_test, question = self._create_question()
-        question.subsection.ai_input_type = "audio"
-        question.subsection.save(update_fields=["ai_input_type"])
+        question.subsection.name = "read_aloud"
+        question.subsection.ai_input_type = "text"
+        question.subsection.save(update_fields=["name", "ai_input_type"])
         session = UserMockTestSession.objects.create(
             name="Student",
             session_id="queue-missing-audio-session",
@@ -1814,7 +1920,12 @@ class EvaluationRepairToolTests(TestCase):
         response.refresh_from_db()
         self.assertEqual(response.evaluation_status, "failed")
         self.assertEqual(response.evaluation_stage, "submission")
-        self.assertIn("Audio answer file is missing", response.evaluation_error)
+        self.assertEqual(
+            response.evaluation_result["code"],
+            "response_audio_missing",
+        )
+        self.assertFalse(response.evaluation_result["retryable"])
+        self.assertIn("Original response audio is missing", response.evaluation_error)
         mock_delay.assert_not_called()
 
     def test_evaluation_task_persists_question_id_mismatch_failure(self):
@@ -2071,8 +2182,9 @@ class EvaluationRepairToolTests(TestCase):
 
     def test_evaluation_task_reports_missing_audio_as_celery_failure(self):
         mock_test, question = self._create_question()
-        question.subsection.ai_input_type = "audio"
-        question.subsection.save(update_fields=["ai_input_type"])
+        question.subsection.name = "read_aloud"
+        question.subsection.ai_input_type = "text"
+        question.subsection.save(update_fields=["name", "ai_input_type"])
         session = UserMockTestSession.objects.create(
             name="Student",
             session_id="task-missing-audio-session",
@@ -2088,10 +2200,15 @@ class EvaluationRepairToolTests(TestCase):
 
         response.refresh_from_db()
         self.assertTrue(result.failed())
-        self.assertIn("Audio answer file is missing", str(result.result))
+        self.assertIn("Original response audio is missing", str(result.result))
         self.assertEqual(response.evaluation_status, "failed")
         self.assertEqual(response.evaluation_stage, "transcription")
-        self.assertIn("Audio answer file is missing", response.evaluation_error)
+        self.assertEqual(
+            response.evaluation_result["code"],
+            "response_audio_missing",
+        )
+        self.assertFalse(response.evaluation_result["retryable"])
+        self.assertIn("Original response audio is missing", response.evaluation_error)
 
     def test_single_evaluation_task_persists_question_id_mismatch_failure(self):
         _, question = self._create_question()
@@ -2711,8 +2828,9 @@ class EvaluationRepairToolTests(TestCase):
 
     def test_evaluate_response_now_force_transcription_marks_audio_as_needed(self):
         mock_test, question = self._create_question()
-        question.subsection.ai_input_type = "audio"
-        question.subsection.save(update_fields=["ai_input_type"])
+        question.subsection.name = "read_aloud"
+        question.subsection.ai_input_type = "text"
+        question.subsection.save(update_fields=["name", "ai_input_type"])
         session = UserMockTestSession.objects.create(
             name="Student",
             session_id="force-transcription-dry-run-session",

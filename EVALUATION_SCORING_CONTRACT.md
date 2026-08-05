@@ -97,6 +97,30 @@ zero, marks the response completed, and includes `answer_status=unanswered` and
 `evaluation_source=system`. This avoids provider spend and prevents legitimate
 skips from blocking session completion.
 
+### Missing Response Audio
+
+The task registry is the source of truth for whether candidate response audio is
+required. Editable `SubSection.ai_input_type` values cannot weaken or change that
+contract. Question APIs expose the effective contract so the frontend records
+audio for every speaking task even when a database setting is stale.
+
+Missing original response audio with no stored transcript is a permanent input
+failure, not a retryable provider failure. It is stored with:
+
+- `code=response_audio_missing`;
+- `retryable=false`;
+- a message requiring replacement audio.
+
+Celery, admin bulk actions, per-response controls, and management commands do not
+futilely requeue these rows. The original session response can instead be
+resubmitted with `answer_audio` through the existing user-response endpoint. The
+backend locks and repairs that row, clears stale scores and evaluation output,
+preserves the unique session/question identity, and then queues transcription.
+The response returns HTTP 200 with `recovered_submission=true`.
+
+No score is fabricated for missing audio. The session remains incomplete and
+the final PDF remains unavailable until replacement evidence is evaluated.
+
 Comma-delimited multiple-choice IDs such as `"1609,1607"` are classified as
 legacy-compatible and normalized to `[1609, 1607]`. They are not interpreted as
 one option ID. The deterministic evaluator uses the normalized IDs for negative

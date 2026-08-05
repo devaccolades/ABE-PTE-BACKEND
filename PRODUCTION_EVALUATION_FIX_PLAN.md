@@ -356,6 +356,8 @@ The publish validator must check:
 - [x] Every supported subsection has valid and invalid payload tests.
 - [x] Empty non-audio submissions complete as explicit zero-score unanswered
   results without calling an AI provider.
+- [x] Missing response audio is a coded non-retryable input failure with an
+  in-place replacement-upload path; it cannot be converted silently to zero.
 - [x] Gate policies are explicit and task-specific.
 - [ ] Active exams cannot bypass the publish validator.
 - [x] No rubric or question data has been silently modified.

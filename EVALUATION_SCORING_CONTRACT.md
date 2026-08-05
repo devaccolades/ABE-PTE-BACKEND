@@ -255,6 +255,25 @@ rounding belongs only at a final display or export boundary.
 
 ## Rollout
 
-The v2 compiler is pure and has no database writes. Its first release is test and
-shadow-comparison only. Live `UserResponse` and `SingleResponse` scoring remains
-on the current compiler until production score deltas have been reviewed.
+The v2 compiler is pure. Both `UserResponse` and `SingleResponse` call one shared
+response-scoring service controlled by `EVALUATION_SCORING_MODE`:
+
+- `legacy`: calculate and promote only `pte-score-v1`;
+- `shadow` (default): promote the legacy score while storing the v2 result,
+  per-skill delta, or v2 contract error inside `evaluation_result`;
+- `v2`: fail closed on a v2 contract error and promote `pte-score-v2`.
+
+Shadow calculation makes no provider calls and does not alter the live awarded
+score. The persisted evidence identifies both versions and the promoted version.
+Operations can produce a historical comparison without modifying responses or
+sessions:
+
+```bash
+python manage.py report_scoring_v2_deltas \
+  --output /home/ubuntu/abe-phase0/scoring-v2-deltas.csv
+```
+
+The report supports model, response, session, mock-test, and subsection filters.
+It contains IDs, score values, deltas, and compile errors, but no candidate answer
+content. Production remains in shadow mode until the delta report and unexplained
+contract errors have been reviewed.

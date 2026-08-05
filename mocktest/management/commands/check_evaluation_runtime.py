@@ -36,6 +36,7 @@ class Command(BaseCommand):
         self.stdout.write("========================")
 
         self._check_openai_settings(failures)
+        self._check_scoring_settings(failures)
         self._check_celery_settings(failures)
 
         if not options["skip_redis"]:
@@ -77,6 +78,17 @@ class Command(BaseCommand):
         self.stdout.write(f"CELERY_TASK_DEFAULT_QUEUE={settings.CELERY_TASK_DEFAULT_QUEUE}")
         self.stdout.write(f"CELERY_EVALUATION_QUEUE={settings.CELERY_EVALUATION_QUEUE}")
         self.stdout.write(f"CELERY_TRANSCRIPTION_QUEUE={settings.CELERY_TRANSCRIPTION_QUEUE}")
+
+    def _check_scoring_settings(self, failures):
+        self.stdout.write("")
+        self.stdout.write("Scoring settings")
+        self.stdout.write("----------------")
+        mode = settings.EVALUATION_SCORING_MODE
+        self.stdout.write(f"EVALUATION_SCORING_MODE={mode}")
+        if mode not in {"legacy", "shadow", "v2"}:
+            failures.append(
+                "EVALUATION_SCORING_MODE must be legacy, shadow, or v2"
+            )
 
     def _check_celery_settings(self, failures):
         self.stdout.write("")

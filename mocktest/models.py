@@ -413,6 +413,43 @@ class UserMockTestSession(models.Model):
         return round(normalized, 2)
 
 
+def apply_response_skill_scores(response):
+    from examinor.scoring.response_scores import (
+        compile_response_score_evidence,
+        promoted_skill_values,
+    )
+
+    evidence = compile_response_score_evidence(
+        response.question,
+        response.evaluation_result,
+    )
+    promoted = promoted_skill_values(evidence)
+    response.speaking_score_awarded = promoted["speaking"]
+    response.writing_score_awarded = promoted["writing"]
+    response.reading_score_awarded = promoted["reading"]
+    response.listening_score_awarded = promoted["listening"]
+    response.evaluated = True
+    response.evaluation_status = "completed"
+    response.evaluation_stage = "scoring"
+    response.evaluation_error = ""
+    response.evaluation_result = dict(response.evaluation_result)
+    response.evaluation_result["scoring_evidence"] = evidence
+    response.save(
+        update_fields=[
+            "speaking_score_awarded",
+            "writing_score_awarded",
+            "reading_score_awarded",
+            "listening_score_awarded",
+            "evaluated",
+            "evaluation_status",
+            "evaluation_stage",
+            "evaluation_error",
+            "evaluation_result",
+        ]
+    )
+    return evidence
+
+
 class UserResponse(models.Model):
     EVALUATION_STATUS_CHOICES = [
         ("pending", "Pending"),
@@ -449,143 +486,8 @@ class UserResponse(models.Model):
     evaluation_result = models.JSONField(default=dict, null=True, blank=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
 
-    def _normalize(self, raw, max_value, skill_name=None):
-        """
-        Skill normalization per-question.
-
-        Rules:
-        - NULL / 0 max  → skill not evaluated → force 0 (log warning)
-        - Else          → cap raw score to max
-        """
-        if not max_value:
-            if raw > 0:
-                logger.warning(
-                    "[SCORING-IGNORE] "
-                    f"Question={self.question.id} | "
-                    f"Subsection={self.question.subsection.name} | "
-                    f"Skill={skill_name} | "
-                    f"RawScore={raw} | "
-                    f"MaxScore={max_value}"
-                )
-            return 0
-
-        return min(raw, max_value)
-
     def apply_skill_scores(self):
-        """
-        Aggregate evaluation_result into skill scores
-        using the question subsection's trait_skill_map.
-
-        PTE RULE:
-        - If a gate trait (content/form) EXISTS and its score == 0
-        → entire question scores 0
-        """
-
-        if not self.evaluation_result:
-            return
-
-        scores = self.evaluation_result.get("evaluation", {}).get("scores", {})
-
-        if not scores:
-            return
-
-        trait_skill = self.question.subsection.trait_skill_map or {}
-
-        # ----------------------------
-        # 1️⃣ GATE TRAIT SHORT-CIRCUIT
-        # ----------------------------
-        for gate_trait in ("content", "form"):
-            if gate_trait in scores:
-                gate_score = scores[gate_trait].get("score")
-                if gate_score == 0:
-                    # HARD STOP — model-safe
-                    self.speaking_score_awarded = 0
-                    self.writing_score_awarded = 0
-                    self.reading_score_awarded = 0
-                    self.listening_score_awarded = 0
-                    self.evaluated = True
-                    self.evaluation_status = "completed"
-                    self.evaluation_stage = "scoring"
-                    self.evaluation_error = ""
-
-                    self.save(
-                        update_fields=[
-                            "speaking_score_awarded",
-                            "writing_score_awarded",
-                            "reading_score_awarded",
-                            "listening_score_awarded",
-                            "evaluated",
-                            "evaluation_status",
-                            "evaluation_stage",
-                            "evaluation_error",
-                        ]
-                    )
-                    return
-
-        # ----------------------------
-        # 2️⃣ NORMAL TRAIT → SKILL FLOW
-        # ----------------------------
-
-        # Reset AFTER gate check (important)
-        self.speaking_score_awarded = 0
-        self.writing_score_awarded = 0
-        self.reading_score_awarded = 0
-        self.listening_score_awarded = 0
-
-        for component, payload in scores.items():
-            value = payload.get("score")
-
-            if value is None:
-                continue
-
-            for skill in trait_skill.get(component, []):
-                if skill == "speaking":
-                    self.speaking_score_awarded += value
-                elif skill == "writing":
-                    self.writing_score_awarded += value
-                elif skill == "reading":
-                    self.reading_score_awarded += value
-                elif skill == "listening":
-                    self.listening_score_awarded += value
-
-        # ----------------------------
-        # 3️⃣ NORMALISATION STEP (NEW)
-        # ----------------------------
-
-        q = self.question
-
-        self.speaking_score_awarded = self._normalize(
-            self.speaking_score_awarded, q.speaking_score_max, "speaking"
-        )
-
-        self.writing_score_awarded = self._normalize(
-            self.writing_score_awarded, q.writing_score_max, "writing"
-        )
-
-        self.reading_score_awarded = self._normalize(
-            self.reading_score_awarded, q.reading_score_max, "reading"
-        )
-
-        self.listening_score_awarded = self._normalize(
-            self.listening_score_awarded, q.listening_score_max, "listening"
-        )
-
-        self.evaluated = True
-        self.evaluation_status = "completed"
-        self.evaluation_stage = "scoring"
-        self.evaluation_error = ""
-        self.save(
-            update_fields=[
-                "speaking_score_awarded",
-                "writing_score_awarded",
-                "reading_score_awarded",
-                "listening_score_awarded",
-                "evaluated",
-                "evaluation_status",
-                "evaluation_stage",
-                "evaluation_error",
-            ]
-        )
+        return apply_response_skill_scores(self)
 
     def __str__(self):
         return f"{self.user_session.name} - {self.mock_test} "
@@ -646,143 +548,8 @@ class SingleResponse(models.Model):
     evaluation_result = models.JSONField(default=dict, null=True, blank=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
 
-    def _normalize(self, raw, max_value, skill_name=None):
-        """
-        Skill normalization per-question.
-
-        Rules:
-        - NULL / 0 max  → skill not evaluated → force 0 (log warning)
-        - Else          → cap raw score to max
-        """
-        if not max_value:
-            if raw > 0:
-                logger.warning(
-                    "[SCORING-IGNORE] "
-                    f"Question={self.question.id} | "
-                    f"Subsection={self.question.subsection.name} | "
-                    f"Skill={skill_name} | "
-                    f"RawScore={raw} | "
-                    f"MaxScore={max_value}"
-                )
-            return 0
-
-        return min(raw, max_value)
-
     def apply_skill_scores(self):
-        """
-        Aggregate evaluation_result into skill scores
-        using the question subsection's trait_skill_map.
-
-        PTE RULE:
-        - If a gate trait (content/form) EXISTS and its score == 0
-        → entire question scores 0
-        """
-
-        if not self.evaluation_result:
-            return
-
-        scores = self.evaluation_result.get("evaluation", {}).get("scores", {})
-
-        if not scores:
-            return
-
-        trait_skill = self.question.subsection.trait_skill_map or {}
-
-        # ----------------------------
-        # 1️⃣ GATE TRAIT SHORT-CIRCUIT
-        # ----------------------------
-        for gate_trait in ("content", "form"):
-            if gate_trait in scores:
-                gate_score = scores[gate_trait].get("score")
-                if gate_score == 0:
-                    # HARD STOP — model-safe
-                    self.speaking_score_awarded = 0
-                    self.writing_score_awarded = 0
-                    self.reading_score_awarded = 0
-                    self.listening_score_awarded = 0
-                    self.evaluated = True
-                    self.evaluation_status = "completed"
-                    self.evaluation_stage = "scoring"
-                    self.evaluation_error = ""
-
-                    self.save(
-                        update_fields=[
-                            "speaking_score_awarded",
-                            "writing_score_awarded",
-                            "reading_score_awarded",
-                            "listening_score_awarded",
-                            "evaluated",
-                            "evaluation_status",
-                            "evaluation_stage",
-                            "evaluation_error",
-                        ]
-                    )
-                    return
-
-        # ----------------------------
-        # 2️⃣ NORMAL TRAIT → SKILL FLOW
-        # ----------------------------
-
-        # Reset AFTER gate check (important)
-        self.speaking_score_awarded = 0
-        self.writing_score_awarded = 0
-        self.reading_score_awarded = 0
-        self.listening_score_awarded = 0
-
-        for component, payload in scores.items():
-            value = payload.get("score")
-
-            if value is None:
-                continue
-
-            for skill in trait_skill.get(component, []):
-                if skill == "speaking":
-                    self.speaking_score_awarded += value
-                elif skill == "writing":
-                    self.writing_score_awarded += value
-                elif skill == "reading":
-                    self.reading_score_awarded += value
-                elif skill == "listening":
-                    self.listening_score_awarded += value
-
-        # ----------------------------
-        # 3️⃣ NORMALISATION STEP (NEW)
-        # ----------------------------
-
-        q = self.question
-
-        self.speaking_score_awarded = self._normalize(
-            self.speaking_score_awarded, q.speaking_score_max, "speaking"
-        )
-
-        self.writing_score_awarded = self._normalize(
-            self.writing_score_awarded, q.writing_score_max, "writing"
-        )
-
-        self.reading_score_awarded = self._normalize(
-            self.reading_score_awarded, q.reading_score_max, "reading"
-        )
-
-        self.listening_score_awarded = self._normalize(
-            self.listening_score_awarded, q.listening_score_max, "listening"
-        )
-
-        self.evaluated = True
-        self.evaluation_status = "completed"
-        self.evaluation_stage = "scoring"
-        self.evaluation_error = ""
-        self.save(
-            update_fields=[
-                "speaking_score_awarded",
-                "writing_score_awarded",
-                "reading_score_awarded",
-                "listening_score_awarded",
-                "evaluated",
-                "evaluation_status",
-                "evaluation_stage",
-                "evaluation_error",
-            ]
-        )
+        return apply_response_skill_scores(self)
 
     def __str__(self):
         return f"{self.name} - {self.question} "

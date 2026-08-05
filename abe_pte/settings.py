@@ -232,6 +232,7 @@ OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "60"))
 OPENAI_MAX_RETRIES = int(os.getenv("OPENAI_MAX_RETRIES", "2"))
 OPENAI_EVALUATION_MODEL = os.getenv("OPENAI_EVALUATION_MODEL", "gpt-5-nano")
 OPENAI_TRANSCRIPTION_MODEL = os.getenv("OPENAI_TRANSCRIPTION_MODEL", "whisper-1")
+EVALUATION_SCORING_MODE = os.getenv("EVALUATION_SCORING_MODE", "shadow").lower()
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases

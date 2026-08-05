@@ -2965,6 +2965,7 @@ class EvaluationRepairToolTests(TestCase):
         output = stdout.getvalue()
         self.assertIn("OPENAI_API_KEY=set", output)
         self.assertIn("OPENAI_WHISPER_API_KEY=set", output)
+        self.assertIn("EVALUATION_SCORING_MODE=shadow", output)
         self.assertIn("CELERY_EVALUATION_QUEUE=evaluation", output)
         self.assertIn("CELERY_TRANSCRIPTION_QUEUE=transcription", output)
         self.assertIn("Evaluation runtime looks healthy.", output)
@@ -3017,6 +3018,25 @@ class EvaluationRepairToolTests(TestCase):
             )
 
         self.assertIn("OPENAI_API_KEY=missing", stdout.getvalue())
+
+    @override_settings(
+        OPENAI_API_KEY="test-openai-key",
+        OPENAI_WHISPER_API_KEY="test-whisper-key",
+        EVALUATION_SCORING_MODE="invalid",
+    )
+    def test_runtime_check_rejects_invalid_scoring_mode(self):
+        stdout = StringIO()
+
+        with self.assertRaises(CommandError):
+            call_command(
+                "check_evaluation_runtime",
+                "--skip-redis",
+                "--skip-celery",
+                stdout=stdout,
+            )
+
+        self.assertIn("EVALUATION_SCORING_MODE=invalid", stdout.getvalue())
+        self.assertIn("must be legacy, shadow, or v2", stdout.getvalue())
 
     @override_settings(
         OPENAI_API_KEY="test-openai-key",

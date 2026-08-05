@@ -515,7 +515,6 @@ class UserResponseAPIView(APIView):
                 )
                 existing_response = (
                     UserResponse.objects
-                    .select_for_update()
                     .select_related("question__subsection")
                     .filter(
                         user_session=session,

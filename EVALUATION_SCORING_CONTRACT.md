@@ -313,3 +313,16 @@ scores. It also flags values at least three times above or below the median of
 three or more same-exam, same-task, same-skill peers. Peer outliers are warnings,
 not automatic corrections. Reference differences must be resolved against the
 versioned exam weighting policy before v2 scoring is enabled.
+
+### Confirmed Maximum Corrections
+
+A confirmed one-question weighting defect is corrected with
+`correct_question_skill_maximum`. The command is dry-run by default and requires
+the current value. Its confirmed form additionally requires a reason and exact
+evaluated `UserResponse` and `SingleResponse` counts observed in the dry run.
+
+The write runs in one database transaction. It locks the question and affected
+responses, changes only one skill maximum, recompiles stored criterion evidence
+without calling an AI provider, recalculates affected sessions, and appends a
+before/after record to `evaluation_result.score_corrections`. A changed current
+maximum or response count aborts the operation without writes.

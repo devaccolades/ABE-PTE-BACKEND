@@ -139,6 +139,41 @@ transaction. It then stores canonical option-ID lists, recomputes only those
 deterministic evaluations, and recalculates only affected sessions. It never
 calls an AI provider.
 
+### JSON-Encoded Rule Answers
+
+The production audit on 2026-08-05 found another 42 deterministic answers stored
+as JSON strings rather than JSON objects or arrays:
+
+- 15 Reading FIB Dropdown responses;
+- 12 Reading FIB Drag and Drop responses;
+- 9 Reorder Paragraphs responses;
+- 6 Reading MCQ Multiple responses.
+
+All 42 normalized answers passed question, blank, and option-ownership checks.
+The old parser evaluated them as empty and stored zero. Correct parsing changes
+37 scores; five legitimately remain zero.
+
+The evaluator now normalizes JSON-encoded mapping payloads before deterministic
+scoring. Historical rows can be inspected without writes using:
+
+```bash
+python manage.py repair_json_encoded_rule_responses --model user
+```
+
+The confirmed command is guarded by the exact dry-run count:
+
+```bash
+python manage.py repair_json_encoded_rule_responses \
+  --model user \
+  --confirm \
+  --expected-count 42
+```
+
+The command rejects unknown blank references, options assigned to the wrong
+dropdown blank, and option IDs outside the question. A confirmed repair runs in
+one transaction, stores canonical answers, recomputes only deterministic
+results, and recalculates only affected sessions.
+
 ## Precision
 
 Calculations use decimal arithmetic. Scores are not rounded during compilation;

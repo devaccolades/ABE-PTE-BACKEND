@@ -184,12 +184,10 @@ def _as_multiple_id_set(answer_data):
 
 
 def _as_mapping(answer_data):
-    answer = _unwrap_answer(answer_data)
-
-    if isinstance(answer, dict):
-        return answer
-
-    return {}
+    inspection = inspect_answer_payload("fib_drag_drop", answer_data)
+    if inspection.status == PayloadStatus.INVALID:
+        return {}
+    return inspection.normalized
 
 
 def _split_text_answer(answer_data):

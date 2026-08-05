@@ -12,6 +12,7 @@ from .forms import QuestionAdminForm
 from .services.pdf_service import generate_session_pdf
 from .services.question_config import SUBQUESTION_SUBSECTIONS
 from .services.evaluation_status import can_download_session_pdf
+from .services.evaluation_input import response_input_issue
 from .services.evaluation_queue import (
     EvaluationQueueUnavailable,
     queue_response_evaluation,
@@ -81,6 +82,14 @@ def add_api_limit_warning(modeladmin, request, response_model):
 def evaluation_status_badge(obj):
     if obj.evaluation_status == "completed" or obj.evaluated:
         return format_html('<span style="color:#22c55e;font-weight:bold;">Evaluated</span>')
+
+    input_issue = response_input_issue(obj)
+    if input_issue:
+        return format_html(
+            '<span style="color:#f59e0b;font-weight:bold;" title="{}">'
+            "Replacement audio required</span>",
+            input_issue.message,
+        )
 
     if obj.evaluation_status == "failed":
         return format_html(
@@ -442,22 +451,33 @@ class UserMockTestSessionAdmin(ModelAdmin):
 
         queued = 0
         queue_failures = 0
+        non_retryable = 0
         for response in responses:
+            if response_input_issue(response):
+                non_retryable += 1
+                continue
             try:
                 queue_response_evaluation(response)
                 queued += 1
             except EvaluationQueueUnavailable:
                 queue_failures += 1
 
-        return queued, queue_failures
+        return queued, queue_failures, non_retryable
 
     def retry_failed_or_pending_evaluations(self, request, queryset):
-        queued, queue_failures = self._queue_retryable_session_responses(queryset)
+        queued, queue_failures, non_retryable = (
+            self._queue_retryable_session_responses(queryset)
+        )
 
         self.message_user(
             request,
-            f"{queued} response(s) queued; {queue_failures} queueing failure(s).",
-            level=messages.ERROR if queue_failures else messages.SUCCESS,
+            f"{queued} response(s) queued; {queue_failures} queueing failure(s); "
+            f"{non_retryable} require replacement input.",
+            level=(
+                messages.ERROR
+                if queue_failures
+                else messages.WARNING if non_retryable else messages.SUCCESS
+            ),
         )
     retry_failed_or_pending_evaluations.short_description = (
         "Retry failed/pending evaluations for selected sessions"
@@ -497,14 +517,22 @@ class UserMockTestSessionAdmin(ModelAdmin):
         except UserMockTestSession.DoesNotExist:
             raise Http404("Session not found")
 
-        queued, queue_failures = self._queue_retryable_session_responses(
-            UserMockTestSession.objects.filter(pk=session.pk)
+        queued, queue_failures, non_retryable = (
+            self._queue_retryable_session_responses(
+                UserMockTestSession.objects.filter(pk=session.pk)
+            )
         )
 
         self.message_user(
             request,
-            f"{queued} response(s) queued for {session.name}; {queue_failures} queueing failure(s).",
-            level=messages.ERROR if queue_failures else messages.SUCCESS,
+            f"{queued} response(s) queued for {session.name}; "
+            f"{queue_failures} queueing failure(s); {non_retryable} require "
+            "replacement input.",
+            level=(
+                messages.ERROR
+                if queue_failures
+                else messages.WARNING if non_retryable else messages.SUCCESS
+            ),
         )
 
         return redirect(request.META.get("HTTP_REFERER") or "../")
@@ -595,6 +623,11 @@ class UserResponseAdmin(ModelAdmin):
     audio_recording.short_description = "Audio recording"
 
     def retry_evaluation(self, obj):
+        input_issue = response_input_issue(obj)
+        if input_issue:
+            return format_html(
+                '<span style="color:#f59e0b;">Replacement audio required</span>'
+            )
         if obj.evaluation_status in ("transcribing", "evaluating"):
             return format_html('<span style="color:#94a3b8;">In progress</span>')
 
@@ -620,7 +653,14 @@ class UserResponseAdmin(ModelAdmin):
         if response is None:
             raise Http404("Response not found")
 
-        if response.evaluation_status in ("transcribing", "evaluating"):
+        input_issue = response_input_issue(response)
+        if input_issue:
+            self.message_user(
+                request,
+                input_issue.message,
+                level=messages.WARNING,
+            )
+        elif response.evaluation_status in ("transcribing", "evaluating"):
             self.message_user(
                 request,
                 "This response is already being processed.",
@@ -641,7 +681,11 @@ class UserResponseAdmin(ModelAdmin):
     def requeue_selected_evaluations(self, request, queryset):
         queued = 0
         queue_failures = 0
+        non_retryable = 0
         for response in queryset.select_related("question__subsection"):
+            if response_input_issue(response):
+                non_retryable += 1
+                continue
             if response.evaluation_status in ("transcribing", "evaluating"):
                 continue
             try:
@@ -652,8 +696,13 @@ class UserResponseAdmin(ModelAdmin):
 
         self.message_user(
             request,
-            f"{queued} response(s) queued; {queue_failures} queueing failure(s).",
-            level=messages.ERROR if queue_failures else messages.SUCCESS,
+            f"{queued} response(s) queued; {queue_failures} queueing failure(s); "
+            f"{non_retryable} require replacement input.",
+            level=(
+                messages.ERROR
+                if queue_failures
+                else messages.WARNING if non_retryable else messages.SUCCESS
+            ),
         )
     requeue_selected_evaluations.short_description = "Requeue selected evaluations"
 
@@ -717,6 +766,11 @@ class SingleResponseAdmin(ModelAdmin):
     audio_recording.short_description = "Audio recording"
 
     def retry_evaluation(self, obj):
+        input_issue = response_input_issue(obj)
+        if input_issue:
+            return format_html(
+                '<span style="color:#f59e0b;">Replacement audio required</span>'
+            )
         if obj.evaluation_status in ("transcribing", "evaluating"):
             return format_html('<span style="color:#94a3b8;">In progress</span>')
 
@@ -742,7 +796,14 @@ class SingleResponseAdmin(ModelAdmin):
         if response is None:
             raise Http404("Single response not found")
 
-        if response.evaluation_status in ("transcribing", "evaluating"):
+        input_issue = response_input_issue(response)
+        if input_issue:
+            self.message_user(
+                request,
+                input_issue.message,
+                level=messages.WARNING,
+            )
+        elif response.evaluation_status in ("transcribing", "evaluating"):
             self.message_user(
                 request,
                 "This response is already being processed.",
@@ -763,7 +824,11 @@ class SingleResponseAdmin(ModelAdmin):
     def requeue_selected_evaluations(self, request, queryset):
         queued = 0
         queue_failures = 0
+        non_retryable = 0
         for response in queryset.select_related("question__subsection"):
+            if response_input_issue(response):
+                non_retryable += 1
+                continue
             if response.evaluation_status in ("transcribing", "evaluating"):
                 continue
             try:
@@ -774,7 +839,12 @@ class SingleResponseAdmin(ModelAdmin):
 
         self.message_user(
             request,
-            f"{queued} single response(s) queued; {queue_failures} queueing failure(s).",
-            level=messages.ERROR if queue_failures else messages.SUCCESS,
+            f"{queued} single response(s) queued; {queue_failures} queueing failure(s); "
+            f"{non_retryable} require replacement input.",
+            level=(
+                messages.ERROR
+                if queue_failures
+                else messages.WARNING if non_retryable else messages.SUCCESS
+            ),
         )
     requeue_selected_evaluations.short_description = "Requeue selected evaluations"

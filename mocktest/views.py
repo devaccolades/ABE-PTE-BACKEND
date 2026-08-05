@@ -20,9 +20,12 @@ from .services.evaluation_status import (
     build_session_evaluation_status,
     can_download_session_pdf,
 )
+from .services.evaluation_input import (
+    question_requires_audio,
+    response_input_issue,
+)
 from .services.evaluation_queue import (
     EvaluationQueueUnavailable,
-    question_requires_audio,
     queue_response_evaluation,
 )
 from django.http import FileResponse
@@ -504,28 +507,44 @@ class UserResponseAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        recovered_submission = False
         try:
             with transaction.atomic():
                 session = UserMockTestSession.objects.select_for_update().get(
                     pk=session.pk,
                 )
-                existing_response = UserResponse.objects.filter(
-                    user_session=session,
-                    question=question,
-                ).first()
-                if existing_response:
-                    return self._duplicate_response(existing_response)
-
-                user_answer = UserResponse.objects.create(
-                    user_session=session,
-                    question=question,
-                    mock_test=mock_test,
-                    answer_data=answer,
-                    answer_audio=audio_file,
-                    transcribed_audio_data=None,
+                existing_response = (
+                    UserResponse.objects
+                    .select_for_update()
+                    .select_related("question__subsection")
+                    .filter(
+                        user_session=session,
+                        question=question,
+                    )
+                    .first()
                 )
-                if is_final_mock_test_question(question, mock_test):
-                    session.mark_completed()
+                if existing_response:
+                    input_issue = response_input_issue(existing_response)
+                    if input_issue and audio_file:
+                        user_answer = self._restore_missing_audio_response(
+                            existing_response,
+                            answer,
+                            audio_file,
+                        )
+                        recovered_submission = True
+                    else:
+                        return self._duplicate_response(existing_response)
+                else:
+                    user_answer = UserResponse.objects.create(
+                        user_session=session,
+                        question=question,
+                        mock_test=mock_test,
+                        answer_data=answer,
+                        answer_audio=audio_file,
+                        transcribed_audio_data=None,
+                    )
+                    if is_final_mock_test_question(question, mock_test):
+                        session.mark_completed()
         except IntegrityError:
             existing_response = UserResponse.objects.filter(
                 user_session=session,
@@ -550,15 +569,57 @@ class UserResponseAPIView(APIView):
             "message": (
                 "Answer saved, but evaluation could not be queued. Retry from admin when the queue is healthy."
                 if queue_failed
-                else "Evaluation queued. Poll session evaluation status for results."
+                else (
+                    "Replacement audio saved and evaluation queued."
+                    if recovered_submission
+                    else "Evaluation queued. Poll session evaluation status for results."
+                )
             ),
             "retryable": queue_failed,
         }
+        data["recovered_submission"] = recovered_submission
         data["session"] = {
             "is_completed": session.is_completed,
             "completed_at": session.completed_at,
         }
-        return Response(data, status=status.HTTP_201_CREATED)
+        response_status = (
+            status.HTTP_200_OK
+            if recovered_submission
+            else status.HTTP_201_CREATED
+        )
+        return Response(data, status=response_status)
+
+    @staticmethod
+    def _restore_missing_audio_response(response, answer, audio_file):
+        response.answer_data = answer
+        response.answer_audio = audio_file
+        response.transcribed_audio_data = None
+        response.speaking_score_awarded = 0
+        response.writing_score_awarded = 0
+        response.reading_score_awarded = 0
+        response.listening_score_awarded = 0
+        response.evaluated = False
+        response.evaluation_result = {}
+        response.evaluation_status = "pending"
+        response.evaluation_stage = ""
+        response.evaluation_error = ""
+        response.save(
+            update_fields=[
+                "answer_data",
+                "answer_audio",
+                "transcribed_audio_data",
+                "speaking_score_awarded",
+                "writing_score_awarded",
+                "reading_score_awarded",
+                "listening_score_awarded",
+                "evaluated",
+                "evaluation_result",
+                "evaluation_status",
+                "evaluation_stage",
+                "evaluation_error",
+            ]
+        )
+        return response
 
     @staticmethod
     def _duplicate_response(existing_response):

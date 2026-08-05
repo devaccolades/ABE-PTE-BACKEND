@@ -2,6 +2,7 @@
 from rest_framework import serializers
 from .models import *
 from django.conf import settings
+from mocktest.services.evaluation_input import question_requires_audio
 
 class QuestionOptionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -50,10 +51,7 @@ class QuestionSerializer(serializers.ModelSerializer):
         source='subsection.instructions',
         read_only=True
     )
-    ai_input_type = serializers.CharField(
-        source='subsection.ai_input_type',
-        read_only=True,
-    )
+    ai_input_type = serializers.SerializerMethodField()
     audio = serializers.SerializerMethodField()
     image = serializers.SerializerMethodField()
 
@@ -82,6 +80,9 @@ class QuestionSerializer(serializers.ModelSerializer):
             return request.build_absolute_uri(obj.audio.url)
         return None
 
+    def get_ai_input_type(self, obj):
+        return "audio" if question_requires_audio(obj) else "text"
+
     def get_image(self, obj):
         request = self.context.get('request')
         if obj.image:
@@ -105,10 +106,7 @@ class SingleQuestionSerializer(serializers.ModelSerializer):
         source='subsection.instructions',
         read_only=True
     )
-    ai_input_type = serializers.CharField(
-        source='subsection.ai_input_type',
-        read_only=True,
-    )
+    ai_input_type = serializers.SerializerMethodField()
 
     audio = serializers.SerializerMethodField()
     image = serializers.SerializerMethodField()
@@ -168,6 +166,9 @@ class SingleQuestionSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(obj.audio.url)
             return f"{settings.MEDIA_URL}{obj.audio.url}"
         return None
+
+    def get_ai_input_type(self, obj):
+        return "audio" if question_requires_audio(obj) else "text"
 
     def get_image(self, obj):
         if obj.image:

@@ -1,6 +1,11 @@
 from django.core.management.base import BaseCommand, CommandError
 
+from examinor.scoring.task_contracts import has_usable_transcript
 from mocktest.models import SingleResponse, UserResponse
+from mocktest.services.evaluation_input import (
+    question_requires_audio,
+    response_input_issue,
+)
 from mocktest.tasks import (
     evaluate_single_response,
     evaluate_user_response,
@@ -37,9 +42,12 @@ class Command(BaseCommand):
         if not subsection:
             raise CommandError(f"Question {response.question_id} has no subsection.")
 
+        input_issue = response_input_issue(response)
+        if input_issue:
+            raise CommandError(f"{input_issue.code}: {input_issue.message}")
+
         needs_transcription = self._needs_transcription(
             response,
-            subsection,
             options["force_transcription"],
         )
 
@@ -52,7 +60,10 @@ class Command(BaseCommand):
         self.stdout.write(f"Current stage: {response.evaluation_stage or '-'}")
         self.stdout.write(f"Current error: {response.evaluation_error or '-'}")
         self.stdout.write(f"Has audio: {bool(response.answer_audio)}")
-        self.stdout.write(f"Has transcription: {response.transcribed_audio_data is not None}")
+        self.stdout.write(
+            f"Has transcription: "
+            f"{has_usable_transcript(response.transcribed_audio_data)}"
+        )
         self.stdout.write(f"Needs transcription: {needs_transcription}")
 
         if options["dry_run"]:
@@ -80,14 +91,16 @@ class Command(BaseCommand):
         except model.DoesNotExist as exc:
             raise CommandError(f"{model.__name__} {response_id} does not exist.") from exc
 
-    def _needs_transcription(self, response, subsection, force_transcription):
-        if subsection.ai_input_type != "audio":
+    def _needs_transcription(self, response, force_transcription):
+        if not question_requires_audio(response.question):
             return False
 
         if not response.answer_audio:
             return False
 
-        return force_transcription or not response.transcribed_audio_data
+        return force_transcription or not has_usable_transcript(
+            response.transcribed_audio_data
+        )
 
     def _run_user_response(self, response, needs_transcription):
         if needs_transcription:

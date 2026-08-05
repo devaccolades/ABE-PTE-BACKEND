@@ -2,7 +2,12 @@ import logging
 
 from celery import chain
 
+from examinor.scoring.task_contracts import has_usable_transcript
 from mocktest.models import SingleResponse
+from mocktest.services.evaluation_input import (
+    question_requires_audio,
+    response_input_issue,
+)
 from mocktest.tasks import (
     evaluate_single_response,
     evaluate_user_response,
@@ -22,20 +27,11 @@ class EvaluationInputUnavailable(EvaluationQueueUnavailable):
     pass
 
 
-def question_requires_audio(question):
-    subsection = question.subsection
-    return bool(subsection and subsection.ai_input_type == "audio")
-
-
-def _save_input_failure(response, message):
-    response.evaluation_result = {
-        "ok": False,
-        "stage": "submission",
-        "error": message,
-    }
+def _save_input_failure(response, issue):
+    response.evaluation_result = issue.as_result()
     response.evaluation_status = "failed"
     response.evaluation_stage = "submission"
-    response.evaluation_error = message
+    response.evaluation_error = issue.message
     response.save(
         update_fields=[
             "evaluation_result",
@@ -70,12 +66,10 @@ def _save_queue_failure(response, error):
 
 def queue_response_evaluation(response):
     requires_audio = question_requires_audio(response.question)
-    if requires_audio and not response.answer_audio and not response.transcribed_audio_data:
-        message = (
-            "Audio answer file is missing; transcription and evaluation cannot start."
-        )
-        _save_input_failure(response, message)
-        raise EvaluationInputUnavailable(message)
+    input_issue = response_input_issue(response)
+    if input_issue:
+        _save_input_failure(response, input_issue)
+        raise EvaluationInputUnavailable(input_issue.message)
 
     response.evaluation_status = "pending"
     response.evaluation_stage = ""
@@ -92,7 +86,7 @@ def queue_response_evaluation(response):
     needs_transcription = (
         requires_audio
         and response.answer_audio
-        and not response.transcribed_audio_data
+        and not has_usable_transcript(response.transcribed_audio_data)
     )
 
     try:

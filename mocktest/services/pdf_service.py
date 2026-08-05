@@ -8,6 +8,8 @@ from reportlab.platypus import (
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
+from mocktest.services.evaluation_input import question_requires_audio
+
 # ======================
 # LAYOUT CONSTANTS
 # ======================
@@ -179,14 +181,17 @@ def _answer_ids(value):
 def _response_answer_display(response):
     question = response.question
     subsection = question.subsection
-    if subsection and subsection.ai_input_type == "audio":
+    if subsection:
         transcription = response.transcribed_audio_data or {}
         transcript_text = (
             transcription.get("transcription", {}).get("text", "")
             if isinstance(transcription, dict)
             else ""
         )
-        if transcript_text:
+        answer_is_empty = response.answer_data in (None, "", {}, [])
+        if transcript_text and (
+            question_requires_audio(question) or answer_is_empty
+        ):
             return str(transcript_text)
     if subsection and subsection.name in CHOICE_SUBSECTIONS:
         selected_ids = _answer_ids(response.answer_data)

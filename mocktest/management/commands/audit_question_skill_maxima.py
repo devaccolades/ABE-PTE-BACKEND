@@ -9,7 +9,10 @@ from django.core.management.base import BaseCommand, CommandError
 
 from mocktest.models import MockTest
 from mocktest.services.question_bank_validation import question_bank_queryset
-from mocktest.services.question_maximum_policy import maximum_policy_rows
+from mocktest.services.question_maximum_policy import (
+    maximum_policy_rows,
+    question_skill_maximum_references,
+)
 
 
 class Command(BaseCommand):
@@ -133,6 +136,18 @@ class Command(BaseCommand):
             for question, value in peers:
                 ratio = max(value / median, median / value)
                 if ratio < 3 or abs(value - median) < 1:
+                    continue
+                references = {
+                    reference.skill: reference.maximum
+                    for reference in question_skill_maximum_references(question)
+                }
+                approved_reference = references.get(skill)
+                if approved_reference is not None and math.isclose(
+                    value,
+                    approved_reference,
+                    rel_tol=1e-9,
+                    abs_tol=1e-9,
+                ):
                     continue
                 rows.append({
                     **self._context(question),

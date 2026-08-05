@@ -7,6 +7,101 @@ from examinor.scoring.score_calculator import compile_skill_scores
 
 
 class GoldenScoreCompilerTests(SimpleTestCase):
+    def test_client_6452_feedback_cases(self):
+        cases = [
+            {
+                "name": "repeat_sentence_4",
+                "criteria": {
+                    "content": {"score": 2, "max": 3},
+                    "oral_fluency": {"score": 4, "max": 5},
+                    "pronunciation": {"score": 5, "max": 5},
+                },
+                "mapping": {
+                    "content": ["listening"],
+                    "oral_fluency": ["speaking"],
+                    "pronunciation": ["speaking"],
+                },
+                "maxima": {"listening": 1.5, "speaking": 1.4},
+                "expected": {"listening": 1, "speaking": 1.26},
+                "total": 2.26,
+                "maximum": 2.9,
+            },
+            {
+                "name": "reading_fib_dropdown_5_of_5",
+                "criteria": {"reading": {"score": 5, "max": 5}},
+                "mapping": {"reading": ["reading"]},
+                "maxima": {"reading": 5},
+                "expected": {"reading": 5},
+                "total": 5,
+                "maximum": 5,
+            },
+            {
+                "name": "reorder_paragraphs_3_of_3",
+                "criteria": {"reading": {"score": 3, "max": 3}},
+                "mapping": {"reading": ["reading"]},
+                "maxima": {"reading": 3},
+                "expected": {"reading": 3},
+                "total": 3,
+                "maximum": 3,
+            },
+            {
+                "name": "reading_drag_drop_4_of_5",
+                "criteria": {"reading": {"score": 4, "max": 5}},
+                "mapping": {"reading": ["reading"]},
+                "maxima": {"reading": 5},
+                "expected": {"reading": 4},
+                "total": 4,
+                "maximum": 5,
+            },
+            {
+                "name": "listening_fib_4_of_4",
+                "criteria": {"listening": {"score": 4, "max": 4}},
+                "mapping": {"listening": ["listening"]},
+                "maxima": {"listening": 4},
+                "expected": {"listening": 4},
+                "total": 4,
+                "maximum": 4,
+            },
+            {
+                "name": "highlight_incorrect_words_full_9_5",
+                "criteria": {"accuracy": {"score": 1, "max": 1}},
+                "mapping": {"accuracy": ["reading", "listening"]},
+                "maxima": {"reading": 5.5, "listening": 4},
+                "expected": {"reading": 5.5, "listening": 4},
+                "total": 9.5,
+                "maximum": 9.5,
+            },
+            {
+                "name": "write_from_dictation_full_8",
+                "criteria": {"accuracy": {"score": 7, "max": 7}},
+                "mapping": {"accuracy": ["writing", "listening"]},
+                "maxima": {"writing": 7, "listening": 1},
+                "expected": {"writing": 7, "listening": 1},
+                "total": 8,
+                "maximum": 8,
+            },
+        ]
+
+        for case in cases:
+            with self.subTest(case["name"]):
+                result = compile_skill_scores(
+                    case["criteria"],
+                    case["mapping"],
+                    case["maxima"],
+                )
+
+                self.assertEqual(result["scoring_version"], SCORING_VERSION)
+                for skill, expected in case["expected"].items():
+                    self.assertAlmostEqual(result["skills"][skill]["score"], expected)
+                self.assertAlmostEqual(
+                    sum(skill["score"] for skill in result["skills"].values()),
+                    case["total"],
+                )
+                self.assertAlmostEqual(
+                    sum(skill["maximum"] for skill in result["skills"].values()),
+                    case["maximum"],
+                )
+
     def test_approved_golden_examples(self):
         examples = [
             {

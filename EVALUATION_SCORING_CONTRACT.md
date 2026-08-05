@@ -21,6 +21,25 @@ A criterion mapped to multiple skills contributes independently to each skill.
 For example, a full-score criterion mapped to both reading and listening awards
 the configured maximum for both skills.
 
+### Client 6452 Golden Evidence
+
+The seven scoring defects in `Evaluation feedback 6452.docx` are permanent
+regression cases in `examinor.test_score_calculator`:
+
+| Reported task | Validated evidence | Expected award |
+|---|---:|---:|
+| Repeat Sentence 4 | content 2/3, fluency 4/5, pronunciation 5/5 | Listening 1.00, Speaking 1.26; total 2.26/2.90 |
+| Reading FIB Dropdown | 5/5 blanks | Reading 5/5 |
+| Reorder Paragraphs | 3/3 adjacent pairs | Reading 3/3 |
+| Reading FIB Drag and Drop | 4/5 blanks | Reading 4/5 |
+| Listening FIB | 4/4 blanks | Listening 4/4 |
+| Highlight Incorrect Words | full accuracy | Reading 5.5, Listening 4; total 9.5/9.5 |
+| Write from Dictation | full accuracy | Writing 7, Listening 1; total 8/8 |
+
+The assertions cover per-skill awards, combined awarded score, combined maximum,
+and scoring version. They specifically prevent the old behavior that reduced a
+raw task result such as 5/5 or 4/5 to a fractional score capped at one.
+
 ## Validation
 
 Compilation must fail rather than silently repair or cap evidence when:

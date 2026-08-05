@@ -2,9 +2,9 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from mocktest.models import Question, SingleResponse, SubSection, UserResponse
-from mocktest.services.question_config import (
-    canonical_trait_skill_map,
-    expected_question_skill_maxima,
+from mocktest.services.question_config import canonical_trait_skill_map
+from mocktest.services.question_maximum_policy import (
+    question_skill_maximum_expectations,
 )
 
 
@@ -51,10 +51,12 @@ class Command(BaseCommand):
             if subsection.pk in repaired_maps:
                 subsection.trait_skill_map = repaired_maps[subsection.pk]
                 changed_question_ids.add(question.pk)
-            for skill, maximum in expected_question_skill_maxima(subsection).items():
-                field = f"{skill}_score_max"
+            for expectation in question_skill_maximum_expectations(question):
+                field = f"{expectation.skill}_score_max"
                 if (getattr(question, field) or 0) <= 0:
-                    maximum_repairs.append((question, field, maximum))
+                    maximum_repairs.append(
+                        (question, field, expectation.maximum)
+                    )
                     changed_question_ids.add(question.pk)
 
         self.stdout.write("Question-bank system configuration repair")

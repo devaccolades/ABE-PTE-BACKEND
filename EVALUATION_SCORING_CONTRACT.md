@@ -277,3 +277,34 @@ The report supports model, response, session, mock-test, and subsection filters.
 It contains IDs, score values, deltas, and compile errors, but no candidate answer
 content. Production remains in shadow mode until the delta report and unexplained
 contract errors have been reviewed.
+
+## Question Skill Maximum Policy
+
+Question skill maxima are no longer inferred from the sum of subsection rubric
+bands. Rubric points describe criterion evidence; question maxima describe the
+task's contribution to each PTE skill, and the two values are not interchangeable.
+
+`mocktest.services.question_maximum_policy` contains only authoritative policies:
+
+- fixed maxima backed by an approved golden scoring example;
+- objective-task maxima derived from the question structure, such as blank count,
+  adjacent paragraph pairs, or dictation word count.
+
+Tasks without an approved policy are reported as `review_required`; the system
+does not guess their expected maxima. The Django admin only autofills fixed,
+approved task maxima. Structural values are checked once options, blanks, or the
+dictation transcript exist. The publication validator rejects an authoritative
+mismatch but does not block a draft merely because its task policy still needs
+rubric-owner review.
+
+The read-only production audit is:
+
+```bash
+python manage.py audit_question_skill_maxima \
+  --active \
+  --output /home/ubuntu/abe-phase0/active-question-skill-maxima.csv
+```
+
+Add `--fail-on-error` in CI or a release gate. The CSV distinguishes matching
+values, authoritative errors, and tasks requiring policy approval. It never
+changes questions, responses, or session scores.

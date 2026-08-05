@@ -1,7 +1,7 @@
 from django import forms
 from .models import MockTest, Question
-from .services.question_config import expected_question_skill_maxima
 from .services.question_bank_validation import publication_errors
+from .services.question_maximum_policy import fixed_subsection_skill_maxima
 
 
 class MockTestAdminForm(forms.ModelForm):
@@ -67,7 +67,9 @@ class QuestionAdminForm(forms.ModelForm):
             )
 
         if subsection:
-            for skill, maximum in expected_question_skill_maxima(subsection).items():
+            for skill, maximum in fixed_subsection_skill_maxima(
+                subsection.name
+            ).items():
                 field = f"{skill}_score_max"
                 if not cleaned.get(field):
                     cleaned[field] = maximum

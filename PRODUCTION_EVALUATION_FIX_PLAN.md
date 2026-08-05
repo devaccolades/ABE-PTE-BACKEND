@@ -325,6 +325,7 @@ scores before modifying production scoring.
 | Write from dictation | 7/7 | Writing 7, Listening 1 | Writing 7, Listening 1 |
 | Repeat sentence content | 2/3 | Listening 1.5 | Listening 1.0 |
 | Repeat sentence speech | fluency 4/5, pronunciation 5/5 | Speaking 1.4 | Speaking 1.26 |
+| Listening MCQ multiple legacy payload | comma-delimited valid option IDs | Listening 1 | Apply negative marking to every selected ID |
 
 The final repeat-sentence calculation is:
 
@@ -1188,7 +1189,7 @@ When results stop completing:
 | Phase | Status | Owner | Pull request | Staging evidence | Production date |
 |---|---|---|---|---|---|
 | 0. Migration and backup baseline | In progress | Engineering |  | Local baseline captured; production evidence pending |  |
-| 1. Evaluation contract and golden tests | In progress | Engineering |  | V2 scoring contract, 22-task payload registry, read-only payload audit, and focused suites pass locally |  |
+| 1. Evaluation contract and golden tests | In progress | Engineering |  | V2 scoring contract, 22-task registry, production payload audit, and regression coverage for comma-delimited Listening MCQ Multiple answers |  |
 | 2. Central score compiler | Not started |  |  |  |  |
 | 3. Evaluation jobs and attempts | Not started |  |  |  |  |
 | 4. Session snapshot and finalization | Not started |  |  |  |  |

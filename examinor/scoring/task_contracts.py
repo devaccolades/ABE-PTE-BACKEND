@@ -492,7 +492,29 @@ def _inspect_multiple_options(answer_data):
 
     value, json_issues, _ = _decode_json_container(value, "[")
     issues += json_issues
+
+    if isinstance(value, str) and "," in value:
+        parts = [part.strip() for part in value.split(",")]
+        if not parts or any(not part for part in parts):
+            return _invalid(
+                _issue(
+                    "invalid_delimited_option_ids",
+                    "Comma-delimited option IDs cannot contain empty items.",
+                )
+            )
+        value = parts
+        issues += (
+            _issue(
+                "delimited_multiple_choice_answer",
+                "Multiple-choice option IDs were stored as a comma-delimited string.",
+            ),
+        )
+
     if not isinstance(value, (list, tuple)):
+        if isinstance(value, str) and not value.strip():
+            return _invalid(
+                _issue("answer_required", "At least one selected option is required.")
+            )
         option_id = _positive_integer(value)
         if option_id is None:
             return _invalid(

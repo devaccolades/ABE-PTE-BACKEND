@@ -68,12 +68,12 @@ class AnswerPayloadInspectionTests(SimpleTestCase):
         }
         invalid_by_kind = {
             AnswerKind.AUDIO_UPLOAD: ({}, {}),
-            AnswerKind.BLANK_MAPPING: ({}, {}),
-            AnswerKind.ORDERED_MAPPING: ({}, {}),
-            AnswerKind.SINGLE_OPTION_ID: (None, {}),
-            AnswerKind.MULTIPLE_OPTION_IDS: ([], {}),
-            AnswerKind.DELIMITED_TEXT: ("", {}),
-            AnswerKind.FREE_TEXT: ("", {}),
+            AnswerKind.BLANK_MAPPING: ({"first": 10}, {}),
+            AnswerKind.ORDERED_MAPPING: ({"first": 10}, {}),
+            AnswerKind.SINGLE_OPTION_ID: ("not-an-id", {}),
+            AnswerKind.MULTIPLE_OPTION_IDS: ([0], {}),
+            AnswerKind.DELIMITED_TEXT: (123, {}),
+            AnswerKind.FREE_TEXT: (123, {}),
         }
 
         for subsection, contract in TASK_CONTRACTS.items():
@@ -93,6 +93,27 @@ class AnswerPayloadInspectionTests(SimpleTestCase):
                     **invalid_context,
                 )
                 self.assertEqual(invalid.status, PayloadStatus.INVALID)
+
+    def test_non_audio_empty_payloads_are_unanswered(self):
+        cases = (
+            ("fib_dropdown", {}, {}),
+            ("reorder_paragraphs", None, {}),
+            ("mc_single", "", None),
+            ("mc_multiple", [], []),
+            ("l_fill_in_blanks", "||", []),
+            ("write_essay", {"text": "  "}, ""),
+        )
+
+        for subsection, answer, normalized in cases:
+            with self.subTest(subsection=subsection, answer=answer):
+                result = inspect_answer_payload(subsection, answer)
+                self.assertInspection(
+                    result,
+                    PayloadStatus.UNANSWERED,
+                    normalized,
+                )
+                self.assertFalse(result.usable)
+                self.assertEqual(result.issues[-1].code, "answer_not_provided")
 
     def test_audio_requires_audio_or_recoverable_transcript(self):
         canonical = inspect_answer_payload(
@@ -159,9 +180,8 @@ class AnswerPayloadInspectionTests(SimpleTestCase):
             {"1": 101, "2": 103},
         )
 
-    def test_mapping_rejects_empty_invalid_and_duplicate_selections(self):
+    def test_mapping_rejects_invalid_and_duplicate_selections(self):
         cases = [
-            ({}, "answer_required"),
             ({"first": 1}, "invalid_mapping_identifier"),
             ({"1": 10, "2": "10"}, "duplicate_option_selection"),
         ]
@@ -211,7 +231,7 @@ class AnswerPayloadInspectionTests(SimpleTestCase):
         )
         self.assertEqual(duplicate.status, PayloadStatus.INVALID)
         self.assertEqual(duplicate.issues[0].code, "duplicate_option_selection")
-        self.assertEqual(empty.status, PayloadStatus.INVALID)
+        self.assertInspection(empty, PayloadStatus.UNANSWERED, [])
 
     def test_delimited_text_supports_current_and_legacy_shapes(self):
         canonical = inspect_answer_payload(
@@ -234,7 +254,7 @@ class AnswerPayloadInspectionTests(SimpleTestCase):
             ["alpha", "beta"],
         )
 
-    def test_free_text_supports_wrapper_but_rejects_empty_answer(self):
+    def test_free_text_supports_wrapper_and_classifies_empty_answer(self):
         canonical = inspect_answer_payload("write_essay", "  Candidate answer  ")
         wrapped = inspect_answer_payload(
             "summarize_written_text",
@@ -252,7 +272,7 @@ class AnswerPayloadInspectionTests(SimpleTestCase):
             PayloadStatus.LEGACY_COMPATIBLE,
             "Candidate summary",
         )
-        self.assertEqual(empty.status, PayloadStatus.INVALID)
+        self.assertInspection(empty, PayloadStatus.UNANSWERED, "")
 
     def test_ambiguous_legacy_wrapper_is_invalid(self):
         result = inspect_answer_payload(

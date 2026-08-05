@@ -79,23 +79,33 @@ Stored payloads are classified without modifying them:
 
 - `canonical`: valid current structure;
 - `legacy_compatible`: safely normalizable historical structure;
+- `unanswered`: an explicitly empty non-audio response that is complete and
+  receives zero;
 - `invalid`: insufficient or ambiguous input that cannot be evaluated safely.
 
 For audio answers, the original response audio is canonical. A non-empty stored
 transcript without its audio is recoverable legacy evidence, while a text value
 alone is not a substitute for a missing recording. Structural validation also
-rejects empty answers, malformed identifiers, duplicate option selections,
-ambiguous wrappers, and invalid mappings.
+rejects malformed identifiers, duplicate option selections, ambiguous wrappers,
+and invalid mappings. Missing response audio remains invalid rather than
+unanswered because a failed upload cannot be distinguished safely from a
+candidate skip after submission.
+
+Empty non-audio responses now bypass both AI and deterministic evaluators. The
+Celery task creates a validated system result with every rubric criterion set to
+zero, marks the response completed, and includes `answer_status=unanswered` and
+`evaluation_source=system`. This avoids provider spend and prevents legitimate
+skips from blocking session completion.
 
 Comma-delimited multiple-choice IDs such as `"1609,1607"` are classified as
 legacy-compatible and normalized to `[1609, 1607]`. They are not interpreted as
 one option ID. The deterministic evaluator uses the normalized IDs for negative
 marking.
 
-This classification is audit-only during Phase 1. It is deliberately not yet
-enforced in live submission or retry paths because production contains older
-mixed payloads. Question-aware validation of option ownership, blank ownership,
-and expected answer counts is the next boundary.
+Canonical and legacy-compatible classification remains audit-only during Phase
+1. The live task path uses only the explicit `unanswered` state for its
+deterministic zero-score short circuit. Question-aware validation of option
+ownership, blank ownership, and expected answer counts is the next boundary.
 
 The privacy-safe production audit command is:
 

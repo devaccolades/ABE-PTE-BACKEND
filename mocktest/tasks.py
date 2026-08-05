@@ -11,7 +11,15 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.db import DatabaseError
 from django.utils import timezone
 from mocktest.services.transcription import transcribe_and_analyse
-from examinor.scoring.validators import validate_and_normalize_evaluation_result
+from examinor.scoring.task_contracts import (
+    PayloadStatus,
+    has_usable_transcript,
+    inspect_answer_payload,
+)
+from examinor.scoring.validators import (
+    rubric_maxima,
+    validate_and_normalize_evaluation_result,
+)
 from examinor.services.orchestrator import build_task_rubric
 from examinor.services.orchestrator import run_evaluation_for_subsection
 
@@ -78,6 +86,40 @@ def validation_rubric_for_subsection(subsection):
     if uses_rule_evaluation(subsection):
         return subsection.rubric
     return build_task_rubric(subsection)
+
+
+def build_unanswered_evaluation_result(subsection):
+    maxima = rubric_maxima(validation_rubric_for_subsection(subsection))
+    if not maxima:
+        maxima = {"score": 1.0}
+
+    scores = {
+        key: {"score": 0.0, "max": max_score}
+        for key, max_score in maxima.items()
+    }
+    return {
+        "ok": True,
+        "evaluation": {
+            "scores": scores,
+            "weighted_score": 0.0,
+            "max_score": sum(maxima.values()),
+            "answer_status": PayloadStatus.UNANSWERED.value,
+            "evaluation_source": "system",
+            "feedback": {
+                "summary": "No answer was submitted. This question received zero.",
+                "details": [],
+            },
+        },
+    }
+
+
+def inspect_response_answer(response, subsection_name):
+    return inspect_answer_payload(
+        subsection_name,
+        response.answer_data,
+        has_audio=bool(response.answer_audio and response.answer_audio.name),
+        has_transcript=has_usable_transcript(response.transcribed_audio_data),
+    )
 
 
 def validate_evaluation_or_fail(response, evaluation_result, subsection):
@@ -251,10 +293,11 @@ def evaluate_user_response(self, user_answer_id, question_id):
                 raise EvaluationTaskFailed(error)
             evaluation_payload["transcribed_audio_data"] = user_answer.transcribed_audio_data
 
-        # -------------------------
-        # RULE-BASED SHORT CIRCUIT
-        # -------------------------
-        if uses_rule_evaluation(subsection_obj):
+        payload_inspection = inspect_response_answer(user_answer, subsection)
+
+        if payload_inspection.status == PayloadStatus.UNANSWERED:
+            evaluation_result = build_unanswered_evaluation_result(subsection_obj)
+        elif uses_rule_evaluation(subsection_obj):
             evaluation_result = run_rule_evaluation(
                 user_answer=user_answer,
                 question=question,
@@ -433,10 +476,11 @@ def evaluate_single_response(self, user_answer_id, question_id):
                 raise EvaluationTaskFailed(error)
             evaluation_payload["transcribed_audio_data"] = user_answer.transcribed_audio_data
 
-        # -------------------------
-        # RULE-BASED SHORT CIRCUIT
-        # -------------------------
-        if uses_rule_evaluation(subsection_obj):
+        payload_inspection = inspect_response_answer(user_answer, subsection)
+
+        if payload_inspection.status == PayloadStatus.UNANSWERED:
+            evaluation_result = build_unanswered_evaluation_result(subsection_obj)
+        elif uses_rule_evaluation(subsection_obj):
             evaluation_result = run_rule_evaluation(
                 user_answer=user_answer,
                 question=question,

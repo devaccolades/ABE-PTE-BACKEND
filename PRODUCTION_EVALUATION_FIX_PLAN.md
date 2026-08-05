@@ -354,6 +354,8 @@ The publish validator must check:
 
 - [ ] Every client example has an automated expected-score test.
 - [x] Every supported subsection has valid and invalid payload tests.
+- [x] Empty non-audio submissions complete as explicit zero-score unanswered
+  results without calling an AI provider.
 - [x] Gate policies are explicit and task-specific.
 - [ ] Active exams cannot bypass the publish validator.
 - [x] No rubric or question data has been silently modified.

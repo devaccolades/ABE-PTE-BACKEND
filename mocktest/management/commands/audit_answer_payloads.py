@@ -30,7 +30,7 @@ class Command(BaseCommand):
             "--detail-limit",
             type=int,
             default=50,
-            help="Maximum invalid/legacy rows printed to stdout (default: 50).",
+            help="Maximum non-canonical rows printed to stdout (default: 50).",
         )
         parser.add_argument(
             "--output",
@@ -150,8 +150,8 @@ class Command(BaseCommand):
         ][: options["detail_limit"]]
         if detail_rows:
             self.stdout.write("")
-            self.stdout.write("Legacy/invalid response IDs")
-            self.stdout.write("---------------------------")
+            self.stdout.write("Non-canonical response IDs")
+            self.stdout.write("--------------------------")
             for row in detail_rows:
                 self.stdout.write(
                     "{payload_status} | model={model} | response={response_id} | "

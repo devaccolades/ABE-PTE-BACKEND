@@ -1933,6 +1933,142 @@ class EvaluationRepairToolTests(TestCase):
             {"answer_data": "ordinary"},
         )
 
+    @patch("mocktest.tasks.run_rule_evaluation")
+    @patch("mocktest.tasks.run_evaluation_for_subsection")
+    def test_unanswered_ai_response_completes_at_zero_without_provider_call(
+        self,
+        run_ai_evaluation,
+        run_rule_evaluation,
+    ):
+        mock_test, question = self._create_question()
+        subsection = question.subsection
+        subsection.rubric = {
+            "content": {"max": 3},
+            "grammar": {"max": 2},
+        }
+        subsection.trait_skill_map = {
+            "content": ["writing"],
+            "grammar": ["writing"],
+        }
+        subsection.save(update_fields=["rubric", "trait_skill_map"])
+        question.writing_score_max = 5
+        question.save(update_fields=["writing_score_max"])
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="unanswered-ai-session",
+            mock_test=mock_test,
+        )
+        response = UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            answer_data={},
+        )
+
+        result = evaluate_user_response.apply(args=(response.id, question.id))
+
+        response.refresh_from_db()
+        self.assertTrue(result.successful())
+        self.assertTrue(response.evaluated)
+        self.assertEqual(response.evaluation_status, "completed")
+        self.assertEqual(response.writing_score_awarded, 0)
+        evaluation = response.evaluation_result["evaluation"]
+        self.assertEqual(evaluation["answer_status"], "unanswered")
+        self.assertEqual(evaluation["evaluation_source"], "system")
+        self.assertEqual(
+            evaluation["scores"],
+            {
+                "content": {"score": 0.0, "max": 3.0},
+                "grammar": {"score": 0.0, "max": 2.0},
+            },
+        )
+        run_ai_evaluation.assert_not_called()
+        run_rule_evaluation.assert_not_called()
+
+    @patch("mocktest.tasks.run_rule_evaluation")
+    @patch("mocktest.tasks.run_evaluation_for_subsection")
+    def test_unanswered_rule_response_completes_at_zero_without_evaluator_call(
+        self,
+        run_ai_evaluation,
+        run_rule_evaluation,
+    ):
+        mock_test, question = self._create_question()
+        subsection = question.subsection
+        subsection.name = "mc_multiple"
+        subsection.evaluation_type = "rule"
+        subsection.rubric = {"reading": {"max": 1}}
+        subsection.trait_skill_map = {"reading": ["reading"]}
+        subsection.save(
+            update_fields=[
+                "name",
+                "evaluation_type",
+                "rubric",
+                "trait_skill_map",
+            ]
+        )
+        question.reading_score_max = 1
+        question.save(update_fields=["reading_score_max"])
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="unanswered-rule-session",
+            mock_test=mock_test,
+        )
+        response = UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            answer_data=[],
+        )
+
+        result = evaluate_user_response.apply(args=(response.id, question.id))
+
+        response.refresh_from_db()
+        self.assertTrue(result.successful())
+        self.assertTrue(response.evaluated)
+        self.assertEqual(response.evaluation_status, "completed")
+        self.assertEqual(response.reading_score_awarded, 0)
+        self.assertEqual(
+            response.evaluation_result["evaluation"]["answer_status"],
+            "unanswered",
+        )
+        run_ai_evaluation.assert_not_called()
+        run_rule_evaluation.assert_not_called()
+
+    @patch("mocktest.tasks.run_rule_evaluation")
+    @patch("mocktest.tasks.run_evaluation_for_subsection")
+    def test_unanswered_single_response_completes_without_provider_call(
+        self,
+        run_ai_evaluation,
+        run_rule_evaluation,
+    ):
+        _, question = self._create_question()
+        question.subsection.rubric = {"content": {"max": 3}}
+        question.subsection.trait_skill_map = {"content": ["writing"]}
+        question.subsection.save(update_fields=["rubric", "trait_skill_map"])
+        question.writing_score_max = 3
+        question.save(update_fields=["writing_score_max"])
+        response = SingleResponse.objects.create(
+            name="Student",
+            question=question,
+            answer_data={},
+        )
+
+        from mocktest.tasks import evaluate_single_response
+
+        result = evaluate_single_response.apply(args=(response.id, question.id))
+
+        response.refresh_from_db()
+        self.assertTrue(result.successful())
+        self.assertTrue(response.evaluated)
+        self.assertEqual(response.evaluation_status, "completed")
+        self.assertEqual(response.writing_score_awarded, 0)
+        self.assertEqual(
+            response.evaluation_result["evaluation"]["answer_status"],
+            "unanswered",
+        )
+        run_ai_evaluation.assert_not_called()
+        run_rule_evaluation.assert_not_called()
+
     def test_evaluation_task_reports_missing_audio_as_celery_failure(self):
         mock_test, question = self._create_question()
         question.subsection.ai_input_type = "audio"

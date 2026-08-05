@@ -3,6 +3,7 @@ from mocktest.services.question_config import (
     CANONICAL_TRAIT_SKILL_CONTRACTS,
     VALID_SKILLS,
 )
+from mocktest.services.question_maximum_policy import maximum_policy_rows
 
 
 MEDIA_REQUIRED_SECTIONS = {"Listening"}
@@ -200,6 +201,25 @@ class QuestionBankAuditor:
                         f"Question awards {skill}, but its {skill} maximum is zero.",
                         f"Set Question.{skill}_score_max to the intended maximum.",
                     )
+
+        for policy_row in maximum_policy_rows(question):
+            if policy_row["severity"] != "error":
+                continue
+            skill = policy_row["skill"] or "unknown"
+            if policy_row["status"] == "missing" and skill in mapped_skills:
+                continue
+            configured = policy_row["configured_maximum"]
+            expected = policy_row["expected_maximum"]
+            add(
+                "error",
+                f"question_skill_maximum_{policy_row['status']}",
+                (
+                    f"Question {skill} maximum is {configured!s} but the "
+                    f"authoritative task policy expects {expected!s}. "
+                    f"Basis: {policy_row['basis']}"
+                ),
+                policy_row["manual_action"],
+            )
 
         return issues
 

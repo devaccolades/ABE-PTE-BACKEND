@@ -997,7 +997,7 @@ class MockTestPublicationGateTests(TestCase):
 
 
 class RepairQuestionBankSystemConfigCommandTests(TestCase):
-    def test_dry_run_then_apply_repairs_read_aloud_and_rescores_without_ai(self):
+    def test_repair_does_not_invent_unapproved_read_aloud_maxima(self):
         mock_test = MockTest.objects.create(title="Speaking Test")
         section = Section.objects.create(name="Speaking")
         mock_test_section = MockTestSection.objects.create(
@@ -1075,10 +1075,10 @@ class RepairQuestionBankSystemConfigCommandTests(TestCase):
                 "pronunciation": ["speaking"],
             },
         )
-        self.assertEqual(question.reading_score_max, 6)
-        self.assertEqual(question.speaking_score_max, 16)
-        self.assertEqual(response.speaking_score_awarded, 4)
-        self.assertEqual(response.reading_score_awarded, 4)
+        self.assertIsNone(question.reading_score_max)
+        self.assertIsNone(question.speaking_score_max)
+        self.assertEqual(response.speaking_score_awarded, 0)
+        self.assertEqual(response.reading_score_awarded, 0)
         self.assertEqual(response.listening_score_awarded, 0)
 
     def test_preserves_existing_nonzero_question_maximum(self):
@@ -1105,7 +1105,7 @@ class RepairQuestionBankSystemConfigCommandTests(TestCase):
 
         self.assertEqual(question.writing_score_max, 4)
 
-    def test_question_admin_form_derives_missing_skill_maxima(self):
+    def test_question_admin_form_does_not_invent_unapproved_skill_maxima(self):
         mock_test = MockTest.objects.create(title="Writing Test")
         section = Section.objects.create(name="Writing")
         mock_test_section = MockTestSection.objects.create(
@@ -1142,7 +1142,7 @@ class RepairQuestionBankSystemConfigCommandTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         question = form.save()
 
-        self.assertEqual(question.writing_score_max, 5)
+        self.assertIsNone(question.writing_score_max)
 
     def test_question_admin_form_rejects_section_mismatch(self):
         mock_test = MockTest.objects.create(title="Mixed Test")

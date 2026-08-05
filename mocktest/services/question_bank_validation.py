@@ -1,9 +1,10 @@
+import math
+
 from examinor.services.rule_evaluator import run_rule_evaluation, uses_rule_evaluation
 from mocktest.services.question_config import (
     CANONICAL_TRAIT_SKILL_CONTRACTS,
     VALID_SKILLS,
 )
-from mocktest.services.question_maximum_policy import maximum_policy_rows
 
 
 MEDIA_REQUIRED_SECTIONS = {"Listening"}
@@ -192,34 +193,43 @@ class QuestionBankAuditor:
                     mapped_skills.difference_update(actual - required)
                     mapped_skills.update(required)
 
-            for skill in sorted(mapped_skills):
-                maximum = getattr(question, f"{skill}_score_max") or 0
-                if maximum <= 0:
+            for skill in sorted(VALID_SKILLS):
+                configured = getattr(question, f"{skill}_score_max")
+                if configured is None:
+                    maximum = 0.0
+                else:
+                    try:
+                        maximum = float(configured)
+                    except (TypeError, ValueError):
+                        maximum = float("nan")
+
+                if not math.isfinite(maximum) or maximum < 0:
+                    add(
+                        "error",
+                        "invalid_question_skill_max",
+                        f"Question {skill} maximum must be a finite non-negative number.",
+                        f"Correct Question.{skill}_score_max.",
+                    )
+                elif skill in mapped_skills and maximum <= 0:
                     add(
                         "error",
                         "missing_question_skill_max",
                         f"Question awards {skill}, but its {skill} maximum is zero.",
                         f"Set Question.{skill}_score_max to the intended maximum.",
                     )
-
-        for policy_row in maximum_policy_rows(question):
-            if policy_row["severity"] != "error":
-                continue
-            skill = policy_row["skill"] or "unknown"
-            if policy_row["status"] == "missing" and skill in mapped_skills:
-                continue
-            configured = policy_row["configured_maximum"]
-            expected = policy_row["expected_maximum"]
-            add(
-                "error",
-                f"question_skill_maximum_{policy_row['status']}",
-                (
-                    f"Question {skill} maximum is {configured!s} but the "
-                    f"authoritative task policy expects {expected!s}. "
-                    f"Basis: {policy_row['basis']}"
-                ),
-                policy_row["manual_action"],
-            )
+                elif skill not in mapped_skills and maximum > 0:
+                    add(
+                        "error",
+                        "unexpected_question_skill_max",
+                        (
+                            f"Question has a positive {skill} maximum, but no rubric "
+                            f"trait maps to {skill}."
+                        ),
+                        (
+                            f"Clear Question.{skill}_score_max or correct the reviewed "
+                            "trait-to-skill mapping."
+                        ),
+                    )
 
         return issues
 

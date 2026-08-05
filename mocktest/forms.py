@@ -1,7 +1,6 @@
 from django import forms
 from .models import MockTest, Question
 from .services.question_bank_validation import publication_errors
-from .services.question_maximum_policy import fixed_subsection_skill_maxima
 
 
 class MockTestAdminForm(forms.ModelForm):
@@ -65,13 +64,5 @@ class QuestionAdminForm(forms.ModelForm):
             raise forms.ValidationError(
                 "The question subsection and mock-test section must belong to the same section."
             )
-
-        if subsection:
-            for skill, maximum in fixed_subsection_skill_maxima(
-                subsection.name
-            ).items():
-                field = f"{skill}_score_max"
-                if not cleaned.get(field):
-                    cleaned[field] = maximum
 
         return cleaned

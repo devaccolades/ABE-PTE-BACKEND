@@ -19,7 +19,7 @@ from mocktest.models import (
 from mocktest.services.question_bank_validation import QuestionBankAuditor
 from mocktest.services.question_maximum_policy import (
     maximum_policy_rows,
-    question_skill_maximum_expectations,
+    question_skill_maximum_references,
 )
 
 
@@ -59,13 +59,16 @@ class QuestionMaximumPolicyTests(TestCase):
                 is_correct=True,
             )
 
-        expectations = question_skill_maximum_expectations(question)
+        expectations = question_skill_maximum_references(question)
 
         self.assertEqual(
             [(item.skill, item.maximum) for item in expectations],
             [("reading", 2.0)],
         )
-        self.assertEqual(maximum_policy_rows(question)[0]["status"], "match")
+        self.assertEqual(
+            maximum_policy_rows(question)[0]["status"],
+            "reference_match",
+        )
 
     def test_repeat_sentence_uses_approved_fixed_maxima(self):
         speaking = Section.objects.create(name="Speaking")
@@ -92,8 +95,9 @@ class QuestionMaximumPolicyTests(TestCase):
 
         rows = maximum_policy_rows(question)
 
-        self.assertEqual(rows[0]["status"], "match")
-        self.assertEqual(rows[1]["status"], "mismatch")
+        self.assertEqual(rows[0]["status"], "reference_match")
+        self.assertEqual(rows[1]["status"], "reference_difference")
+        self.assertEqual(rows[1]["severity"], "warning")
         self.assertEqual(rows[1]["expected_maximum"], 1.5)
 
     def test_write_from_dictation_uses_reference_word_count(self):
@@ -118,7 +122,10 @@ class QuestionMaximumPolicyTests(TestCase):
 
         rows = maximum_policy_rows(question)
 
-        self.assertEqual([row["status"] for row in rows], ["match", "match"])
+        self.assertEqual(
+            [row["status"] for row in rows],
+            ["reference_match", "reference_match"],
+        )
 
     def test_unapproved_task_is_reported_for_review_without_guessing(self):
         subsection = self._subsection(
@@ -138,7 +145,7 @@ class QuestionMaximumPolicyTests(TestCase):
         self.assertEqual(row["severity"], "warning")
         self.assertEqual(row["expected_maximum"], "")
 
-    def test_publication_auditor_rejects_authoritative_mismatch(self):
+    def test_publication_auditor_does_not_enforce_reference_maximum(self):
         subsection = self._subsection("mc_single")
         question = Question.objects.create(
             mock_test_section=self.reading_test_section,
@@ -153,12 +160,33 @@ class QuestionMaximumPolicyTests(TestCase):
 
         issues = QuestionBankAuditor(check_storage=False).question_issues(question)
 
-        self.assertIn(
-            "question_skill_maximum_mismatch",
+        self.assertNotIn(
+            "question_skill_maximum_reference_difference",
             {issue["code"] for issue in issues},
         )
 
-    def test_admin_only_autofills_fixed_approved_maxima(self):
+    def test_publication_auditor_rejects_maximum_for_unmapped_skill(self):
+        subsection = self._subsection("mc_single")
+        question = Question.objects.create(
+            mock_test_section=self.reading_test_section,
+            subsection=subsection,
+            reading_score_max=1,
+            listening_score_max=1,
+        )
+        QuestionOption.objects.create(
+            question=question,
+            option_text="Correct",
+            is_correct=True,
+        )
+
+        issues = QuestionBankAuditor(check_storage=False).question_issues(question)
+
+        self.assertIn(
+            "unexpected_question_skill_max",
+            {issue["code"] for issue in issues},
+        )
+
+    def test_admin_does_not_invent_maxima_from_a_reference_example(self):
         speaking = Section.objects.create(name="Speaking")
         test_section = MockTestSection.objects.create(
             mock_test=self.mock_test,
@@ -187,8 +215,8 @@ class QuestionMaximumPolicyTests(TestCase):
 
         self.assertTrue(form.is_valid(), form.errors)
         question = form.save()
-        self.assertEqual(question.speaking_score_max, 1.4)
-        self.assertEqual(question.listening_score_max, 1.5)
+        self.assertIsNone(question.speaking_score_max)
+        self.assertIsNone(question.listening_score_max)
 
     def test_audit_command_writes_read_only_csv(self):
         subsection = self._subsection("mc_single")
@@ -218,6 +246,38 @@ class QuestionMaximumPolicyTests(TestCase):
                 rows = list(csv.DictReader(report))
 
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["status"], "mismatch")
+        self.assertEqual(rows[0]["status"], "reference_difference")
         self.assertEqual(Question.objects.get(pk=question.pk).reading_score_max, 2)
         self.assertIn("Read-only audit", stdout.getvalue())
+
+    def test_audit_command_flags_large_same_exam_peer_outlier(self):
+        subsection = self._subsection("mc_single")
+        questions = []
+        for index, maximum in enumerate((1, 1, 1, 15), start=1):
+            question = Question.objects.create(
+                mock_test_section=self.reading_test_section,
+                subsection=subsection,
+                name=f"Question {index}",
+                reading_score_max=maximum,
+            )
+            questions.append(question)
+        stdout = StringIO()
+
+        with TemporaryDirectory() as directory:
+            output = Path(directory) / "maxima.csv"
+            call_command(
+                "audit_question_skill_maxima",
+                "--mock-test",
+                str(self.mock_test.pk),
+                "--output",
+                str(output),
+                stdout=stdout,
+            )
+            with output.open(newline="", encoding="utf-8") as report:
+                rows = list(csv.DictReader(report))
+
+        outliers = [row for row in rows if row["status"] == "peer_outlier"]
+        self.assertEqual(len(outliers), 1)
+        self.assertEqual(outliers[0]["question_id"], str(questions[-1].pk))
+        self.assertEqual(outliers[0]["expected_maximum"], "1.0")
+        self.assertIn("Peer outliers: 1", stdout.getvalue())

@@ -245,3 +245,79 @@ class ResponseScorePersistenceTests(TestCase):
         self.assertIn("Largest response deltas", stdout.getvalue())
         self.assertIn("reading=+3.2000", stdout.getvalue())
         self.assertIn("No response or session scores were changed", stdout.getvalue())
+
+    def test_session_delta_report_projects_v2_without_writes(self):
+        session = UserMockTestSession.objects.create(
+            name="Candidate",
+            session_id="session-delta-report",
+            mock_test=self.mock_test,
+            completed_at="2026-01-01T00:00:00Z",
+        )
+        response = UserResponse.objects.create(
+            user_session=session,
+            mock_test=self.mock_test,
+            question=self.question,
+            evaluated=True,
+            evaluation_status="completed",
+            evaluation_result=self.result,
+        )
+        response.apply_skill_scores()
+        session.aggregate_scores()
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = f"{directory}/session-deltas.csv"
+            stdout = StringIO()
+            call_command(
+                "report_scoring_v2_session_deltas",
+                "--output",
+                output,
+                stdout=stdout,
+            )
+            with open(output, encoding="utf-8") as report:
+                rows = list(csv.DictReader(report))
+
+        response.refresh_from_db()
+        session.refresh_from_db()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["legacy_total"], "14.4")
+        self.assertEqual(rows[0]["v2_total"], "72.0")
+        self.assertEqual(rows[0]["delta_total"], "57.6")
+        self.assertEqual(rows[0]["stored_session_mismatch"], "no")
+        self.assertEqual(rows[0]["stored_response_legacy_mismatch"], "no")
+        self.assertEqual(response.reading_score_awarded, 0.8)
+        self.assertEqual(session.total_score, 14.4)
+        self.assertIn("Score-changing sessions: 1", stdout.getvalue())
+        self.assertIn("delta=+57.60", stdout.getvalue())
+        self.assertIn("No response or session scores were changed", stdout.getvalue())
+
+    def test_session_delta_report_does_not_project_incomplete_session(self):
+        session = UserMockTestSession.objects.create(
+            name="Candidate",
+            session_id="incomplete-session-delta-report",
+            mock_test=self.mock_test,
+        )
+        UserResponse.objects.create(
+            user_session=session,
+            mock_test=self.mock_test,
+            question=self.question,
+            evaluated=False,
+            evaluation_status="pending",
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = f"{directory}/incomplete-session-deltas.csv"
+            call_command(
+                "report_scoring_v2_session_deltas",
+                "--session",
+                str(session.pk),
+                "--output",
+                output,
+                stdout=StringIO(),
+            )
+            with open(output, encoding="utf-8") as report:
+                row = next(csv.DictReader(report))
+
+        self.assertEqual(row["evaluation_complete"], "no")
+        self.assertEqual(row["v2_total"], "")
+        self.assertEqual(row["delta_total"], "")
+        self.assertEqual(row["score_changes"], "unknown")

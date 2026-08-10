@@ -46,6 +46,7 @@ def build_session_evaluation_status(session, include_responses=False):
         "student": session.name,
         "mock_test_id": str(session.mock_test_id),
         "mock_test_title": session.mock_test.title,
+        "scoring_mode": session.scoring_mode,
         "total_responses": total,
         "completed": completed,
         "failed": failed,

@@ -88,6 +88,26 @@ class CorrectQuestionSkillMaximumTests(TestCase):
         self.assertIn("proposed_listening=1.5", stdout.getvalue())
         self.assertIn("Dry run only", stdout.getvalue())
 
+    def test_dry_run_uses_session_pin_instead_of_changed_global_mode(self):
+        stdout = StringIO()
+
+        with self.settings(EVALUATION_SCORING_MODE="v2"):
+            call_command(
+                "correct_question_skill_maximum",
+                "--question-id",
+                str(self.question.pk),
+                "--skill",
+                "listening",
+                "--expected-current",
+                "15",
+                "--new-maximum",
+                "1.5",
+                stdout=stdout,
+            )
+
+        self.assertEqual(self.session.scoring_mode, "shadow")
+        self.assertIn("proposed_listening=1.5", stdout.getvalue())
+
     def test_confirm_requires_exact_response_counts(self):
         with self.assertRaisesMessage(CommandError, "count changed"):
             call_command(

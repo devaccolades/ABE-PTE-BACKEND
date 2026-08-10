@@ -8,6 +8,19 @@ from django.core.exceptions import ValidationError
 logger = logging.getLogger(__name__)
 
 
+SESSION_SCORING_MODE_CHOICES = (
+    ("legacy", "Legacy"),
+    ("shadow", "Shadow V2"),
+    ("v2", "V2"),
+)
+
+
+def default_session_scoring_mode():
+    from examinor.scoring.response_scores import configured_scoring_mode
+
+    return configured_scoring_mode()
+
+
 class MockTest(models.Model):
     test_id = models.UUIDField(primary_key=True, default=uuid.uuid4)
     title = models.CharField(max_length=255)
@@ -309,6 +322,13 @@ class UserMockTestSession(models.Model):
     started_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(blank=True, null=True)
     is_completed = models.BooleanField(default=False)
+    scoring_mode = models.CharField(
+        max_length=10,
+        choices=SESSION_SCORING_MODE_CHOICES,
+        default=default_session_scoring_mode,
+        editable=False,
+        help_text="Scoring rollout mode pinned when this exam session started.",
+    )
     total_score = models.FloatField(default=0)
     speaking_score_awarded = models.FloatField(default=0)
     writing_score_awarded = models.FloatField(default=0)
@@ -417,11 +437,13 @@ def apply_response_skill_scores(response):
     from examinor.scoring.response_scores import (
         compile_response_score_evidence,
         promoted_skill_values,
+        response_scoring_mode,
     )
 
     evidence = compile_response_score_evidence(
         response.question,
         response.evaluation_result,
+        mode=response_scoring_mode(response),
     )
     promoted = promoted_skill_values(evidence)
     response.speaking_score_awarded = promoted["speaking"]

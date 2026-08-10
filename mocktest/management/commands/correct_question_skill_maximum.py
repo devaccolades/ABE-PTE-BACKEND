@@ -7,8 +7,8 @@ from django.utils import timezone
 from examinor.scoring.contracts import VALID_SKILLS
 from examinor.scoring.response_scores import (
     compile_response_score_evidence,
-    configured_scoring_mode,
     promoted_skill_values,
+    response_scoring_mode,
 )
 from mocktest.models import Question, SingleResponse, UserMockTestSession, UserResponse
 
@@ -164,7 +164,7 @@ class Command(BaseCommand):
                     evidence = compile_response_score_evidence(
                         question,
                         response.evaluation_result,
-                        mode=configured_scoring_mode(),
+                        mode=response_scoring_mode(response),
                     )
                     rows.append({
                         "model": model_name,

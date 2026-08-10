@@ -12,6 +12,7 @@ from examinor.scoring.response_scores import (
     compile_response_score_evidence,
     configured_scoring_mode,
     promoted_skill_values,
+    response_scoring_mode,
 )
 from mocktest.models import (
     MockTest,
@@ -194,6 +195,54 @@ class ResponseScorePersistenceTests(TestCase):
         evidence = response.evaluation_result["scoring_evidence"]
         self.assertEqual(response.reading_score_awarded, 0.8)
         self.assertEqual(evidence["v2"]["skills"]["reading"]["score"], 4)
+
+    def test_user_response_keeps_session_mode_when_global_mode_changes(self):
+        with self.settings(EVALUATION_SCORING_MODE="shadow"):
+            session = UserMockTestSession.objects.create(
+                name="Candidate",
+                session_id="pinned-shadow-session",
+                mock_test=self.mock_test,
+            )
+        response = UserResponse.objects.create(
+            user_session=session,
+            mock_test=self.mock_test,
+            question=self.question,
+            evaluation_result=self.result,
+        )
+
+        with self.settings(EVALUATION_SCORING_MODE="v2"):
+            response.apply_skill_scores()
+
+        response.refresh_from_db()
+        evidence = response.evaluation_result["scoring_evidence"]
+        self.assertEqual(session.scoring_mode, "shadow")
+        self.assertEqual(response_scoring_mode(response), "shadow")
+        self.assertEqual(evidence["promoted_version"], LEGACY_SCORING_VERSION)
+        self.assertEqual(response.reading_score_awarded, 0.8)
+
+    def test_v2_session_remains_v2_when_global_mode_returns_to_shadow(self):
+        with self.settings(EVALUATION_SCORING_MODE="v2"):
+            session = UserMockTestSession.objects.create(
+                name="Candidate",
+                session_id="pinned-v2-session",
+                mock_test=self.mock_test,
+            )
+        response = UserResponse.objects.create(
+            user_session=session,
+            mock_test=self.mock_test,
+            question=self.question,
+            evaluation_result=self.result,
+        )
+
+        with self.settings(EVALUATION_SCORING_MODE="shadow"):
+            response.apply_skill_scores()
+
+        response.refresh_from_db()
+        evidence = response.evaluation_result["scoring_evidence"]
+        self.assertEqual(session.scoring_mode, "v2")
+        self.assertEqual(response_scoring_mode(response), "v2")
+        self.assertEqual(evidence["promoted_version"], "pte-score-v2")
+        self.assertEqual(response.reading_score_awarded, 4)
 
     def test_delta_report_is_read_only_and_covers_both_response_models(self):
         session = UserMockTestSession.objects.create(

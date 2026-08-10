@@ -340,6 +340,7 @@ class UserMockTestSessionAdmin(ModelAdmin):
         'name',
         'mock_test',
         'short_session_id',
+        'scoring_mode',
         'started_at',
         'status_badge',
         'total_score',
@@ -358,6 +359,7 @@ class UserMockTestSessionAdmin(ModelAdmin):
         'started_at',
         'completed_at',
         'is_completed',
+        'scoring_mode',
         'total_score'
     )
 
@@ -366,7 +368,7 @@ class UserMockTestSessionAdmin(ModelAdmin):
             "fields": ("name", "mock_test", "session_id")
         }),
         ("Progress", {
-            "fields": ('current_mocktest_section','current_question_order','completed_sections',"started_at", "completed_at", "is_completed")
+            "fields": ('current_mocktest_section','current_question_order','completed_sections',"started_at", "completed_at", "is_completed", "scoring_mode")
         }),
         ("Result", {
             "fields": ("total_score",)

@@ -23,6 +23,21 @@ def configured_scoring_mode():
     return mode
 
 
+def response_scoring_mode(response):
+    """Return the session-pinned mode, falling back for standalone responses."""
+    session = getattr(response, "user_session", None)
+    pinned_mode = getattr(session, "scoring_mode", None)
+    if pinned_mode:
+        mode = str(pinned_mode).strip().lower()
+        if mode not in SCORING_MODES:
+            raise ResponseScoringError(
+                f"Unsupported session scoring mode '{mode}'. "
+                f"Expected one of: {', '.join(sorted(SCORING_MODES))}."
+            )
+        return mode
+    return configured_scoring_mode()
+
+
 def compile_response_score_evidence(question, evaluation_result, *, mode=None):
     mode = configured_scoring_mode() if mode is None else str(mode).strip().lower()
     if mode not in SCORING_MODES:

@@ -9,6 +9,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
 from mocktest.services.evaluation_input import question_requires_audio
+from mocktest.services.session_finalization import current_session_result
 
 # ======================
 # LAYOUT CONSTANTS
@@ -127,7 +128,7 @@ def section(title, content):
 from django.template.loader import render_to_string
 from weasyprint import HTML
 from django.utils.timezone import localtime
-from mocktest.models import UserResponse
+from mocktest.models import SubSection, UserResponse
 
 
 def _as_display_text(value):
@@ -427,7 +428,191 @@ def _duplicate_response_groups(responses):
     }
 
 
+def _build_finalized_session_pdf_context(session, result):
+    structured = OrderedDict()
+    subsection_labels = dict(SubSection.SUBSECTION_CHOICES)
+
+    for item in result.response_snapshot:
+        section_title = item.get("section") or "Other"
+        subsection_name = item.get("subsection") or ""
+        subsection_title = subsection_labels.get(
+            subsection_name,
+            subsection_name.replace("_", " ").title() or "Other",
+        )
+        question = item.get("question") or {}
+        response = item.get("response") or {}
+        evaluation_result = response.get("evaluation_result") or {}
+        evaluation = (
+            evaluation_result.get("evaluation", {})
+            if isinstance(evaluation_result, dict)
+            else {}
+        )
+        scores = evaluation.get("scores", {})
+        feedback = evaluation.get("feedback", {})
+        answer = _snapshot_answer_display(item)
+        supports_language_annotations = (
+            "writing" in section_title.lower()
+            or subsection_name == "summarize_spoken_text"
+        )
+        language_errors = (
+            _language_errors(feedback)
+            if supports_language_annotations
+            else []
+        )
+
+        section_data = structured.setdefault(section_title, {
+            "title": section_title,
+            "css_class": _section_css_class(section_title),
+            "anchor": _section_anchor(section_title),
+            "subsections": OrderedDict(),
+        })
+        subsection_data = section_data["subsections"].setdefault(
+            subsection_title,
+            {
+                "title": subsection_title,
+                "responses": [],
+                "avg_score": 0,
+                "avg_percent": 0,
+            },
+        )
+        skill_scores = response.get("scores") or {}
+        skill_maxima = item.get("skill_maxima") or {}
+        total_score = sum(float(skill_scores.get(skill) or 0) for skill in (
+            "speaking", "writing", "reading", "listening"
+        ))
+        max_score = sum(float(skill_maxima.get(skill) or 0) for skill in (
+            "speaking", "writing", "reading", "listening"
+        ))
+
+        subsection_data["responses"].append({
+            "question": question.get("text") or question.get("name") or (
+                f"Question {item.get('question_id')}"
+            ),
+            "answer": answer,
+            "answer_segments": _answer_segments(answer, language_errors),
+            "language_errors": language_errors,
+            "response_id": response.get("id"),
+            "is_duplicate": False,
+            "duplicate_count": 0,
+            "evaluation_status": (
+                "completed" if response else item.get("status", "skipped")
+            ),
+            "evaluation_stage": "finalized" if response else "submission",
+            "evaluation_error": "",
+            "skill_scores": skill_scores,
+            "scores": _score_items(scores),
+            "feedback": _feedback_items(feedback),
+            "feedback_details": _feedback_details(feedback),
+            "answer_explanation": (
+                feedback.get("explanation", "")
+                if isinstance(feedback, dict)
+                else ""
+            ) or question.get("answer_explanation", ""),
+            "total_score": total_score,
+            "max_score": max_score,
+        })
+
+    sections = _finalize_structured_sections(structured)
+    skill_scores = result.skill_scores or {}
+    return {
+        "meta": {
+            "name": session.name,
+            "test": (
+                session.mock_test_snapshot.get("title")
+                if session.mock_test_snapshot
+                else session.mock_test.title
+            ),
+            "started_at": localtime(session.started_at),
+            "result_version": result.version,
+        },
+        "skills": {
+            skill: (skill_scores.get(skill) or {}).get("scaled", 0)
+            for skill in ("speaking", "writing", "reading", "listening")
+        } | {"overall": result.overall_score},
+        "section_links": _section_links(sections),
+        "evaluation_summary": {
+            "total": result.expected_question_count,
+            "completed": result.evaluated_response_count,
+            "failed": 0,
+            "pending": 0,
+            "duplicate_groups": 0,
+            "duplicate_rows": 0,
+            "is_complete": True,
+        },
+        "sections": sections,
+    }
+
+
+def _snapshot_answer_display(item):
+    response = item.get("response") or {}
+    transcription = response.get("transcribed_audio_data") or {}
+    transcript_text = ""
+    if isinstance(transcription, dict):
+        nested = transcription.get("transcription") or {}
+        if isinstance(nested, dict):
+            transcript_text = nested.get("text") or ""
+        transcript_text = transcript_text or transcription.get("text") or ""
+    if transcript_text:
+        return str(transcript_text)
+
+    answer = response.get("answer_data")
+    subsection = item.get("subsection")
+    if subsection in CHOICE_SUBSECTIONS:
+        option_map = {
+            int(option["id"]): str(option.get("text") or f"Option {option['id']}")
+            for option in (item.get("question") or {}).get("options", [])
+            if option.get("id") is not None
+        }
+        labels = [
+            option_map[option_id]
+            for option_id in _answer_ids(answer)
+            if option_id in option_map
+        ]
+        if labels:
+            return ", ".join(labels)
+    return _as_display_text(answer)
+
+
+def _finalize_structured_sections(structured):
+    sections = []
+    for section_data in structured.values():
+        subsections = []
+        for subsection_data in section_data["subsections"].values():
+            items = subsection_data["responses"]
+            total = sum(item["total_score"] for item in items)
+            maximum = sum(item["max_score"] for item in items)
+            count = len(items) or 1
+            avg_score = round(total / count, 2)
+            avg_max = round(maximum / count, 2)
+            subsection_data["avg_score"] = avg_score
+            subsection_data["avg_max"] = avg_max
+            subsection_data["avg_percent"] = _score_percent(avg_score, avg_max)
+            subsection_data["total_score"] = total
+            subsection_data["total_max"] = maximum
+            subsection_data["percent"] = round(_score_percent(total, maximum), 1)
+            subsections.append(subsection_data)
+
+        section_data["subsections"] = subsections
+        section_name = section_data["title"].lower()
+        section_data["summary"] = None
+        if "reading" in section_name:
+            section_data["summary"] = _section_performance_summary(
+                subsections,
+                "Reading",
+            )
+        elif "listening" in section_name:
+            section_data["summary"] = _section_performance_summary(
+                subsections,
+                "Listening",
+            )
+        sections.append(section_data)
+    return sections
+
+
 def build_session_pdf_context(session):
+    finalized_result = current_session_result(session)
+    if finalized_result:
+        return _build_finalized_session_pdf_context(session, finalized_result)
     responses = list(
         UserResponse.objects
         .filter(user_session_id=session.pk)
@@ -576,18 +761,32 @@ def build_session_pdf_context(session):
             )
         sections.append(section_data)
 
+    finalized_skills = finalized_result.skill_scores if finalized_result else {}
+
+    def displayed_skill(skill):
+        if skill in finalized_skills:
+            return finalized_skills[skill].get("scaled", 0)
+        return _skill_score(responses, skill)
+
     return {
         "meta": {
             "name": session.name,
             "test": session.mock_test.title,
             "started_at": localtime(session.started_at),
+            "result_version": (
+                finalized_result.version if finalized_result else None
+            ),
         },
         "skills": {
-            "speaking": _skill_score(responses, "speaking"),
-            "writing": _skill_score(responses, "writing"),
-            "reading": _skill_score(responses, "reading"),
-            "listening": _skill_score(responses, "listening"),
-            "overall": session.total_score,
+            "speaking": displayed_skill("speaking"),
+            "writing": displayed_skill("writing"),
+            "reading": displayed_skill("reading"),
+            "listening": displayed_skill("listening"),
+            "overall": (
+                finalized_result.overall_score
+                if finalized_result
+                else session.total_score
+            ),
         },
         "section_links": _section_links(sections),
         "evaluation_summary": _evaluation_summary(responses),

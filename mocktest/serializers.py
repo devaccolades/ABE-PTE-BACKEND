@@ -179,6 +179,63 @@ class SingleQuestionSerializer(serializers.ModelSerializer):
         return None
 
 
+class SessionQuestionSerializer(serializers.Serializer):
+    """Candidate-safe representation of an immutable session question."""
+
+    def to_representation(self, instance):
+        snapshot = instance.question_snapshot or {}
+        return {
+            "id": instance.question_id_snapshot,
+            "name": snapshot.get("name"),
+            "text": snapshot.get("text"),
+            "audio": self._media_url(snapshot.get("audio")),
+            "image": self._media_url(snapshot.get("image")),
+            "question_type": snapshot.get("question_type"),
+            "reading_time": snapshot.get("reading_time", 0),
+            "answering_time": snapshot.get("answering_time", 0),
+            "mocktest_section": snapshot.get("mocktest_section") or {
+                "id": instance.mock_test_section_id_snapshot,
+                "section_id": None,
+                "section_name": instance.section_name,
+                "order": instance.section_order,
+                "total_duration": None,
+            },
+            "subsection": snapshot.get("subsection") or instance.subsection_name,
+            "subsection_instruction": snapshot.get("subsection_instruction"),
+            "ai_input_type": instance.expected_input_type,
+            "options": [
+                {
+                    "id": option.get("id"),
+                    "option_text": option.get("text"),
+                }
+                for option in snapshot.get("options", [])
+            ],
+            "sub_questions": [
+                {
+                    "id": sub_question.get("id"),
+                    "blank_number": sub_question.get("blank_number"),
+                    "text_before_blank": sub_question.get("text_before_blank"),
+                    "text_after_blank": sub_question.get("text_after_blank"),
+                    "options": [
+                        {
+                            "id": option.get("id"),
+                            "option_text": option.get("text"),
+                        }
+                        for option in sub_question.get("options", [])
+                    ],
+                }
+                for sub_question in snapshot.get("sub_questions", [])
+            ],
+        }
+
+    def _media_url(self, name):
+        if not name:
+            return None
+        relative_url = f"{settings.MEDIA_URL.rstrip('/')}/{str(name).lstrip('/')}"
+        request = self.context.get("request")
+        return request.build_absolute_uri(relative_url) if request else relative_url
+
+
 class SubSectionSerializer(serializers.ModelSerializer):
     questions = QuestionSerializer(many=True, read_only=True)
 

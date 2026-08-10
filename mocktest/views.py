@@ -10,7 +10,15 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from .models import Question, MockTest, MockTestSection, UserResponse, UserMockTestSession, SubQuestion,Section,SubSection,SingleResponse
-from .serializers import UserMockTestSession,SingleQuestionSerializer,UserResponseSerializer,MockTestListSerializer,QuestionSerializer,SingleResponseSerializer 
+from .serializers import (
+    MockTestListSerializer,
+    QuestionSerializer,
+    SessionQuestionSerializer,
+    SingleQuestionSerializer,
+    SingleResponseSerializer,
+    UserMockTestSession,
+    UserResponseSerializer,
+)
 from .services.transcription import transcribe_and_analyse
 from django.shortcuts import get_object_or_404
 from rest_framework.generics import ListAPIView
@@ -28,6 +36,13 @@ from .services.evaluation_queue import (
     EvaluationQueueUnavailable,
     dispatch_prepared_evaluation,
     prepare_response_evaluation,
+)
+from .services.session_finalization import (
+    complete_session_submission,
+    create_session_manifest,
+    mark_section_timed_out,
+    mark_session_question_answered,
+    session_question_ids,
 )
 from django.http import FileResponse
 
@@ -76,7 +91,7 @@ def normalize_question_lookup(question_id=None, question_name=None):
     return None, None, "missing"
 
 
-def get_session_question(mock_test, question_id=None, question_name=None):
+def get_session_question(session, question_id=None, question_name=None):
     question_id, question_name, lookup_error = normalize_question_lookup(
         question_id=question_id,
         question_name=question_name,
@@ -84,7 +99,11 @@ def get_session_question(mock_test, question_id=None, question_name=None):
     if lookup_error:
         return None, lookup_error
 
-    questions = Question.objects.filter(mock_test_section__mock_test=mock_test)
+    questions = Question.objects.filter(mock_test_section__mock_test=session.mock_test)
+    if session.manifest_version:
+        questions = questions.filter(
+            id__in=session.question_manifest.values("question_id_snapshot")
+        )
 
     if question_id:
         questions = questions.filter(id=question_id)
@@ -398,17 +417,25 @@ class StartMockTestAPIView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        session = UserMockTestSession.objects.create(
-            name=name,
-            session_id=str(uuid.uuid4()),
-            mock_test=mocktest,
-            scoring_mode=mocktest.scoring_mode,
-        )
+        try:
+            with transaction.atomic():
+                session = UserMockTestSession.objects.create(
+                    name=name,
+                    session_id=str(uuid.uuid4()),
+                    mock_test=mocktest,
+                    scoring_mode=mocktest.scoring_mode,
+                )
+                total_questions = create_session_manifest(session.pk)
+        except ValueError as exc:
+            return Response(
+                {"error": str(exc), "code": "empty_mock_test"},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         return Response({
             "session_id": session.session_id,
             "mocktest_title": mocktest.title,
-            "total_questions": Question.objects.filter(subsection__section__mock_test_sections__mock_test=mocktest).count()
+            "total_questions": total_questions,
         }, status=status.HTTP_201_CREATED)
 
 
@@ -436,30 +463,37 @@ class GetQuestionAPIView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        questions = (
-            Question.objects.filter(
-                mock_test_section__mock_test=session.mock_test
+        if session.manifest_version:
+            questions = session.question_manifest.order_by("order")
+            serializer_class = SessionQuestionSerializer
+        else:
+            question_ids = session_question_ids(session)
+            questions = (
+                Question.objects.filter(
+                    mock_test_section__mock_test=session.mock_test,
+                    id__in=question_ids,
+                )
+                .select_related(
+                    'mock_test_section',
+                    'mock_test_section__section',
+                    'subsection'
+                )
+                .prefetch_related(
+                    'options',
+                    'sub_questions__options'
+                )
+                .order_by(
+                    'mock_test_section__order',
+                    'subsection__order',
+                    'id'
+                )
             )
-            .select_related(
-                'mock_test_section',
-                'mock_test_section__section',
-                'subsection'
-            )
-            .prefetch_related(
-                'options',
-                'sub_questions__options'
-            )
-            .order_by(
-                'mock_test_section__order',
-                'subsection__order',
-                'id'
-            )
-        )
+            serializer_class = SingleQuestionSerializer
 
         paginator = SingleQuestionPagination()
         paginated_qs = paginator.paginate_queryset(questions, request)
 
-        serializer = SingleQuestionSerializer(
+        serializer = serializer_class(
             paginated_qs,
             many=True,
             context={
@@ -490,7 +524,7 @@ class UserResponseAPIView(APIView):
             return Response({"error": "Invalid session_id"}, status=status.HTTP_404_NOT_FOUND)
 
         question, question_error = get_session_question(
-            mock_test,
+            session,
             question_id=question_id,
             question_name=question_name,
         )
@@ -553,8 +587,14 @@ class UserResponseAPIView(APIView):
                         answer_audio=audio_file,
                         transcribed_audio_data=None,
                     )
-                    if is_final_mock_test_question(question, mock_test):
-                        session.mark_completed()
+                if session.manifest_version:
+                    mark_session_question_answered(
+                        session.pk,
+                        question.pk,
+                        user_answer.pk,
+                    )
+                elif is_final_mock_test_question(question, mock_test):
+                    session.mark_completed()
                 evaluation_job, outbox_event = prepare_response_evaluation(user_answer)
         except IntegrityError:
             existing_response = UserResponse.objects.filter(
@@ -688,10 +728,14 @@ class APIListingQuestions(APIView):
             request._request.GET = request.GET.copy()
             request._request.GET.pop('page', None)
 
+            if current_section:
+                mark_section_timed_out(session.pk, current_section.pk)
+
             next_section = sections.filter(order__gt=current_section.order).first()
 
             if not next_section:
-                session.mark_completed()
+                complete_session_submission(session.pk)
+                session.refresh_from_db()
                 return Response(
                     {
                         "message": "All sections submitted; evaluation is in progress",
@@ -706,36 +750,49 @@ class APIListingQuestions(APIView):
             session.save(update_fields=['current_mocktest_section'])
 
         # ✅ GLOBAL QUERYSET (continuous flow)
-        questions = Question.objects.filter(
-            mock_test_section__mock_test=session.mock_test
-        ).select_related(
-            'subsection',
-            'subsection__section',
-            'mock_test_section'
-        ).prefetch_related(
-            'options',
-            'sub_questions__options'
-        ).order_by(
-            'mock_test_section__order',
-            'subsection__order',
-            'id'
-        )
+        if session.manifest_version:
+            questions = session.question_manifest.order_by("order")
+            serializer_class = SessionQuestionSerializer
+        else:
+            question_ids = session_question_ids(session)
+            questions = Question.objects.filter(
+                mock_test_section__mock_test=session.mock_test,
+                id__in=question_ids,
+            ).select_related(
+                'subsection',
+                'subsection__section',
+                'mock_test_section'
+            ).prefetch_related(
+                'options',
+                'sub_questions__options'
+            ).order_by(
+                'mock_test_section__order',
+                'subsection__order',
+                'id'
+            )
+            serializer_class = SingleQuestionSerializer
 
         paginator = SingleQuestionPagination()
 
         # ✅ FORCE START POSITION (skip OR first load)
         if skip_section or 'page' not in request.GET:
 
-            first_q = Question.objects.filter(
-                mock_test_section=current_section
-            ).order_by('subsection__order', 'id').first()
+            if session.manifest_version:
+                first_q = questions.filter(
+                    mock_test_section_id_snapshot=current_section.pk,
+                ).first()
+            else:
+                first_q = Question.objects.filter(
+                    mock_test_section=current_section
+                ).order_by('subsection__order', 'id').first()
 
             # 🔥 HANDLE EMPTY SECTIONS
             while not first_q:
                 next_section = sections.filter(order__gt=current_section.order).first()
 
                 if not next_section:
-                    session.mark_completed()
+                    complete_session_submission(session.pk)
+                    session.refresh_from_db()
                     return Response(
                         {
                             "message": "All sections submitted; evaluation is in progress",
@@ -749,15 +806,28 @@ class APIListingQuestions(APIView):
                 session.current_mocktest_section = current_section
                 session.save(update_fields=['current_mocktest_section'])
 
-                first_q = Question.objects.filter(
-                    mock_test_section=current_section
-                ).order_by('subsection__order', 'id').first()
+                if session.manifest_version:
+                    first_q = questions.filter(
+                        mock_test_section_id_snapshot=current_section.pk,
+                    ).first()
+                else:
+                    first_q = Question.objects.filter(
+                        mock_test_section=current_section
+                    ).order_by('subsection__order', 'id').first()
 
             # ✅ FIND PAGE INDEX
-            all_ids = list(questions.values_list('id', flat=True))
+            id_field = (
+                "question_id_snapshot" if session.manifest_version else "id"
+            )
+            all_ids = list(questions.values_list(id_field, flat=True))
+            first_question_id = (
+                first_q.question_id_snapshot
+                if session.manifest_version
+                else first_q.id
+            )
 
-            if first_q.id in all_ids:
-                start_index = all_ids.index(first_q.id)
+            if first_question_id in all_ids:
+                start_index = all_ids.index(first_question_id)
 
                 page_size = paginator.page_size or 1
                 page_number = (start_index // page_size) + 1
@@ -769,7 +839,8 @@ class APIListingQuestions(APIView):
         paginated_qs = paginator.paginate_queryset(questions, request)
 
         if not paginated_qs:
-            session.mark_completed()
+            complete_session_submission(session.pk)
+            session.refresh_from_db()
             return Response(
                 {
                     "message": "All sections submitted; evaluation is in progress",
@@ -779,8 +850,10 @@ class APIListingQuestions(APIView):
                 status=200,
             )
 
-        serializer = SingleQuestionSerializer(
-            paginated_qs, many=True, context={'request': request}
+        serializer = serializer_class(
+            paginated_qs,
+            many=True,
+            context={'request': request, 'session': session},
         )
 
         response = paginator.get_paginated_response(serializer.data)
@@ -789,9 +862,15 @@ class APIListingQuestions(APIView):
         current_question = paginated_qs[0] if paginated_qs else None
 
         if current_question:
-            question_section = current_question.mock_test_section
+            question_section = (
+                MockTestSection.objects.filter(
+                    pk=current_question.mock_test_section_id_snapshot,
+                ).first()
+                if session.manifest_version
+                else current_question.mock_test_section
+            )
 
-            if session.current_mocktest_section_id != question_section.id:
+            if question_section and session.current_mocktest_section_id != question_section.id:
                 session.current_mocktest_section = question_section
                 session.save(update_fields=['current_mocktest_section'])
 

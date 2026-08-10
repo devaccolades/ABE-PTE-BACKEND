@@ -82,6 +82,12 @@ def prepare_response_evaluation(response):
             ]
         )
         job, event = prepare_evaluation_dispatch(response)
+        if hasattr(response, "user_session_id"):
+            from mocktest.services.session_finalization import (
+                recalculate_session_state,
+            )
+
+            recalculate_session_state(response.user_session_id)
 
     return job, event
 

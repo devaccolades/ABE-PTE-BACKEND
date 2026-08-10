@@ -3,6 +3,7 @@ from collections import Counter
 from mocktest.models import UserResponse
 from mocktest.services.duplicate_responses import duplicate_response_groups
 from mocktest.services.evaluation_input import response_input_issue
+from mocktest.services.session_finalization import current_session_result
 
 
 ACTIVE_STATUSES = {"pending", "transcribing", "evaluating"}
@@ -10,6 +11,7 @@ ACTIVE_STATUSES = {"pending", "transcribing", "evaluating"}
 
 def build_session_evaluation_status(session, include_responses=False):
     session.sync_evaluation_completion()
+    session.refresh_from_db()
     responses = (
         UserResponse.objects
         .filter(user_session=session)
@@ -38,15 +40,50 @@ def build_session_evaluation_status(session, include_responses=False):
     duplicate_group_count = duplicate_groups.count()
     duplicate_extra_rows = sum(row["count"] - 1 for row in duplicate_groups)
 
+    manifest_counts = Counter()
+    expected_questions = total
+    resolved_questions = total
+    finalized_result = None
+    if session.manifest_version:
+        manifest_counts = Counter(
+            session.question_manifest.values_list("status", flat=True)
+        )
+        expected_questions = session.expected_question_count
+        resolved_questions = expected_questions - manifest_counts.get("pending", 0)
+        finalized_result = current_session_result(session)
+
     payload = {
         "session_id": session.session_id,
         "session_pk": session.pk,
         "exam_completed": session.is_completed,
-        "exam_completed_at": session.completed_at,
+        "exam_completed_at": (
+            session.finalized_at
+            if session.manifest_version
+            else session.completed_at if session.is_completed else None
+        ),
+        "submission_completed_at": (
+            session.submission_completed_at or session.completed_at
+        ),
         "student": session.name,
         "mock_test_id": str(session.mock_test_id),
-        "mock_test_title": session.mock_test.title,
+        "mock_test_title": (
+            session.mock_test_snapshot.get("title")
+            if session.mock_test_snapshot
+            else session.mock_test.title
+        ),
         "scoring_mode": session.scoring_mode,
+        "manifest_version": session.manifest_version,
+        "expected_questions": expected_questions,
+        "resolved_questions": resolved_questions,
+        "answered_questions": (
+            manifest_counts.get("answered", 0)
+            if session.manifest_version
+            else total
+        ),
+        "skipped_questions": manifest_counts.get("skipped", 0),
+        "timed_out_questions": manifest_counts.get("timed_out", 0),
+        "not_reached_questions": manifest_counts.get("not_reached", 0),
+        "pending_questions": manifest_counts.get("pending", 0),
         "total_responses": total,
         "completed": completed,
         "failed": failed,
@@ -56,13 +93,18 @@ def build_session_evaluation_status(session, include_responses=False):
         "statuses": dict(counts),
         "duplicate_groups": duplicate_group_count,
         "duplicate_extra_rows": duplicate_extra_rows,
-        "is_complete": total > 0 and completed == total,
+        "is_complete": session.is_completed,
         "has_failures": failed > 0,
         "has_duplicates": duplicate_group_count > 0,
+        "finalized_at": session.finalized_at,
+        "finalized_result_version": session.finalized_result_version,
         "can_download_final_pdf": (
             session.is_completed
-            and total > 0
-            and completed == total
+            and (
+                bool(finalized_result)
+                if session.manifest_version
+                else total > 0 and completed == total
+            )
             and duplicate_group_count == 0
         ),
     }
@@ -92,6 +134,19 @@ def build_session_evaluation_status(session, include_responses=False):
                 "last_evaluation_attempt_at": response.last_evaluation_attempt_at,
             })
         payload["responses"] = response_details
+        if session.manifest_version:
+            payload["questions"] = list(
+                session.question_manifest.order_by("order").values(
+                    "order",
+                    "question_id_snapshot",
+                    "section_name",
+                    "subsection_name",
+                    "expected_input_type",
+                    "status",
+                    "response_id",
+                    "resolved_at",
+                )
+            )
 
     return payload
 

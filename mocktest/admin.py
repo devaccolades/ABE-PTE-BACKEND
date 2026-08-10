@@ -311,8 +311,15 @@ class MockTestAdmin(ModelAdmin):
     form = MockTestAdminForm
     compressed_fields = True
     warn_unsaved_form = True
-    list_display = ('title', 'total_score', 'total_duration', 'is_active', 'created_at')
-    list_filter = ('is_active',)
+    list_display = (
+        'title',
+        'total_score',
+        'total_duration',
+        'is_active',
+        'scoring_mode',
+        'created_at',
+    )
+    list_filter = ('is_active', 'scoring_mode')
     search_fields = ('title', 'description')
     inlines = [MockTestSectionInline]
     ordering = ['-created_at']

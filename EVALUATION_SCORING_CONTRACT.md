@@ -278,13 +278,19 @@ It contains IDs, score values, deltas, and compile errors, but no candidate answ
 content. Production remains in shadow mode until the delta report and unexplained
 contract errors have been reviewed.
 
-Full mock-test sessions pin that rollout mode when the session is created.
+Each mock test has a rollout mode and defaults to `shadow`. Enabling V2 for a
+mock test requires that it is active and passes the complete publication
+contract. Inactive tests cannot start through the public API. A newly started
+full mock-test session inherits its mock test's mode and pins it for the
+session's lifetime.
+
 Every initial evaluation, retry, repair, and confirmed question-maximum
 correction for a `UserResponse` uses the session pin rather than the current
-process environment. A deployment may therefore enable V2 for newly started
-sessions without changing partially completed or historical sessions. Existing
-sessions are backfilled as `shadow` during rollout. Standalone
-`SingleResponse` evaluations continue to use the current environment mode.
+process environment. Operations may therefore canary V2 on one validated mock
+test without changing other new exams, partially completed exams, or historical
+sessions. Existing mock tests and sessions are backfilled as `shadow` during
+rollout. Standalone `SingleResponse` evaluations continue to use the current
+environment mode.
 
 Session-level impact can be reviewed without writes:
 

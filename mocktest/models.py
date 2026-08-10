@@ -8,7 +8,7 @@ from django.core.exceptions import ValidationError
 logger = logging.getLogger(__name__)
 
 
-SESSION_SCORING_MODE_CHOICES = (
+SCORING_MODE_CHOICES = (
     ("legacy", "Legacy"),
     ("shadow", "Shadow V2"),
     ("v2", "V2"),
@@ -36,14 +36,31 @@ class MockTest(models.Model):
         default=False,
         help_text="Draft mock tests must pass publication validation before activation.",
     )
+    scoring_mode = models.CharField(
+        max_length=10,
+        choices=SCORING_MODE_CHOICES,
+        default="shadow",
+        help_text="Scoring mode inherited by newly started sessions.",
+    )
 
     def save(self, *args, **kwargs):
-        if self._is_being_activated() and not getattr(
+        being_activated = self._is_being_activated()
+        enabling_v2 = self._is_enabling_v2()
+        if enabling_v2 and not self.is_active:
+            raise ValidationError(
+                {"scoring_mode": "V2 can only be enabled for an active mock test."}
+            )
+        if (being_activated or enabling_v2) and not getattr(
             self, "_publication_validation_passed", False
         ):
             if not self.pk:
                 raise ValidationError(
-                    {"is_active": "Save the mock test as a draft before activating it."}
+                    {
+                        "is_active": (
+                            "Save the mock test as a draft before activating it "
+                            "or enabling V2."
+                        )
+                    }
                 )
             from mocktest.services.question_bank_validation import publication_errors
 
@@ -55,7 +72,12 @@ class MockTest(models.Model):
                 if len(errors) > 10:
                     details += f"; and {len(errors) - 10} more error(s)"
                 raise ValidationError(
-                    {"is_active": f"Mock test cannot be activated. {details}"}
+                    {
+                        "scoring_mode" if enabling_v2 else "is_active": (
+                            "Mock test cannot be activated or moved to V2. "
+                            f"{details}"
+                        )
+                    }
                 )
         try:
             super().save(*args, **kwargs)
@@ -72,6 +94,16 @@ class MockTest(models.Model):
             "is_active", flat=True
         ).first()
         return previous is False
+
+    def _is_enabling_v2(self):
+        if self.scoring_mode != "v2":
+            return False
+        if not self.pk:
+            return True
+        previous = type(self).objects.filter(pk=self.pk).values_list(
+            "scoring_mode", flat=True
+        ).first()
+        return previous != "v2"
 
     def __str__(self):
         return self.title
@@ -324,7 +356,7 @@ class UserMockTestSession(models.Model):
     is_completed = models.BooleanField(default=False)
     scoring_mode = models.CharField(
         max_length=10,
-        choices=SESSION_SCORING_MODE_CHOICES,
+        choices=SCORING_MODE_CHOICES,
         default=default_session_scoring_mode,
         editable=False,
         help_text="Scoring rollout mode pinned when this exam session started.",

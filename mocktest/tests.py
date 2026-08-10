@@ -938,7 +938,7 @@ class MockTestPublicationGateTests(TestCase):
         )
         return mock_test
 
-    def _activation_form(self, mock_test):
+    def _activation_form(self, mock_test, *, scoring_mode=None):
         return MockTestAdminForm(
             instance=mock_test,
             data={
@@ -947,6 +947,7 @@ class MockTestPublicationGateTests(TestCase):
                 "total_score": mock_test.total_score,
                 "total_duration": mock_test.total_duration or "",
                 "is_active": True,
+                "scoring_mode": scoring_mode or mock_test.scoring_mode,
             },
         )
 
@@ -954,6 +955,7 @@ class MockTestPublicationGateTests(TestCase):
         mock_test = MockTest.objects.create(title="Draft Test")
 
         self.assertFalse(mock_test.is_active)
+        self.assertEqual(mock_test.scoring_mode, "shadow")
 
     def test_valid_mock_test_can_be_activated(self):
         mock_test = self._mock_test()
@@ -963,6 +965,46 @@ class MockTestPublicationGateTests(TestCase):
         activated = form.save()
 
         self.assertTrue(activated.is_active)
+
+    def test_valid_active_mock_test_can_enable_v2(self):
+        mock_test = self._mock_test()
+        activation = self._activation_form(mock_test)
+        self.assertTrue(activation.is_valid(), activation.errors)
+        mock_test = activation.save()
+
+        rollout = self._activation_form(mock_test, scoring_mode="v2")
+        self.assertTrue(rollout.is_valid(), rollout.errors)
+        mock_test = rollout.save()
+
+        self.assertEqual(mock_test.scoring_mode, "v2")
+
+    def test_inactive_mock_test_cannot_enable_v2_directly(self):
+        mock_test = self._mock_test()
+        mock_test.scoring_mode = "v2"
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            "V2 can only be enabled for an active mock test",
+        ):
+            mock_test.save(update_fields=["scoring_mode"])
+
+        mock_test.refresh_from_db()
+        self.assertEqual(mock_test.scoring_mode, "shadow")
+
+    def test_grandfathered_invalid_active_test_cannot_enable_v2(self):
+        mock_test = self._mock_test(valid=False)
+        MockTest.objects.filter(pk=mock_test.pk).update(is_active=True)
+        mock_test.refresh_from_db()
+        mock_test.scoring_mode = "v2"
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            "exactly one correct option",
+        ):
+            mock_test.save(update_fields=["scoring_mode"])
+
+        mock_test.refresh_from_db()
+        self.assertEqual(mock_test.scoring_mode, "shadow")
 
     def test_invalid_mock_test_cannot_be_activated_in_admin(self):
         mock_test = self._mock_test(valid=False)
@@ -980,6 +1022,39 @@ class MockTestPublicationGateTests(TestCase):
 
         mock_test.refresh_from_db()
         self.assertFalse(mock_test.is_active)
+
+    def test_start_endpoint_rejects_inactive_mock_test(self):
+        mock_test = self._mock_test()
+
+        response = self.client.post(
+            "/mocktest/start-test/",
+            {"name": "Candidate", "mocktest_id": str(mock_test.pk)},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(UserMockTestSession.objects.exists())
+
+    def test_started_session_inherits_mock_test_scoring_mode(self):
+        mock_test = self._mock_test()
+        activation = self._activation_form(mock_test)
+        self.assertTrue(activation.is_valid(), activation.errors)
+        mock_test = activation.save()
+        rollout = self._activation_form(mock_test, scoring_mode="v2")
+        self.assertTrue(rollout.is_valid(), rollout.errors)
+        mock_test = rollout.save()
+
+        response = self.client.post(
+            "/mocktest/start-test/",
+            {"name": "Candidate", "mocktest_id": str(mock_test.pk)},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        session = UserMockTestSession.objects.get(
+            session_id=response.json()["session_id"],
+        )
+        self.assertEqual(session.scoring_mode, "v2")
 
     def test_publication_command_can_check_one_mock_test_by_title(self):
         self._mock_test()

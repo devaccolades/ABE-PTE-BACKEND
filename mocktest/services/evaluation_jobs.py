@@ -368,7 +368,10 @@ def _record_publish_success(event_id, lock_token):
                 "lock_token",
             ]
         )
-        EvaluationJob.objects.filter(pk=event.job_id).update(
+        EvaluationJob.objects.filter(
+            pk=event.job_id,
+            status="waiting_dispatch",
+        ).update(
             status="dispatched",
             lease_owner="",
             lease_expires_at=None,

@@ -1,18 +1,13 @@
 import logging
 
-from celery import chain
+from django.db import transaction
 
-from examinor.scoring.task_contracts import has_usable_transcript
-from mocktest.models import SingleResponse
 from mocktest.services.evaluation_input import (
-    question_requires_audio,
     response_input_issue,
 )
-from mocktest.tasks import (
-    evaluate_single_response,
-    evaluate_user_response,
-    transcribe_single_task,
-    transcribe_task,
+from mocktest.services.evaluation_jobs import (
+    dispatch_outbox_event,
+    prepare_evaluation_dispatch,
 )
 
 
@@ -44,13 +39,18 @@ def _save_input_failure(response, issue):
 
 def _save_queue_failure(response, error):
     error_type = error.__class__.__name__
-    message = f"Evaluation queue unavailable ({error_type}). Retry when Celery/Redis is healthy."
+    message = (
+        f"Evaluation queue unavailable ({error_type}). Dispatch is saved and will "
+        "retry automatically when Celery/Redis is healthy."
+    )
     response.evaluation_result = {
         "ok": False,
         "stage": "queueing",
+        "code": "evaluation_dispatch_pending",
+        "retryable": True,
         "error": message,
     }
-    response.evaluation_status = "failed"
+    response.evaluation_status = "pending"
     response.evaluation_stage = "queueing"
     response.evaluation_error = message
     response.save(
@@ -64,46 +64,36 @@ def _save_queue_failure(response, error):
     return message
 
 
-def queue_response_evaluation(response):
-    requires_audio = question_requires_audio(response.question)
+def prepare_response_evaluation(response):
     input_issue = response_input_issue(response)
     if input_issue:
         _save_input_failure(response, input_issue)
         raise EvaluationInputUnavailable(input_issue.message)
 
-    response.evaluation_status = "pending"
-    response.evaluation_stage = ""
-    response.evaluation_error = ""
-    response.save(
-        update_fields=[
-            "evaluation_status",
-            "evaluation_stage",
-            "evaluation_error",
-        ]
-    )
+    with transaction.atomic():
+        response.evaluation_status = "pending"
+        response.evaluation_stage = ""
+        response.evaluation_error = ""
+        response.save(
+            update_fields=[
+                "evaluation_status",
+                "evaluation_stage",
+                "evaluation_error",
+            ]
+        )
+        job, event = prepare_evaluation_dispatch(response)
 
-    is_single = isinstance(response, SingleResponse)
-    needs_transcription = (
-        requires_audio
-        and response.answer_audio
-        and not has_usable_transcript(response.transcribed_audio_data)
-    )
+    return job, event
 
-    try:
-        if needs_transcription:
-            transcribe = transcribe_single_task if is_single else transcribe_task
-            evaluate = evaluate_single_response if is_single else evaluate_user_response
-            chain(
-                transcribe.s(response.id),
-                evaluate.si(response.id, response.question_id),
-            ).delay()
-            return "transcription_and_evaluation"
 
-        if is_single:
-            evaluate_single_response.delay(response.id, response.question_id)
-        else:
-            evaluate_user_response.delay(response.id, response.question_id)
-    except Exception as exc:
+def dispatch_prepared_evaluation(response, job, event):
+
+    if event is None:
+        return "already_completed" if job.status == "completed" else "already_processing"
+
+    outcome = dispatch_outbox_event(event.event_id)
+    if outcome["status"] == "failed":
+        exc = outcome["error"]
         logger.error(
             "Could not queue evaluation for %s id=%s error_type=%s",
             response.__class__.__name__,
@@ -112,8 +102,12 @@ def queue_response_evaluation(response):
         )
         message = _save_queue_failure(response, exc)
         raise EvaluationQueueUnavailable(message) from exc
+    return outcome["mode"]
 
-    return "evaluation"
+
+def queue_response_evaluation(response):
+    job, event = prepare_response_evaluation(response)
+    return dispatch_prepared_evaluation(response, job, event)
 
 
 def queue_user_response_evaluation(response):

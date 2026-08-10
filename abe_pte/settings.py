@@ -359,17 +359,43 @@ EVALUATION_RECOVERY_BATCH_SIZE = int(
 EVALUATION_RECOVERY_INTERVAL_SECONDS = float(
     os.getenv("EVALUATION_RECOVERY_INTERVAL_SECONDS", "300")
 )
+EVALUATION_ENGINE_VERSION = os.getenv(
+    "EVALUATION_ENGINE_VERSION", "pte-evaluation-v1"
+)
+EVALUATION_JOB_LEASE_SECONDS = int(
+    os.getenv("EVALUATION_JOB_LEASE_SECONDS", "360")
+)
+EVALUATION_OUTBOX_BATCH_SIZE = int(
+    os.getenv("EVALUATION_OUTBOX_BATCH_SIZE", "100")
+)
+EVALUATION_OUTBOX_INTERVAL_SECONDS = float(
+    os.getenv("EVALUATION_OUTBOX_INTERVAL_SECONDS", "60")
+)
+EVALUATION_OUTBOX_STALE_SECONDS = int(
+    os.getenv("EVALUATION_OUTBOX_STALE_SECONDS", "300")
+)
+EVALUATION_OUTBOX_RETRY_BASE_SECONDS = int(
+    os.getenv("EVALUATION_OUTBOX_RETRY_BASE_SECONDS", "60")
+)
+EVALUATION_OUTBOX_RETRY_MAX_SECONDS = int(
+    os.getenv("EVALUATION_OUTBOX_RETRY_MAX_SECONDS", "900")
+)
 CELERY_TASK_ROUTES = {
     "mocktest.tasks.evaluate_user_response": {"queue": CELERY_EVALUATION_QUEUE},
     "mocktest.tasks.evaluate_single_response": {"queue": CELERY_EVALUATION_QUEUE},
     "mocktest.tasks.transcribe_task": {"queue": CELERY_TRANSCRIPTION_QUEUE},
     "mocktest.tasks.transcribe_single_task": {"queue": CELERY_TRANSCRIPTION_QUEUE},
     "mocktest.tasks.recover_stale_evaluations": {"queue": CELERY_TASK_DEFAULT_QUEUE},
+    "mocktest.tasks.dispatch_evaluation_outbox": {"queue": CELERY_TASK_DEFAULT_QUEUE},
 }
 CELERY_BEAT_SCHEDULE = {
     "recover-stale-evaluations": {
         "task": "mocktest.tasks.recover_stale_evaluations",
         "schedule": EVALUATION_RECOVERY_INTERVAL_SECONDS,
+    },
+    "dispatch-evaluation-outbox": {
+        "task": "mocktest.tasks.dispatch_evaluation_outbox",
+        "schedule": EVALUATION_OUTBOX_INTERVAL_SECONDS,
     },
 }
 

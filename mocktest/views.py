@@ -26,7 +26,8 @@ from .services.evaluation_input import (
 )
 from .services.evaluation_queue import (
     EvaluationQueueUnavailable,
-    queue_response_evaluation,
+    dispatch_prepared_evaluation,
+    prepare_response_evaluation,
 )
 from django.http import FileResponse
 
@@ -300,17 +301,23 @@ class SingleAPIView(APIView):
             )
 
                     
-        user_answer = SingleResponse.objects.create(
-            name= name,
-            question=question,
-            answer_data=answer,
-            answer_audio=audio_file,
-            transcribed_audio_data=None
-        )
+        with transaction.atomic():
+            user_answer = SingleResponse.objects.create(
+                name=name,
+                question=question,
+                answer_data=answer,
+                answer_audio=audio_file,
+                transcribed_audio_data=None,
+            )
+            evaluation_job, outbox_event = prepare_response_evaluation(user_answer)
         
         queue_failed = False
         try:
-            queue_response_evaluation(user_answer)
+            dispatch_prepared_evaluation(
+                user_answer,
+                evaluation_job,
+                outbox_event,
+            )
         except EvaluationQueueUnavailable:
             queue_failed = True
 
@@ -321,7 +328,7 @@ class SingleAPIView(APIView):
             "status": user_answer.evaluation_status,
             "stage": user_answer.evaluation_stage or "queued",
             "message": (
-                "Answer saved, but evaluation could not be queued. Retry from admin when the queue is healthy."
+                "Answer saved. Evaluation dispatch is delayed and will retry automatically."
                 if queue_failed
                 else "Evaluation queued. Poll evaluation status for results."
             ),
@@ -548,6 +555,7 @@ class UserResponseAPIView(APIView):
                     )
                     if is_final_mock_test_question(question, mock_test):
                         session.mark_completed()
+                evaluation_job, outbox_event = prepare_response_evaluation(user_answer)
         except IntegrityError:
             existing_response = UserResponse.objects.filter(
                 user_session=session,
@@ -559,7 +567,11 @@ class UserResponseAPIView(APIView):
         
         queue_failed = False
         try:
-            queue_response_evaluation(user_answer)
+            dispatch_prepared_evaluation(
+                user_answer,
+                evaluation_job,
+                outbox_event,
+            )
         except EvaluationQueueUnavailable:
             queue_failed = True
 
@@ -570,7 +582,7 @@ class UserResponseAPIView(APIView):
             "status": user_answer.evaluation_status,
             "stage": user_answer.evaluation_stage or "queued",
             "message": (
-                "Answer saved, but evaluation could not be queued. Retry from admin when the queue is healthy."
+                "Answer saved. Evaluation dispatch is delayed and will retry automatically."
                 if queue_failed
                 else (
                     "Replacement audio saved and evaluation queued."

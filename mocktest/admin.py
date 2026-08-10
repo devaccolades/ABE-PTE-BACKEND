@@ -717,6 +717,72 @@ class UserResponseAdmin(ModelAdmin):
     requeue_selected_evaluations.short_description = "Requeue selected evaluations"
 
 
+class EvaluationAuditAdmin(ModelAdmin):
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(EvaluationJob)
+class EvaluationJobAdmin(EvaluationAuditAdmin):
+    list_display = (
+        "id",
+        "response_type",
+        "response_id",
+        "question_id",
+        "status",
+        "current_attempt",
+        "engine_version",
+        "updated_at",
+    )
+    list_filter = ("response_type", "status", "engine_version")
+    search_fields = ("=response_id", "=question_id", "input_hash", "lease_owner")
+    ordering = ("-updated_at",)
+
+
+@admin.register(EvaluationAttempt)
+class EvaluationAttemptAdmin(EvaluationAuditAdmin):
+    list_display = (
+        "id",
+        "job",
+        "attempt_number",
+        "stage",
+        "provider",
+        "model",
+        "retryable",
+        "started_at",
+        "finished_at",
+    )
+    list_filter = ("stage", "provider", "model", "retryable", "error_category")
+    search_fields = (
+        "=job__response_id",
+        "task_id",
+        "provider_request_id",
+        "error_code",
+    )
+    ordering = ("-started_at",)
+
+
+@admin.register(EvaluationOutbox)
+class EvaluationOutboxAdmin(EvaluationAuditAdmin):
+    list_display = (
+        "event_id",
+        "job",
+        "event_type",
+        "publish_attempts",
+        "published_at",
+        "created_at",
+    )
+    list_filter = ("event_type", "published_at")
+    search_fields = ("=event_id", "=job__response_id", "last_error")
+    ordering = ("-created_at",)
+
+
 # =========================
 # OTHER MODELS
 # =========================

@@ -1,6 +1,8 @@
 from io import StringIO
 import csv
 import tempfile
+from contextlib import contextmanager
+from functools import wraps
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -8,7 +10,8 @@ from django.core.exceptions import ValidationError
 from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.template.loader import render_to_string
-from django.test import TestCase, override_settings
+from django.db import IntegrityError, connection, transaction
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 from unittest.mock import patch
 
@@ -34,6 +37,15 @@ from mocktest.services.evaluation_queue import (
     queue_response_evaluation,
 )
 from mocktest.tasks import evaluate_user_response, recover_stale_evaluations
+
+
+def with_legacy_duplicate_schema(test_method):
+    @wraps(test_method)
+    def wrapped(self, *args, **kwargs):
+        with self._legacy_duplicate_schema():
+            return test_method(self, *args, **kwargs)
+
+    return wrapped
 
 
 class ConfigureListeningFillBlanksCommandTests(TestCase):
@@ -1964,7 +1976,7 @@ class UserResponseSubmissionTests(TestCase):
         generate_pdf.assert_not_called()
 
 
-class EvaluationRepairToolTests(TestCase):
+class EvaluationRepairToolTests(TransactionTestCase):
     def _create_question(self):
         mock_test = MockTest.objects.create(title="Repair Test")
         section = Section.objects.create(name="Writing")
@@ -1985,6 +1997,37 @@ class EvaluationRepairToolTests(TestCase):
             text="Write an essay.",
         )
         return mock_test, question
+
+    def _create_related_question(self, question, name):
+        return Question.objects.create(
+            mock_test_section=question.mock_test_section,
+            subsection=question.subsection,
+            name=name,
+            text=f"{name} question.",
+        )
+
+    @contextmanager
+    def _legacy_duplicate_schema(self):
+        original_constraints = UserResponse._meta.constraints
+        constraint = next(
+            constraint
+            for constraint in original_constraints
+            if constraint.name == "uniq_userresp_session_question"
+        )
+        UserResponse._meta.constraints = [
+            item for item in original_constraints if item is not constraint
+        ]
+        try:
+            with connection.schema_editor() as schema_editor:
+                schema_editor.remove_constraint(UserResponse, constraint)
+            try:
+                yield
+            finally:
+                UserResponse.objects.all().delete()
+        finally:
+            UserResponse._meta.constraints = original_constraints
+            with connection.schema_editor() as schema_editor:
+                schema_editor.add_constraint(UserResponse, constraint)
 
     @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
     def test_queue_helper_requeues_user_response(self, mock_delay):
@@ -2417,6 +2460,8 @@ class EvaluationRepairToolTests(TestCase):
 
     def test_inspect_evaluations_filters_by_status_and_age(self):
         mock_test, question = self._create_question()
+        fresh_question = self._create_related_question(question, "WE-2")
+        pending_question = self._create_related_question(question, "WE-3")
         session = UserMockTestSession.objects.create(
             name="Student",
             session_id="filtered-inspection-session",
@@ -2434,7 +2479,7 @@ class EvaluationRepairToolTests(TestCase):
         fresh_failed = UserResponse.objects.create(
             user_session=session,
             mock_test=mock_test,
-            question=question,
+            question=fresh_question,
             answer_data={"text": "fresh failed"},
             evaluated=False,
             evaluation_status="failed",
@@ -2443,7 +2488,7 @@ class EvaluationRepairToolTests(TestCase):
         UserResponse.objects.create(
             user_session=session,
             mock_test=mock_test,
-            question=question,
+            question=pending_question,
             answer_data={"text": "old pending"},
             evaluated=False,
             evaluation_status="pending",
@@ -2474,6 +2519,8 @@ class EvaluationRepairToolTests(TestCase):
     @patch("mocktest.management.commands.requeue_pending_evaluations.queue_response_evaluation")
     def test_requeue_command_filters_by_status_and_age(self, mock_queue):
         mock_test, question = self._create_question()
+        fresh_question = self._create_related_question(question, "WE-2")
+        pending_question = self._create_related_question(question, "WE-3")
         session = UserMockTestSession.objects.create(
             name="Student",
             session_id="filtered-requeue-session",
@@ -2490,7 +2537,7 @@ class EvaluationRepairToolTests(TestCase):
         fresh_failed = UserResponse.objects.create(
             user_session=session,
             mock_test=mock_test,
-            question=question,
+            question=fresh_question,
             answer_data={"text": "fresh failed"},
             evaluated=False,
             evaluation_status="failed",
@@ -2498,7 +2545,7 @@ class EvaluationRepairToolTests(TestCase):
         old_pending = UserResponse.objects.create(
             user_session=session,
             mock_test=mock_test,
-            question=question,
+            question=pending_question,
             answer_data={"text": "old pending"},
             evaluated=False,
             evaluation_status="pending",
@@ -2570,6 +2617,8 @@ class EvaluationRepairToolTests(TestCase):
     @patch("mocktest.services.evaluation_queue.queue_response_evaluation")
     def test_recovery_task_only_requeues_stale_active_responses(self, mock_queue):
         mock_test, question = self._create_question()
+        fresh_question = self._create_related_question(question, "WE-2")
+        pending_question = self._create_related_question(question, "WE-3")
         session = UserMockTestSession.objects.create(
             name="Student",
             session_id="stale-recovery-session",
@@ -2592,14 +2641,14 @@ class EvaluationRepairToolTests(TestCase):
         UserResponse.objects.create(
             user_session=session,
             mock_test=mock_test,
-            question=question,
+            question=fresh_question,
             evaluation_status="evaluating",
             last_evaluation_attempt_at=timezone.now(),
         )
         UserResponse.objects.create(
             user_session=session,
             mock_test=mock_test,
-            question=question,
+            question=pending_question,
             evaluation_status="pending",
             last_evaluation_attempt_at=old_time,
         )
@@ -2616,6 +2665,30 @@ class EvaluationRepairToolTests(TestCase):
         self.assertEqual(result["processed"], 2)
         self.assertEqual(result["queue_failures"], 0)
 
+    def test_database_rejects_duplicate_session_question_responses(self):
+        mock_test, question = self._create_question()
+        session = UserMockTestSession.objects.create(
+            name="Student",
+            session_id="duplicate-constraint-session",
+            mock_test=mock_test,
+        )
+        UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            answer_data={"text": "first"},
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                UserResponse.objects.create(
+                    user_session=session,
+                    mock_test=mock_test,
+                    question=question,
+                    answer_data={"text": "duplicate"},
+                )
+
+    @with_legacy_duplicate_schema
     def test_inspect_duplicate_responses_reports_duplicate_session_question_pairs(self):
         mock_test, question = self._create_question()
         session = UserMockTestSession.objects.create(
@@ -2653,6 +2726,7 @@ class EvaluationRepairToolTests(TestCase):
         self.assertIn(f"id={second.id}", output)
         self.assertEqual(UserResponse.objects.count(), 2)
 
+    @with_legacy_duplicate_schema
     def test_cleanup_duplicate_responses_dry_run_keeps_rows(self):
         mock_test, question = self._create_question()
         session = UserMockTestSession.objects.create(
@@ -2691,6 +2765,7 @@ class EvaluationRepairToolTests(TestCase):
         with self.assertRaises(CommandError):
             call_command("cleanup_duplicate_responses", "--limit", "0")
 
+    @with_legacy_duplicate_schema
     def test_cleanup_duplicate_responses_deletes_candidates_when_confirmed(self):
         mock_test, question = self._create_question()
         session = UserMockTestSession.objects.create(
@@ -2726,6 +2801,7 @@ class EvaluationRepairToolTests(TestCase):
         self.assertTrue(UserResponse.objects.filter(id=keep.id).exists())
         self.assertFalse(UserResponse.objects.filter(id=delete_candidate.id).exists())
 
+    @with_legacy_duplicate_schema
     def test_cleanup_duplicate_responses_can_recalculate_affected_sessions(self):
         mock_test, question = self._create_question()
         question.writing_score_max = 2
@@ -2797,6 +2873,7 @@ class EvaluationRepairToolTests(TestCase):
 
     def test_recalculate_session_scores_only_complete_skips_pending_sessions(self):
         mock_test, question = self._create_question()
+        pending_question = self._create_related_question(question, "WE-2")
         complete_session = UserMockTestSession.objects.create(
             name="Complete Student",
             session_id="complete-score-session",
@@ -2818,7 +2895,7 @@ class EvaluationRepairToolTests(TestCase):
         UserResponse.objects.create(
             user_session=incomplete_session,
             mock_test=mock_test,
-            question=question,
+            question=pending_question,
             answer_data={"text": "answer"},
             evaluated=True,
             evaluation_status="completed",
@@ -2848,6 +2925,7 @@ class EvaluationRepairToolTests(TestCase):
 
     def test_recalculate_session_scores_reports_incomplete_counts(self):
         mock_test, question = self._create_question()
+        pending_question = self._create_related_question(question, "WE-2")
         session = UserMockTestSession.objects.create(
             name="Incomplete Student",
             session_id="incomplete-count-session",
@@ -2856,7 +2934,7 @@ class EvaluationRepairToolTests(TestCase):
         UserResponse.objects.create(
             user_session=session,
             mock_test=mock_test,
-            question=question,
+            question=pending_question,
             answer_data={"text": "answer"},
             evaluated=True,
             evaluation_status="completed",
@@ -2886,6 +2964,7 @@ class EvaluationRepairToolTests(TestCase):
         self.assertIn("failed=1", output)
         self.assertIn("status=incomplete", output)
 
+    @with_legacy_duplicate_schema
     def test_recalculate_session_scores_reports_duplicate_groups(self):
         mock_test, question = self._create_question()
         session = UserMockTestSession.objects.create(
@@ -2921,6 +3000,7 @@ class EvaluationRepairToolTests(TestCase):
 
         self.assertIn("duplicate_groups=1", stdout.getvalue())
 
+    @with_legacy_duplicate_schema
     def test_recalculate_session_scores_can_skip_duplicate_groups(self):
         mock_test, question = self._create_question()
         session = UserMockTestSession.objects.create(

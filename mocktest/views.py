@@ -384,14 +384,18 @@ class StartMockTestAPIView(APIView):
             return Response({"error": "Name and mocktest_id are required."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            mocktest = MockTest.objects.get(pk=mocktest_id)
+            mocktest = MockTest.objects.get(pk=mocktest_id, is_active=True)
         except MockTest.DoesNotExist:
-            return Response({"error": "Mock test not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Active mock test not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         session = UserMockTestSession.objects.create(
             name=name,
             session_id=str(uuid.uuid4()),
-            mock_test=mocktest
+            mock_test=mocktest,
+            scoring_mode=mocktest.scoring_mode,
         )
 
         return Response({

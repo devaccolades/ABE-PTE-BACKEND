@@ -36,6 +36,33 @@ class MockTestAdminForm(forms.ModelForm):
         self.instance._publication_validation_passed = True
         return True
 
+    def clean_scoring_mode(self):
+        scoring_mode = self.cleaned_data.get("scoring_mode", "shadow")
+        if scoring_mode != "v2":
+            return scoring_mode
+
+        is_active = self.cleaned_data.get("is_active", self.instance.is_active)
+        if not is_active:
+            raise forms.ValidationError(
+                "V2 can only be enabled for an active mock test."
+            )
+        if not self.instance.pk:
+            raise forms.ValidationError(
+                "Save and validate the mock test before enabling V2."
+            )
+
+        errors = publication_errors(self.instance)
+        if errors:
+            details = [
+                self._format_publication_error(issue) for issue in errors[:10]
+            ]
+            if len(errors) > 10:
+                details.append(f"And {len(errors) - 10} more error(s).")
+            raise forms.ValidationError(details)
+
+        self.instance._publication_validation_passed = True
+        return scoring_mode
+
     @staticmethod
     def _format_publication_error(issue):
         question = (

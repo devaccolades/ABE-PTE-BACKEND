@@ -1,4 +1,5 @@
 import csv
+from collections import defaultdict
 from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
@@ -66,8 +67,98 @@ class Command(BaseCommand):
         self.stdout.write(f"Score-changing responses: {changed}")
         self.stdout.write(f"V2 compile errors: {compile_errors}")
         self.stdout.write(f"Stored legacy mismatches: {stored_mismatches}")
+        self._print_summary(rows)
         self.stdout.write(f"Report: {Path(options['output']).resolve()}")
         self.stdout.write("Read-only report. No response or session scores were changed.")
+
+    def _print_summary(self, rows):
+        subsection_summary = defaultdict(
+            lambda: {"checked": 0, "changed": 0, "errors": 0}
+        )
+        skill_summary = {
+            skill: {
+                "changed": 0,
+                "positive": 0,
+                "negative": 0,
+                "absolute_total": 0.0,
+                "maximum_absolute": 0.0,
+            }
+            for skill in sorted(VALID_SKILLS)
+        }
+        largest = []
+
+        for row in rows:
+            subsection = subsection_summary[row["subsection"]]
+            subsection["checked"] += 1
+            subsection["changed"] += row["score_changes"] == "yes"
+            subsection["errors"] += bool(row["v2_error"])
+
+            if row["v2_error"]:
+                continue
+
+            response_deltas = []
+            for skill in sorted(VALID_SKILLS):
+                value = row[f"delta_{skill}"]
+                if value == "":
+                    continue
+                delta = float(value)
+                if abs(delta) <= 1e-9:
+                    continue
+                summary = skill_summary[skill]
+                summary["changed"] += 1
+                summary["positive"] += delta > 0
+                summary["negative"] += delta < 0
+                summary["absolute_total"] += abs(delta)
+                summary["maximum_absolute"] = max(
+                    summary["maximum_absolute"],
+                    abs(delta),
+                )
+                response_deltas.append((skill, delta))
+
+            if response_deltas:
+                maximum_absolute = max(abs(delta) for _skill, delta in response_deltas)
+                largest.append((maximum_absolute, row, response_deltas))
+
+        self.stdout.write("")
+        self.stdout.write("By subsection")
+        self.stdout.write("-------------")
+        for subsection, summary in sorted(subsection_summary.items()):
+            self.stdout.write(
+                f"{subsection}: checked={summary['checked']} | "
+                f"changed={summary['changed']} | errors={summary['errors']}"
+            )
+
+        self.stdout.write("")
+        self.stdout.write("By skill")
+        self.stdout.write("--------")
+        for skill, summary in skill_summary.items():
+            self.stdout.write(
+                f"{skill}: changed={summary['changed']} | "
+                f"positive={summary['positive']} | "
+                f"negative={summary['negative']} | "
+                f"absolute_total={summary['absolute_total']:.4f} | "
+                f"maximum_absolute={summary['maximum_absolute']:.4f}"
+            )
+
+        self.stdout.write("")
+        self.stdout.write("Largest response deltas")
+        self.stdout.write("-----------------------")
+        if not largest:
+            self.stdout.write("None")
+            return
+        for maximum_absolute, row, response_deltas in sorted(
+            largest,
+            key=lambda item: (-item[0], item[1]["model"], item[1]["response_id"]),
+        )[:10]:
+            deltas = ", ".join(
+                f"{skill}={delta:+.4f}" for skill, delta in response_deltas
+            )
+            self.stdout.write(
+                f"model={row['model']} | response={row['response_id']} | "
+                f"session={row['session_id']} | question={row['question_id']} | "
+                f"subsection={row['subsection']} | max_abs={maximum_absolute:.4f} | "
+                f"{deltas}"
+            )
 
     def _user_responses(self, options):
         responses = UserResponse.objects.filter(

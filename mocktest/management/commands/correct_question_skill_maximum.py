@@ -78,9 +78,7 @@ class Command(BaseCommand):
         now = timezone.now().isoformat()
 
         with transaction.atomic():
-            question = Question.objects.select_for_update().select_related(
-                "subsection"
-            ).get(pk=question_id)
+            question = Question.objects.select_for_update().get(pk=question_id)
             self._check_current(question, field, old_maximum)
             self._check_skill_mapping(question, skill)
 

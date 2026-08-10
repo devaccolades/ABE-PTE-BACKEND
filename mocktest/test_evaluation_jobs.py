@@ -85,6 +85,28 @@ class EvaluationJobTests(TestCase):
         mock_delay.assert_called_once_with(self.response.pk, self.question.pk)
 
     @patch("mocktest.tasks.evaluate_user_response.delay")
+    def test_publish_success_does_not_overwrite_fast_worker_completion(
+        self,
+        mock_delay,
+    ):
+        def complete_during_publish(*args, **kwargs):
+            EvaluationJob.objects.update(
+                status="completed",
+                lease_owner="",
+                lease_expires_at=None,
+            )
+
+        mock_delay.side_effect = complete_during_publish
+
+        mode = queue_response_evaluation(self.response)
+
+        self.assertEqual(mode, "evaluation")
+        job = EvaluationJob.objects.get()
+        event = EvaluationOutbox.objects.get()
+        self.assertEqual(job.status, "completed")
+        self.assertIsNotNone(event.published_at)
+
+    @patch("mocktest.tasks.evaluate_user_response.delay")
     def test_repeated_queue_request_does_not_publish_twice(self, mock_delay):
         first_mode = queue_response_evaluation(self.response)
         second_mode = queue_response_evaluation(self.response)

@@ -233,4 +233,15 @@ class ResponseScorePersistenceTests(TestCase):
         self.assertEqual({row["delta_reading"] for row in rows}, {"3.2"})
         self.assertEqual(user_response.reading_score_awarded, 0.8)
         self.assertEqual(single_response.reading_score_awarded, 0.8)
+        self.assertIn(
+            "fib_drag_drop: checked=2 | changed=2 | errors=0",
+            stdout.getvalue(),
+        )
+        self.assertIn(
+            "reading: changed=2 | positive=2 | negative=0 | "
+            "absolute_total=6.4000 | maximum_absolute=3.2000",
+            stdout.getvalue(),
+        )
+        self.assertIn("Largest response deltas", stdout.getvalue())
+        self.assertIn("reading=+3.2000", stdout.getvalue())
         self.assertIn("No response or session scores were changed", stdout.getvalue())

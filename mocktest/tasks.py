@@ -52,9 +52,22 @@ def save_evaluation_failure(response, stage, error, extra=None):
             "evaluation_error",
         ]
     )
+    from mocktest.services.evaluation_jobs import finish_evaluation_attempt
+
+    finish_evaluation_attempt(
+        response,
+        succeeded=False,
+        error=error,
+        retryable=is_transient_error(error),
+    )
 
 
-def mark_evaluation_attempt(response, status, stage):
+def mark_evaluation_attempt(response, status, stage, task_id=""):
+    from mocktest.services.evaluation_jobs import start_evaluation_attempt
+
+    claim_status = start_evaluation_attempt(response, stage, task_id=task_id)
+    if claim_status in {"busy", "completed"}:
+        return claim_status
     response.evaluation_status = status
     response.evaluation_stage = stage
     response.evaluation_error = ""
@@ -69,6 +82,7 @@ def mark_evaluation_attempt(response, status, stage):
             "last_evaluation_attempt_at",
         ]
     )
+    return claim_status
 
 
 def is_transient_evaluation_error(evaluation_result):
@@ -78,12 +92,17 @@ def is_transient_evaluation_error(evaluation_result):
     error = str(evaluation_result.get("error", "")).lower()
     transient_terms = (
         "timeout",
+        "time limit",
         "rate limit",
         "connection",
         "temporarily",
         "service unavailable",
     )
     return any(term in error for term in transient_terms)
+
+
+def is_transient_error(error):
+    return is_transient_evaluation_error({"error": str(error)})
 
 
 def validation_rubric_for_subsection(subsection):
@@ -226,7 +245,16 @@ def transcribe_task(self,user_response_id,):
         .select_related("question__subsection")
         .get(id=user_response_id)
     )
-    mark_evaluation_attempt(user_response, "transcribing", "transcription")
+    claim_status = mark_evaluation_attempt(
+        user_response,
+        "transcribing",
+        "transcription",
+        task_id=self.request.id or "",
+    )
+    if claim_status == "completed":
+        return user_response_id
+    if claim_status == "busy":
+        raise self.retry(exc=RuntimeError("Evaluation job lease is active"), countdown=15)
 
     if not user_response.answer_audio:
         error = save_missing_audio_failure(user_response)
@@ -250,6 +278,14 @@ def transcribe_task(self,user_response_id,):
 
         user_response.transcribed_audio_data = transcript
         user_response.save()
+        from mocktest.services.evaluation_jobs import finish_evaluation_attempt
+
+        finish_evaluation_attempt(
+            user_response,
+            succeeded=True,
+            result={"transcription": transcript},
+            final=False,
+        )
     except Exception as e:
         save_evaluation_failure(user_response, "transcription", e)
         raise self.retry(exc=e)
@@ -275,7 +311,20 @@ def evaluate_user_response(self, user_answer_id, question_id):
         except UserResponse.DoesNotExist:
             return {"error": f"UserResponse {user_answer_id} does not exist"}
 
-        mark_evaluation_attempt(user_answer, "evaluating", "evaluation")
+        claim_status = mark_evaluation_attempt(
+            user_answer,
+            "evaluating",
+            "evaluation",
+            task_id=self.request.id or "",
+        )
+        if claim_status == "completed":
+            return {
+                "status": "already_completed",
+                "user_answer_id": user_answer_id,
+                "question_id": user_answer.question_id,
+            }
+        if claim_status == "busy":
+            raise self.retry(exc=RuntimeError("Evaluation job lease is active"), countdown=15)
 
         queued_question_id, error = normalize_queued_question_id(
             user_answer,
@@ -363,6 +412,14 @@ def evaluate_user_response(self, user_answer_id, question_id):
                     "evaluation_error",
                 ]
             )
+            from mocktest.services.evaluation_jobs import finish_evaluation_attempt
+
+            finish_evaluation_attempt(
+                user_answer,
+                succeeded=False,
+                error=user_answer.evaluation_error,
+                retryable=is_transient_evaluation_error(evaluation_result),
+            )
             if is_transient_evaluation_error(evaluation_result):
                 raise self.retry(exc=Exception(evaluation_result.get("error")))
             raise EvaluationTaskFailed(user_answer.evaluation_error)
@@ -386,6 +443,14 @@ def evaluate_user_response(self, user_answer_id, question_id):
 
             # 3️⃣ Aggregate to session totals (UserMockTestSession)
             user_answer.user_session.aggregate_scores()
+
+        from mocktest.services.evaluation_jobs import finish_evaluation_attempt
+
+        finish_evaluation_attempt(
+            user_answer,
+            succeeded=True,
+            result=evaluation_result,
+        )
 
         return {
             "status": "success",
@@ -427,7 +492,16 @@ def transcribe_single_task(self,user_response_id,):
         .select_related("question__subsection")
         .get(id=user_response_id)
     )
-    mark_evaluation_attempt(user_response, "transcribing", "transcription")
+    claim_status = mark_evaluation_attempt(
+        user_response,
+        "transcribing",
+        "transcription",
+        task_id=self.request.id or "",
+    )
+    if claim_status == "completed":
+        return user_response_id
+    if claim_status == "busy":
+        raise self.retry(exc=RuntimeError("Evaluation job lease is active"), countdown=15)
 
     if not user_response.answer_audio:
         error = save_missing_audio_failure(user_response)
@@ -451,6 +525,14 @@ def transcribe_single_task(self,user_response_id,):
 
         user_response.transcribed_audio_data = transcript
         user_response.save()
+        from mocktest.services.evaluation_jobs import finish_evaluation_attempt
+
+        finish_evaluation_attempt(
+            user_response,
+            succeeded=True,
+            result={"transcription": transcript},
+            final=False,
+        )
     except Exception as e:
         save_evaluation_failure(user_response, "transcription", e)
         raise self.retry(exc=e)
@@ -474,7 +556,20 @@ def evaluate_single_response(self, user_answer_id, question_id):
         except SingleResponse.DoesNotExist:
             return {"error": f"UserResponse {user_answer_id} does not exist"}
 
-        mark_evaluation_attempt(user_answer, "evaluating", "evaluation")
+        claim_status = mark_evaluation_attempt(
+            user_answer,
+            "evaluating",
+            "evaluation",
+            task_id=self.request.id or "",
+        )
+        if claim_status == "completed":
+            return {
+                "status": "already_completed",
+                "user_answer_id": user_answer_id,
+                "question_id": user_answer.question_id,
+            }
+        if claim_status == "busy":
+            raise self.retry(exc=RuntimeError("Evaluation job lease is active"), countdown=15)
 
         queued_question_id, error = normalize_queued_question_id(
             user_answer,
@@ -562,6 +657,14 @@ def evaluate_single_response(self, user_answer_id, question_id):
                     "evaluation_error",
                 ]
             )
+            from mocktest.services.evaluation_jobs import finish_evaluation_attempt
+
+            finish_evaluation_attempt(
+                user_answer,
+                succeeded=False,
+                error=user_answer.evaluation_error,
+                retryable=is_transient_evaluation_error(evaluation_result),
+            )
             if is_transient_evaluation_error(evaluation_result):
                 raise self.retry(exc=Exception(evaluation_result.get("error")))
             raise EvaluationTaskFailed(user_answer.evaluation_error)
@@ -585,6 +688,14 @@ def evaluate_single_response(self, user_answer_id, question_id):
 
             # 3️⃣ Aggregate to session totals (UserMockTestSession)
             # user_answer.user_session.aggregate_scores()
+
+        from mocktest.services.evaluation_jobs import finish_evaluation_attempt
+
+        finish_evaluation_attempt(
+            user_answer,
+            succeeded=True,
+            result=evaluation_result,
+        )
 
         return {
             "status": "success",
@@ -613,6 +724,20 @@ def evaluate_single_response(self, user_answer_id, question_id):
         except SingleResponse.DoesNotExist:
             pass
         raise
+
+
+@shared_task
+def dispatch_evaluation_outbox(batch_size=None):
+    """Publish durable evaluation events that were not accepted by Redis."""
+    from django.conf import settings
+    from mocktest.services.evaluation_jobs import dispatch_pending_outbox_events
+
+    batch_size = (
+        settings.EVALUATION_OUTBOX_BATCH_SIZE
+        if batch_size is None
+        else int(batch_size)
+    )
+    return dispatch_pending_outbox_events(batch_size=batch_size)
 
 
 @shared_task
@@ -675,8 +800,7 @@ def recover_stale_evaluations(stale_after_minutes=None, batch_size=None):
 
             try:
                 queue_response_evaluation(response)
-            except Exception as exc:
-                save_evaluation_failure(response, "queueing", exc)
+            except Exception:
                 queue_failures += 1
                 continue
 

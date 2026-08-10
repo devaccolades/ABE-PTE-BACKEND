@@ -1,7 +1,12 @@
 from celery import current_app
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import Min
+from django.db.utils import OperationalError, ProgrammingError
+from django.utils import timezone
 from redis import Redis
+
+from mocktest.models import EvaluationOutbox
 
 
 class Command(BaseCommand):
@@ -38,6 +43,7 @@ class Command(BaseCommand):
         self._check_openai_settings(failures)
         self._check_scoring_settings(failures)
         self._check_celery_settings(failures)
+        self._check_evaluation_outbox(failures)
 
         if not options["skip_redis"]:
             self._check_redis("broker", settings.CELERY_BROKER_URL, timeout, failures)
@@ -112,6 +118,30 @@ class Command(BaseCommand):
             "CELERY_VISIBILITY_TIMEOUT_SECONDS="
             f"{settings.CELERY_BROKER_TRANSPORT_OPTIONS['visibility_timeout']}"
         )
+        self.stdout.write(
+            f"EVALUATION_ENGINE_VERSION={settings.EVALUATION_ENGINE_VERSION}"
+        )
+        self.stdout.write(
+            f"EVALUATION_JOB_LEASE_SECONDS={settings.EVALUATION_JOB_LEASE_SECONDS}"
+        )
+        self.stdout.write(
+            f"EVALUATION_OUTBOX_BATCH_SIZE={settings.EVALUATION_OUTBOX_BATCH_SIZE}"
+        )
+        self.stdout.write(
+            "EVALUATION_OUTBOX_INTERVAL_SECONDS="
+            f"{settings.EVALUATION_OUTBOX_INTERVAL_SECONDS}"
+        )
+        self.stdout.write(
+            f"EVALUATION_OUTBOX_STALE_SECONDS={settings.EVALUATION_OUTBOX_STALE_SECONDS}"
+        )
+        self.stdout.write(
+            "EVALUATION_OUTBOX_RETRY_BASE_SECONDS="
+            f"{settings.EVALUATION_OUTBOX_RETRY_BASE_SECONDS}"
+        )
+        self.stdout.write(
+            "EVALUATION_OUTBOX_RETRY_MAX_SECONDS="
+            f"{settings.EVALUATION_OUTBOX_RETRY_MAX_SECONDS}"
+        )
 
         if not settings.CELERY_TASK_ACKS_LATE:
             failures.append("CELERY_TASK_ACKS_LATE must be enabled")
@@ -121,6 +151,57 @@ class Command(BaseCommand):
             failures.append("CELERY_WORKER_PREFETCH_MULTIPLIER must be 1")
         if settings.CELERY_TASK_SOFT_TIME_LIMIT >= settings.CELERY_TASK_TIME_LIMIT:
             failures.append("Celery soft time limit must be lower than the hard time limit")
+        if settings.EVALUATION_JOB_LEASE_SECONDS < settings.CELERY_TASK_TIME_LIMIT:
+            failures.append(
+                "Evaluation job lease must be at least the Celery hard time limit"
+            )
+        if settings.EVALUATION_OUTBOX_BATCH_SIZE < 1:
+            failures.append("EVALUATION_OUTBOX_BATCH_SIZE must be at least 1")
+        if settings.EVALUATION_OUTBOX_INTERVAL_SECONDS <= 0:
+            failures.append("EVALUATION_OUTBOX_INTERVAL_SECONDS must be positive")
+        if settings.EVALUATION_OUTBOX_STALE_SECONDS < settings.EVALUATION_OUTBOX_INTERVAL_SECONDS:
+            failures.append(
+                "Evaluation outbox stale threshold must be at least its dispatch interval"
+            )
+        if settings.EVALUATION_OUTBOX_RETRY_BASE_SECONDS < 1:
+            failures.append("Evaluation outbox retry base must be at least 1 second")
+        if (
+            settings.EVALUATION_OUTBOX_RETRY_MAX_SECONDS
+            < settings.EVALUATION_OUTBOX_RETRY_BASE_SECONDS
+        ):
+            failures.append(
+                "Evaluation outbox retry maximum must be at least its retry base"
+            )
+
+    def _check_evaluation_outbox(self, failures):
+        self.stdout.write("")
+        self.stdout.write("Evaluation outbox")
+        self.stdout.write("-----------------")
+        try:
+            unpublished = EvaluationOutbox.objects.filter(published_at__isnull=True)
+            count = unpublished.count()
+            failed_count = unpublished.exclude(last_error="").count()
+            oldest = unpublished.aggregate(value=Min("created_at"))["value"]
+        except (OperationalError, ProgrammingError):
+            self.stdout.write("status=unavailable")
+            failures.append(
+                "Evaluation outbox table is unavailable; apply pending migrations"
+            )
+            return
+
+        self.stdout.write(f"unpublished={count}")
+        self.stdout.write(f"with_publish_error={failed_count}")
+        if oldest is None:
+            self.stdout.write("oldest_age_seconds=0")
+            return
+
+        age_seconds = max(0, int((timezone.now() - oldest).total_seconds()))
+        self.stdout.write(f"oldest_age_seconds={age_seconds}")
+        if age_seconds > settings.EVALUATION_OUTBOX_STALE_SECONDS:
+            failures.append(
+                f"Evaluation outbox has unpublished work older than "
+                f"{settings.EVALUATION_OUTBOX_STALE_SECONDS} seconds"
+            )
 
     def _print_secret_presence(self, name, value, failures):
         if value:

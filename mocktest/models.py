@@ -619,3 +619,150 @@ class SingleResponse(models.Model):
                 name="singleresp_status_attempt_idx",
             ),
         ]
+
+
+class EvaluationJob(models.Model):
+    RESPONSE_TYPE_CHOICES = (
+        ("user", "User response"),
+        ("single", "Single response"),
+    )
+    STATUS_CHOICES = (
+        ("waiting_dispatch", "Waiting for dispatch"),
+        ("dispatched", "Dispatched"),
+        ("processing", "Processing"),
+        ("waiting_retry", "Waiting to retry"),
+        ("completed", "Completed"),
+        ("failed_permanent", "Permanently failed"),
+        ("manual_review", "Manual review"),
+    )
+
+    response_type = models.CharField(max_length=10, choices=RESPONSE_TYPE_CHOICES)
+    response_id = models.PositiveBigIntegerField()
+    question_id = models.PositiveBigIntegerField()
+    input_hash = models.CharField(max_length=64)
+    engine_version = models.CharField(max_length=64)
+    revision = models.PositiveIntegerField(default=1)
+    status = models.CharField(
+        max_length=24,
+        choices=STATUS_CHOICES,
+        default="waiting_dispatch",
+        db_index=True,
+    )
+    current_attempt = models.PositiveIntegerField(default=0)
+    available_at = models.DateTimeField(default=timezone.now, db_index=True)
+    lease_owner = models.CharField(max_length=255, blank=True, default="")
+    lease_expires_at = models.DateTimeField(blank=True, null=True)
+    input_snapshot = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.response_type}:{self.response_id} [{self.status}]"
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "response_type",
+                    "response_id",
+                    "input_hash",
+                    "engine_version",
+                    "revision",
+                ],
+                name="uniq_evaluation_job_revision",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["response_type", "response_id", "-created_at"],
+                name="evaljob_response_created_idx",
+            ),
+            models.Index(
+                fields=["status", "available_at"],
+                name="evaljob_status_available_idx",
+            ),
+        ]
+
+
+class EvaluationAttempt(models.Model):
+    job = models.ForeignKey(
+        EvaluationJob,
+        on_delete=models.CASCADE,
+        related_name="attempts",
+    )
+    attempt_number = models.PositiveIntegerField()
+    stage = models.CharField(max_length=50)
+    task_id = models.CharField(max_length=255, blank=True, default="")
+    provider = models.CharField(max_length=50, blank=True, default="")
+    model = models.CharField(max_length=100, blank=True, default="")
+    prompt_version = models.CharField(max_length=64, blank=True, default="")
+    scoring_version = models.CharField(max_length=64, blank=True, default="")
+    provider_request_id = models.CharField(max_length=255, blank=True, default="")
+    started_at = models.DateTimeField(default=timezone.now)
+    finished_at = models.DateTimeField(blank=True, null=True)
+    latency_ms = models.PositiveBigIntegerField(blank=True, null=True)
+    input_snapshot = models.JSONField(default=dict)
+    raw_result = models.JSONField(default=dict)
+    normalized_result = models.JSONField(default=dict)
+    error_category = models.CharField(max_length=50, blank=True, default="")
+    error_code = models.CharField(max_length=100, blank=True, default="")
+    error_detail = models.TextField(blank=True, default="")
+    retryable = models.BooleanField(default=False)
+    token_usage = models.JSONField(default=dict)
+    estimated_cost = models.DecimalField(
+        max_digits=12,
+        decimal_places=6,
+        blank=True,
+        null=True,
+    )
+
+    def __str__(self):
+        return f"{self.job} attempt {self.attempt_number} ({self.stage})"
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["job", "attempt_number"],
+                name="uniq_evaluation_attempt_number",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["job", "-attempt_number"],
+                name="evalattempt_job_number_idx",
+            ),
+        ]
+
+
+class EvaluationOutbox(models.Model):
+    event_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    job = models.ForeignKey(
+        EvaluationJob,
+        on_delete=models.CASCADE,
+        related_name="outbox_events",
+    )
+    event_type = models.CharField(max_length=50, default="dispatch")
+    created_at = models.DateTimeField(auto_now_add=True)
+    published_at = models.DateTimeField(blank=True, null=True)
+    publish_attempts = models.PositiveIntegerField(default=0)
+    last_error = models.TextField(blank=True, default="")
+    locked_at = models.DateTimeField(blank=True, null=True)
+    lock_token = models.UUIDField(blank=True, null=True)
+
+    def __str__(self):
+        return f"{self.event_type}:{self.event_id}"
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["job", "event_type"],
+                condition=models.Q(published_at__isnull=True),
+                name="uniq_unpublished_job_event",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["published_at", "created_at"],
+                name="evaloutbox_publish_created_idx",
+            ),
+        ]

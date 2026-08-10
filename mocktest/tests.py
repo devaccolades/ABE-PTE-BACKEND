@@ -16,6 +16,7 @@ from django.utils import timezone
 from unittest.mock import patch
 
 from mocktest.models import (
+    EvaluationOutbox,
     MockTest,
     MockTestSection,
     GlobalRubric,
@@ -1313,7 +1314,7 @@ class UserResponseSubmissionTests(TestCase):
             text=f"{section_name} question",
         )
 
-    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
+    @patch("mocktest.tasks.evaluate_user_response.delay")
     def test_user_response_question_lookup_is_scoped_to_session_mock_test(self, mock_delay):
         first_mock_test = MockTest.objects.create(title="First")
         second_mock_test = MockTest.objects.create(title="Second")
@@ -1343,7 +1344,7 @@ class UserResponseSubmissionTests(TestCase):
         mock_delay.assert_called_once_with(saved.id, first_question.id)
 
     @patch(
-        "mocktest.services.evaluation_queue.evaluate_user_response.delay",
+        "mocktest.tasks.evaluate_user_response.delay",
         side_effect=ConnectionError("Redis unavailable"),
     )
     def test_user_response_is_preserved_when_queue_is_unavailable(self, mock_delay):
@@ -1369,17 +1370,20 @@ class UserResponseSubmissionTests(TestCase):
         evaluation = response.json()["evaluation"]
         self.assertFalse(evaluation["queued"])
         self.assertTrue(evaluation["retryable"])
-        self.assertEqual(evaluation["status"], "failed")
+        self.assertEqual(evaluation["status"], "pending")
         self.assertEqual(evaluation["stage"], "queueing")
 
         saved = UserResponse.objects.get()
         self.assertEqual(saved.answer_data, {"text": "preserve this answer"})
-        self.assertEqual(saved.evaluation_status, "failed")
+        self.assertEqual(saved.evaluation_status, "pending")
         self.assertEqual(saved.evaluation_stage, "queueing")
         self.assertIn("Evaluation queue unavailable", saved.evaluation_error)
+        outbox_event = EvaluationOutbox.objects.get(job__response_id=saved.id)
+        self.assertIsNone(outbox_event.published_at)
+        self.assertEqual(outbox_event.publish_attempts, 1)
         mock_delay.assert_called_once_with(saved.id, question.id)
 
-    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
+    @patch("mocktest.tasks.evaluate_user_response.delay")
     def test_user_response_duplicate_question_names_in_same_mock_test_are_rejected(self, mock_delay):
         mock_test = MockTest.objects.create(title="Duplicate Test")
         self._create_question_set(mock_test, "Writing One", "Q-1")
@@ -1404,7 +1408,7 @@ class UserResponseSubmissionTests(TestCase):
         self.assertFalse(UserResponse.objects.exists())
         mock_delay.assert_not_called()
 
-    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
+    @patch("mocktest.tasks.evaluate_user_response.delay")
     def test_user_response_can_submit_by_question_id_when_names_duplicate(self, mock_delay):
         mock_test = MockTest.objects.create(title="Duplicate Test")
         first_question = self._create_question_set(mock_test, "Writing One", "Q-1")
@@ -1430,7 +1434,7 @@ class UserResponseSubmissionTests(TestCase):
         self.assertEqual(saved.question_id, first_question.id)
         mock_delay.assert_called_once_with(saved.id, first_question.id)
 
-    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
+    @patch("mocktest.tasks.evaluate_user_response.delay")
     def test_user_response_rejects_duplicate_submission_for_same_session_question(self, mock_delay):
         mock_test = MockTest.objects.create(title="Duplicate Submission Test")
         question = self._create_question_set(mock_test, "Writing", "Q-1")
@@ -1474,7 +1478,7 @@ class UserResponseSubmissionTests(TestCase):
 
         self.assertEqual(tuple(constraint.fields), ("user_session", "question"))
 
-    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
+    @patch("mocktest.tasks.evaluate_user_response.delay")
     def test_user_response_requires_question_identifier(self, mock_delay):
         mock_test = MockTest.objects.create(title="Missing Question")
         session = UserMockTestSession.objects.create(
@@ -1496,7 +1500,7 @@ class UserResponseSubmissionTests(TestCase):
         self.assertFalse(UserResponse.objects.exists())
         mock_delay.assert_not_called()
 
-    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
+    @patch("mocktest.tasks.evaluate_user_response.delay")
     def test_user_response_rejects_invalid_question_id(self, mock_delay):
         mock_test = MockTest.objects.create(title="Bad Question ID")
         session = UserMockTestSession.objects.create(
@@ -1519,7 +1523,7 @@ class UserResponseSubmissionTests(TestCase):
         self.assertFalse(UserResponse.objects.exists())
         mock_delay.assert_not_called()
 
-    @patch("mocktest.services.evaluation_queue.evaluate_single_response.delay")
+    @patch("mocktest.tasks.evaluate_single_response.delay")
     def test_single_response_rejects_duplicate_question_names_without_id(self, mock_delay):
         first_mock_test = MockTest.objects.create(title="First")
         second_mock_test = MockTest.objects.create(title="Second")
@@ -1540,7 +1544,7 @@ class UserResponseSubmissionTests(TestCase):
         self.assertFalse(SingleResponse.objects.exists())
         mock_delay.assert_not_called()
 
-    @patch("mocktest.services.evaluation_queue.evaluate_single_response.delay")
+    @patch("mocktest.tasks.evaluate_single_response.delay")
     def test_single_response_can_submit_by_question_id(self, mock_delay):
         mock_test = MockTest.objects.create(title="Single Test")
         question = self._create_question_set(mock_test, "Writing", "Q-1")
@@ -1562,7 +1566,7 @@ class UserResponseSubmissionTests(TestCase):
         self.assertEqual(saved.question_id, question.id)
         mock_delay.assert_called_once_with(saved.id, question.id)
 
-    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
+    @patch("mocktest.tasks.evaluate_user_response.delay")
     def test_user_response_requires_audio_file_for_audio_question(self, mock_delay):
         mock_test = MockTest.objects.create(title="Audio Test")
         question = self._create_question_set(mock_test, "Speaking", "RA-1")
@@ -1610,7 +1614,7 @@ class UserResponseSubmissionTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["results"][0]["ai_input_type"], "audio")
 
-    @patch("mocktest.services.evaluation_queue.chain")
+    @patch("mocktest.services.evaluation_jobs.chain")
     def test_audio_upload_is_stored_and_survives_response_updates(self, mock_chain):
         mock_test = MockTest.objects.create(title="Audio Storage Test")
         question = self._create_question_set(mock_test, "Speaking", "RA-1")
@@ -1657,7 +1661,7 @@ class UserResponseSubmissionTests(TestCase):
                 self.assertTrue(saved.answer_audio.storage.exists(saved.answer_audio.name))
                 mock_chain.return_value.delay.assert_called_once()
 
-    @patch("mocktest.services.evaluation_queue.chain")
+    @patch("mocktest.services.evaluation_jobs.chain")
     def test_missing_audio_response_can_be_repaired_without_duplicate_row(
         self,
         mock_chain,
@@ -1724,7 +1728,7 @@ class UserResponseSubmissionTests(TestCase):
                 )
                 mock_chain.return_value.delay.assert_called_once()
 
-    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
+    @patch("mocktest.tasks.evaluate_user_response.delay")
     def test_final_answer_marks_submission_but_not_evaluation_completed(self, mock_delay):
         mock_test = MockTest.objects.create(title="Completion Test")
         first_question = self._create_question_set(mock_test, "Writing One", "Q-1")
@@ -1850,7 +1854,7 @@ class UserResponseSubmissionTests(TestCase):
         self.assertFalse(session.is_completed)
         self.assertIsNotNone(session.completed_at)
 
-    @patch("mocktest.services.evaluation_queue.evaluate_single_response.delay")
+    @patch("mocktest.tasks.evaluate_single_response.delay")
     def test_single_response_requires_audio_file_for_audio_question(self, mock_delay):
         mock_test = MockTest.objects.create(title="Single Audio Test")
         question = self._create_question_set(mock_test, "Speaking", "RA-1")
@@ -2029,7 +2033,7 @@ class EvaluationRepairToolTests(TransactionTestCase):
             with connection.schema_editor() as schema_editor:
                 schema_editor.add_constraint(UserResponse, constraint)
 
-    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
+    @patch("mocktest.tasks.evaluate_user_response.delay")
     def test_queue_helper_requeues_user_response(self, mock_delay):
         mock_test, question = self._create_question()
         session = UserMockTestSession.objects.create(
@@ -2056,7 +2060,7 @@ class EvaluationRepairToolTests(TransactionTestCase):
         self.assertEqual(response.evaluation_error, "")
         mock_delay.assert_called_once_with(response.id, question.id)
 
-    @patch("mocktest.services.evaluation_queue.evaluate_single_response.delay")
+    @patch("mocktest.tasks.evaluate_single_response.delay")
     def test_queue_helper_requeues_single_response(self, mock_delay):
         _, question = self._create_question()
         response = SingleResponse.objects.create(
@@ -2078,7 +2082,7 @@ class EvaluationRepairToolTests(TransactionTestCase):
         mock_delay.assert_called_once_with(response.id, question.id)
 
     @patch(
-        "mocktest.services.evaluation_queue.evaluate_user_response.delay",
+        "mocktest.tasks.evaluate_user_response.delay",
         side_effect=ConnectionError("Redis unavailable"),
     )
     def test_queue_helper_records_dispatch_failure(self, mock_delay):
@@ -2099,12 +2103,12 @@ class EvaluationRepairToolTests(TransactionTestCase):
             queue_response_evaluation(response)
 
         response.refresh_from_db()
-        self.assertEqual(response.evaluation_status, "failed")
+        self.assertEqual(response.evaluation_status, "pending")
         self.assertEqual(response.evaluation_stage, "queueing")
         self.assertIn("Evaluation queue unavailable", response.evaluation_error)
         self.assertEqual(response.evaluation_result["stage"], "queueing")
 
-    @patch("mocktest.services.evaluation_queue.evaluate_user_response.delay")
+    @patch("mocktest.tasks.evaluate_user_response.delay")
     def test_queue_helper_rejects_audio_response_without_audio(self, mock_delay):
         mock_test, question = self._create_question()
         question.subsection.name = "read_aloud"
@@ -3141,6 +3145,14 @@ class EvaluationRepairToolTests(TransactionTestCase):
         self.assertEqual(
             settings.CELERY_TASK_ROUTES["mocktest.tasks.transcribe_single_task"]["queue"],
             settings.CELERY_TRANSCRIPTION_QUEUE,
+        )
+        self.assertEqual(
+            settings.CELERY_TASK_ROUTES["mocktest.tasks.dispatch_evaluation_outbox"]["queue"],
+            settings.CELERY_TASK_DEFAULT_QUEUE,
+        )
+        self.assertEqual(
+            settings.CELERY_BEAT_SCHEDULE["dispatch-evaluation-outbox"]["task"],
+            "mocktest.tasks.dispatch_evaluation_outbox",
         )
 
     def test_celery_durability_defaults_are_enabled(self):

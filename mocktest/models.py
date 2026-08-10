@@ -1,5 +1,7 @@
 import uuid
 from django.db import models
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 from django.utils import timezone
 import logging
 
@@ -140,6 +142,17 @@ class MockTestSection(models.Model):
     order = models.PositiveIntegerField(default=1)
     total_duration = models.PositiveIntegerField(blank=True, null=True)
 
+    def save(self, *args, **kwargs):
+        if self.pk:
+            _protect_active_session_question_config(
+                Question.objects.filter(mock_test_section_id=self.pk).values_list(
+                    "pk",
+                    flat=True,
+                ),
+                "Mock-test sections",
+            )
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.mock_test.title} - {self.section.name}"
 
@@ -221,6 +234,17 @@ class SubSection(models.Model):
     use_pronunciation = models.BooleanField(default=False)
     use_fluency = models.BooleanField(default=False)
 
+    def save(self, *args, **kwargs):
+        if self.pk:
+            _protect_active_session_question_config(
+                Question.objects.filter(subsection_id=self.pk).values_list(
+                    "pk",
+                    flat=True,
+                ),
+                "Subsections",
+            )
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.section.name} - {self.name}"
 
@@ -284,6 +308,11 @@ class Question(models.Model):
     reading_score_max = models.FloatField(null=True, blank=True)
     listening_score_max = models.FloatField(null=True, blank=True)
 
+    def save(self, *args, **kwargs):
+        if self.pk:
+            _protect_active_session_question_config([self.pk], "Questions")
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.subsection.name} - Q{self.id}"
 
@@ -298,6 +327,14 @@ class SubQuestion(models.Model):
     text_before_blank = models.TextField(blank=True, null=True)
     text_after_blank = models.TextField(blank=True, null=True)
     correct_answer = models.CharField(max_length=255, blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        if self.question_id:
+            _protect_active_session_question_config(
+                [self.question_id],
+                "Sub-questions",
+            )
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.question.name} - Blank {self.blank_number}"
@@ -327,10 +364,32 @@ class QuestionOption(models.Model):
     is_correct = models.BooleanField(default=False)
     order_position = models.PositiveIntegerField(null=True, blank=True)
 
+    def save(self, *args, **kwargs):
+        question_id = self.question_id
+        if question_id is None and self.sub_question_id:
+            question_id = SubQuestion.objects.filter(
+                pk=self.sub_question_id,
+            ).values_list("question_id", flat=True).first()
+        if question_id:
+            _protect_active_session_question_config([question_id], "Question options")
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         if self.sub_question:
             return f"Blank {self.sub_question.blank_number} - {self.option_text}"
         return f"{self.question} - {self.option_text}"
+
+
+def _protect_active_session_question_config(question_ids, label):
+    if not question_ids:
+        return
+    if SessionQuestion.objects.filter(
+        question_id_snapshot__in=question_ids,
+    ).exists():
+        raise ValidationError(
+            f"{label} used by a versioned exam session cannot be edited. "
+            "Create a new mock-test version for future candidates."
+        )
 
 
 from django.db.models import Sum
@@ -352,8 +411,14 @@ class UserMockTestSession(models.Model):
     completed_sections = models.JSONField(default=list, blank=True)
 
     started_at = models.DateTimeField(auto_now_add=True)
+    submission_completed_at = models.DateTimeField(blank=True, null=True)
     completed_at = models.DateTimeField(blank=True, null=True)
     is_completed = models.BooleanField(default=False)
+    manifest_version = models.CharField(max_length=32, blank=True, default="")
+    mock_test_snapshot = models.JSONField(default=dict)
+    expected_question_count = models.PositiveIntegerField(default=0)
+    finalized_at = models.DateTimeField(blank=True, null=True)
+    finalized_result_version = models.PositiveIntegerField(default=0)
     scoring_mode = models.CharField(
         max_length=10,
         choices=SCORING_MODE_CHOICES,
@@ -368,6 +433,10 @@ class UserMockTestSession(models.Model):
     listening_score_awarded = models.FloatField(default=0)
 
     def evaluations_are_complete(self):
+        if self.manifest_version:
+            from mocktest.services.session_finalization import session_is_finalizable
+
+            return session_is_finalizable(self.pk)
         responses = self.userresponse_set.all()
         if not responses.exists():
             return False
@@ -379,6 +448,13 @@ class UserMockTestSession(models.Model):
 
     def sync_evaluation_completion(self):
         """Keep is_completed aligned with submission and evaluation state."""
+        if self.manifest_version:
+            from mocktest.services.session_finalization import recalculate_session_state
+
+            was_completed = self.is_completed
+            recalculate_session_state(self.pk)
+            self.refresh_from_db()
+            return self.is_completed != was_completed
         should_be_completed = bool(
             self.completed_at and self.evaluations_are_complete()
         )
@@ -391,6 +467,13 @@ class UserMockTestSession(models.Model):
 
     def mark_submission_completed(self):
         """Idempotently record that the candidate finished submitting the exam."""
+        if self.manifest_version:
+            from mocktest.services.session_finalization import complete_session_submission
+
+            changed = self.submission_completed_at is None
+            complete_session_submission(self.pk)
+            self.refresh_from_db()
+            return changed
         changed = self.completed_at is None
         if changed:
             self.completed_at = timezone.now()
@@ -406,6 +489,13 @@ class UserMockTestSession(models.Model):
         """
         Aggregate all evaluated UserResponses into session-level skill scores.
         """
+
+        if self.manifest_version:
+            from mocktest.services.session_finalization import recalculate_session_state
+
+            recalculate_session_state(self.pk)
+            self.refresh_from_db()
+            return
 
         qs = self.userresponse_set.filter(evaluated=True)
 
@@ -515,7 +605,7 @@ class UserResponse(models.Model):
 
     user_session = models.ForeignKey("UserMockTestSession", on_delete=models.CASCADE)
     mock_test = models.ForeignKey("MockTest", on_delete=models.CASCADE)
-    question = models.ForeignKey("Question", on_delete=models.CASCADE)
+    question = models.ForeignKey("Question", on_delete=models.PROTECT)
 
     answer_data = models.JSONField(
         default=dict, null=True, blank=True
@@ -573,11 +663,116 @@ class UserResponse(models.Model):
         ]
 
 
+class SessionQuestion(models.Model):
+    STATUS_CHOICES = (
+        ("pending", "Pending"),
+        ("answered", "Answered"),
+        ("skipped", "Skipped"),
+        ("timed_out", "Timed out"),
+        ("not_reached", "Not reached"),
+    )
+
+    session = models.ForeignKey(
+        UserMockTestSession,
+        on_delete=models.CASCADE,
+        related_name="question_manifest",
+    )
+    question = models.ForeignKey(
+        Question,
+        on_delete=models.PROTECT,
+        related_name="session_snapshots",
+    )
+    question_id_snapshot = models.PositiveBigIntegerField()
+    order = models.PositiveIntegerField()
+    mock_test_section_id_snapshot = models.PositiveBigIntegerField()
+    section_name = models.CharField(max_length=100, blank=True, default="")
+    section_order = models.PositiveIntegerField(default=0)
+    subsection_name = models.CharField(max_length=60, blank=True, default="")
+    subsection_order = models.PositiveIntegerField(default=0)
+    expected_input_type = models.CharField(max_length=10, default="text")
+    question_snapshot = models.JSONField(default=dict)
+    rubric_snapshot = models.JSONField(default=dict)
+    trait_skill_map_snapshot = models.JSONField(default=dict)
+    skill_maxima_snapshot = models.JSONField(default=dict)
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="pending",
+        db_index=True,
+    )
+    response = models.OneToOneField(
+        UserResponse,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="session_question",
+    )
+    resolved_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["order"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["session", "question_id_snapshot"],
+                name="uniq_session_question_snapshot",
+            ),
+            models.UniqueConstraint(
+                fields=["session", "order"],
+                name="uniq_session_question_order",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["session", "status", "order"],
+                name="sessionq_status_order_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.session_id}:{self.order}:{self.question_id_snapshot}"
+
+
+class SessionResult(models.Model):
+    session = models.ForeignKey(
+        UserMockTestSession,
+        on_delete=models.CASCADE,
+        related_name="result_versions",
+    )
+    version = models.PositiveIntegerField()
+    engine_version = models.CharField(max_length=64)
+    scoring_mode = models.CharField(max_length=10, choices=SCORING_MODE_CHOICES)
+    expected_question_count = models.PositiveIntegerField()
+    resolved_question_count = models.PositiveIntegerField()
+    evaluated_response_count = models.PositiveIntegerField()
+    skill_scores = models.JSONField(default=dict)
+    overall_score = models.FloatField(default=0)
+    response_snapshot = models.JSONField(default=list)
+    content_hash = models.CharField(max_length=64)
+    finalized_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["session_id", "version"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["session", "version"],
+                name="uniq_session_result_version",
+            ),
+            models.UniqueConstraint(
+                fields=["session", "content_hash"],
+                name="uniq_session_result_content",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.session_id}:v{self.version}"
+
+
 class SingleResponse(models.Model):
     EVALUATION_STATUS_CHOICES = UserResponse.EVALUATION_STATUS_CHOICES
 
     name = models.CharField(max_length=255, default="Single Response")
-    question = models.ForeignKey("Question", on_delete=models.CASCADE)
+    question = models.ForeignKey("Question", on_delete=models.PROTECT)
 
     answer_data = models.JSONField(
         default=dict, null=True, blank=True
@@ -766,3 +961,49 @@ class EvaluationOutbox(models.Model):
                 name="evaloutbox_publish_created_idx",
             ),
         ]
+
+
+@receiver(pre_delete, sender=MockTestSection)
+def protect_active_mock_test_section_delete(sender, instance, **kwargs):
+    _protect_active_session_question_config(
+        Question.objects.filter(mock_test_section=instance).values_list(
+            "pk",
+            flat=True,
+        ),
+        "Mock-test sections",
+    )
+
+
+@receiver(pre_delete, sender=SubSection)
+def protect_active_subsection_delete(sender, instance, **kwargs):
+    _protect_active_session_question_config(
+        Question.objects.filter(subsection=instance).values_list("pk", flat=True),
+        "Subsections",
+    )
+
+
+@receiver(pre_delete, sender=Question)
+def protect_active_question_delete(sender, instance, **kwargs):
+    _protect_active_session_question_config([instance.pk], "Questions")
+
+
+@receiver(pre_delete, sender=SubQuestion)
+def protect_active_subquestion_delete(sender, instance, **kwargs):
+    _protect_active_session_question_config(
+        [instance.question_id],
+        "Sub-questions",
+    )
+
+
+@receiver(pre_delete, sender=QuestionOption)
+def protect_active_question_option_delete(sender, instance, **kwargs):
+    question_id = instance.question_id
+    if question_id is None and instance.sub_question_id:
+        question_id = SubQuestion.objects.filter(
+            pk=instance.sub_question_id,
+        ).values_list("question_id", flat=True).first()
+    if question_id:
+        _protect_active_session_question_config(
+            [question_id],
+            "Question options",
+        )

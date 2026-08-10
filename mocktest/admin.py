@@ -364,8 +364,14 @@ class UserMockTestSessionAdmin(ModelAdmin):
         'current_question_order',
         'completed_sections',
         'started_at',
+        'submission_completed_at',
         'completed_at',
         'is_completed',
+        'manifest_version',
+        'mock_test_snapshot',
+        'expected_question_count',
+        'finalized_at',
+        'finalized_result_version',
         'scoring_mode',
         'total_score'
     )
@@ -375,10 +381,10 @@ class UserMockTestSessionAdmin(ModelAdmin):
             "fields": ("name", "mock_test", "session_id")
         }),
         ("Progress", {
-            "fields": ('current_mocktest_section','current_question_order','completed_sections',"started_at", "completed_at", "is_completed", "scoring_mode")
+            "fields": ('current_mocktest_section','current_question_order','completed_sections',"started_at", "submission_completed_at", "completed_at", "is_completed", "manifest_version", "mock_test_snapshot", "expected_question_count", "scoring_mode")
         }),
         ("Result", {
-            "fields": ("total_score",)
+            "fields": ("total_score", "finalized_at", "finalized_result_version")
         }),
     )
 
@@ -781,6 +787,52 @@ class EvaluationOutboxAdmin(EvaluationAuditAdmin):
     list_filter = ("event_type", "published_at")
     search_fields = ("=event_id", "=job__response_id", "last_error")
     ordering = ("-created_at",)
+
+
+@admin.register(SessionQuestion)
+class SessionQuestionAdmin(EvaluationAuditAdmin):
+    list_display = (
+        "id",
+        "session",
+        "order",
+        "question_id_snapshot",
+        "section_name",
+        "subsection_name",
+        "status",
+        "response",
+        "resolved_at",
+    )
+    list_filter = ("status", "section_name", "subsection_name")
+    search_fields = (
+        "=session__id",
+        "session__session_id",
+        "session__name",
+        "=question_id_snapshot",
+    )
+    ordering = ("-session__started_at", "order")
+
+
+@admin.register(SessionResult)
+class SessionResultAdmin(EvaluationAuditAdmin):
+    list_display = (
+        "id",
+        "session",
+        "version",
+        "engine_version",
+        "scoring_mode",
+        "expected_question_count",
+        "evaluated_response_count",
+        "overall_score",
+        "finalized_at",
+    )
+    list_filter = ("engine_version", "scoring_mode", "finalized_at")
+    search_fields = (
+        "=session__id",
+        "session__session_id",
+        "session__name",
+        "content_hash",
+    )
+    ordering = ("-finalized_at",)
 
 
 # =========================

@@ -1,6 +1,10 @@
 from django.core.management.base import BaseCommand
 
 from mocktest.models import UserMockTestSession
+from mocktest.services.session_finalization import (
+    recalculate_session_state,
+    session_is_finalizable,
+)
 
 
 class Command(BaseCommand):
@@ -20,8 +24,12 @@ class Command(BaseCommand):
         changes = []
         sessions = UserMockTestSession.objects.order_by("started_at")
         for session in sessions:
-            should_be_completed = bool(
-                session.completed_at and session.evaluations_are_complete()
+            should_be_completed = (
+                session_is_finalizable(session.pk)
+                if session.manifest_version
+                else bool(
+                    session.completed_at and session.evaluations_are_complete()
+                )
             )
             if session.is_completed != should_be_completed:
                 changes.append((session, should_be_completed))
@@ -36,8 +44,11 @@ class Command(BaseCommand):
             return
 
         for session, should_be_completed in changes:
-            session.is_completed = should_be_completed
-            session.save(update_fields=["is_completed"])
+            if session.manifest_version:
+                recalculate_session_state(session.pk)
+            else:
+                session.is_completed = should_be_completed
+                session.save(update_fields=["is_completed"])
 
         self.stdout.write(
             self.style.SUCCESS(f"Synchronized {len(changes)} session(s).")

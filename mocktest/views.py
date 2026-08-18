@@ -9,7 +9,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
-from .models import Question, MockTest, MockTestSection, UserResponse, UserMockTestSession, SubQuestion,Section,SubSection,SingleResponse
+from .models import EvaluationOutbox, Question, MockTest, MockTestSection, UserResponse, UserMockTestSession, SubQuestion,Section,SubSection,SingleResponse
 from .serializers import (
     MockTestListSerializer,
     QuestionSerializer,
@@ -21,7 +21,6 @@ from .serializers import (
 )
 from .services.transcription import transcribe_and_analyse
 from django.shortcuts import get_object_or_404
-from rest_framework.generics import ListAPIView
 from rest_framework.exceptions import NotFound
 from .services.pdf_service import generate_session_pdf
 from .services.evaluation_status import (
@@ -44,6 +43,7 @@ from .services.session_finalization import (
     mark_session_question_answered,
     session_question_ids,
 )
+from .services.single_practice import build_single_practice_status
 from django.http import FileResponse
 
 
@@ -246,30 +246,23 @@ class CompleteMockTestSessionAPIView(APIView):
         )
 
 
-class QuestionPagination(PageNumberPagination):
-    page_size = 10                    # default
-    page_size_query_param = "page_size"
-    max_page_size = 50
-
-
-class SubSectionQuestionListAPIView(ListAPIView):
-    serializer_class = SingleQuestionSerializer
-    # pagination_class = QuestionPagination
-
-    def get_queryset(self):
+class SubSectionQuestionListAPIView(APIView):
+    def get(self, request, subsection_name):
         subsection_name = self.kwargs.get("subsection_name")
 
-        try:
-            subsection = SubSection.objects.get(name=subsection_name)
-        except SubSection.DoesNotExist:
+        if not SubSection.objects.filter(name=subsection_name).exists():
             raise NotFound("Invalid subsection name")
 
-        return (
+        questions = list(
             Question.objects
-            .filter(subsection=subsection)
-             .select_related(
+            .filter(
+                subsection__name=subsection_name,
+                mock_test_section__mock_test__is_active=True,
+            )
+            .select_related(
                 'mock_test_section',
                 'mock_test_section__section',
+                'mock_test_section__mock_test',
                 'subsection'
             )
             .prefetch_related(
@@ -277,10 +270,40 @@ class SubSectionQuestionListAPIView(ListAPIView):
                 'sub_questions__options'
             )
             .order_by(
+                'mock_test_section__mock_test__title',
+                'mock_test_section__mock_test_id',
                 'mock_test_section__order',
                 'subsection__order',
                 'id'
-            )[:10]
+            )
+        )
+        serialized = SingleQuestionSerializer(
+            questions,
+            many=True,
+            context={"request": request},
+        ).data
+
+        grouped = {}
+        for question, payload in zip(questions, serialized):
+            mock_test = question.mock_test_section.mock_test
+            key = str(mock_test.pk)
+            if key not in grouped:
+                grouped[key] = {
+                    "id": key,
+                    "title": mock_test.title,
+                    "question_count": 0,
+                    "questions": [],
+                }
+            grouped[key]["questions"].append(payload)
+            grouped[key]["question_count"] += 1
+
+        return Response(
+            {
+                "subsection": subsection_name,
+                "mock_test_count": len(grouped),
+                "question_count": len(questions),
+                "mock_tests": list(grouped.values()),
+            }
         )
 
 class SingleAPIView(APIView):
@@ -346,6 +369,7 @@ class SingleAPIView(APIView):
             "queued": not queue_failed,
             "status": user_answer.evaluation_status,
             "stage": user_answer.evaluation_stage or "queued",
+            "tracking_id": str(outbox_event.event_id),
             "message": (
                 "Answer saved. Evaluation dispatch is delayed and will retry automatically."
                 if queue_failed
@@ -354,6 +378,23 @@ class SingleAPIView(APIView):
             "retryable": queue_failed,
         }
         return Response(data, status=status.HTTP_201_CREATED)
+
+
+class SingleResponseStatusAPIView(APIView):
+    def get(self, request, tracking_id):
+        try:
+            event = EvaluationOutbox.objects.select_related("job").get(
+                event_id=tracking_id,
+                job__response_type="single",
+            )
+            response = SingleResponse.objects.select_related(
+                "question__subsection",
+                "question__mock_test_section__mock_test",
+            ).get(pk=event.job.response_id)
+        except (EvaluationOutbox.DoesNotExist, SingleResponse.DoesNotExist):
+            raise NotFound("Single-question evaluation not found")
+
+        return Response(build_single_practice_status(response, event.job))
 
 ###starts here
 

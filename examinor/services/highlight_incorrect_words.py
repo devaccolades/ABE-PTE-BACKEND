@@ -35,24 +35,38 @@ class TranscriptComparison:
     source_only_words: tuple[str, ...]
 
     @property
-    def unscorable_differences(self):
-        differences = []
-        empty_expected = tuple(
+    def displayed_only_words(self):
+        return tuple(
             item for item in self.incorrect_words if not item.expected
         )
-        if empty_expected:
-            positions = ", ".join(
-                str(item.word_index) for item in empty_expected
-            )
-            differences.append(
-                f"displayed word deletion(s) at position(s): {positions}"
-            )
+
+    @property
+    def unscorable_differences(self):
+        differences = []
         if self.source_only_words:
             differences.append(
                 "source-only word insertion(s): "
                 + ", ".join(self.source_only_words)
             )
         return tuple(differences)
+
+    @property
+    def review_warnings(self):
+        warnings = []
+        if self.displayed_only_words:
+            positions = ", ".join(
+                str(item.word_index) for item in self.displayed_only_words
+            )
+            warnings.append(
+                "displayed-only word(s), which remain selectable, at position(s): "
+                + positions
+            )
+        if self.source_only_words:
+            warnings.append(
+                "source-only word insertion(s): "
+                + ", ".join(self.source_only_words)
+            )
+        return tuple(warnings)
 
     def as_dict(self):
         return {
@@ -62,7 +76,7 @@ class TranscriptComparison:
             "incorrect_words": [asdict(item) for item in self.incorrect_words],
             "source_only_words": list(self.source_only_words),
             "scorable": not self.unscorable_differences,
-            "review_warnings": list(self.unscorable_differences),
+            "review_warnings": list(self.review_warnings),
         }
 
 

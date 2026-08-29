@@ -51,17 +51,26 @@ class HighlightIncorrectWordComparisonTests(SimpleTestCase):
                 {"mode": "positions", "selections": []},
             )
 
-    def test_reports_displayed_deletions_as_unscorable(self):
+    def test_scores_displayed_words_that_are_absent_from_audio(self):
         comparison = compare_displayed_text_to_source(
             "The very blue mat.",
             "The blue mat.",
         )
 
-        self.assertFalse(comparison.as_dict()["scorable"])
+        self.assertTrue(comparison.as_dict()["scorable"])
         self.assertEqual(
             [item.word for item in comparison.incorrect_words if not item.expected],
             ["very"],
         )
+        assessment = assess_highlighted_words(
+            "The very blue mat.",
+            "The blue mat.",
+            {
+                "mode": "positions",
+                "selections": [{"word_index": 1, "word": "very"}],
+            },
+        )
+        self.assertEqual(assessment["ratio"], 1)
 
     def test_scores_positioned_selections_with_wrong_selection_penalty(self):
         assessment = assess_highlighted_words(

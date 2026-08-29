@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 
 from mocktest.models import MockTest, MockTestSection, Question, Section, SubSection
@@ -102,3 +103,38 @@ class HighlightIncorrectWordKeyPreparationTests(TestCase):
             self.question.correct_answer,
             "The dog sat on the red mat.",
         )
+
+    @patch(
+        "mocktest.management.commands.prepare_highlight_incorrect_word_keys.transcribe_audio"
+    )
+    def test_apply_rejects_unscorable_insertions_atomically(self, transcribe_audio_mock):
+        transcribe_audio_mock.return_value = (
+            "The small dog sat on the red mat.",
+            [],
+        )
+
+        with TemporaryDirectory() as directory:
+            report_path = Path(directory) / "hiw-report.json"
+            call_command(
+                "prepare_highlight_incorrect_word_keys",
+                "--generate-report",
+                "--output",
+                str(report_path),
+            )
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertFalse(report["questions"][0]["comparison"]["scorable"])
+            report["questions"][0]["approved"] = True
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+
+            with self.assertRaisesRegex(CommandError, "cannot be selected"):
+                call_command(
+                    "prepare_highlight_incorrect_word_keys",
+                    "--apply-report",
+                    str(report_path),
+                    "--confirm",
+                    "--expected-count",
+                    "1",
+                )
+
+        self.question.refresh_from_db()
+        self.assertFalse(self.question.correct_answer)

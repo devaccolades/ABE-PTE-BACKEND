@@ -9,6 +9,7 @@ from django.utils import timezone
 from examinor.services.highlight_incorrect_words import (
     HighlightIncorrectWordsError,
     compare_displayed_text_to_source,
+    ensure_scorable_comparison,
 )
 from mocktest.models import Question
 from mocktest.services.transcription import transcribe_audio
@@ -277,7 +278,11 @@ class Command(BaseCommand):
         if current and current != transcript:
             return f"question={question_id}: correct_answer is already different."
         try:
-            compare_displayed_text_to_source(question.text, transcript)
+            comparison = compare_displayed_text_to_source(
+                question.text,
+                transcript,
+            )
+            ensure_scorable_comparison(comparison)
         except HighlightIncorrectWordsError as exc:
             return f"question={question_id}: {exc}"
         return ""

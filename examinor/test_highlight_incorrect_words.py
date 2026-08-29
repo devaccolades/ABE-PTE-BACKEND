@@ -33,6 +33,36 @@ class HighlightIncorrectWordComparisonTests(SimpleTestCase):
         ):
             compare_displayed_text_to_source(DISPLAYED, "")
 
+    def test_reports_source_insertions_as_unscorable(self):
+        comparison = compare_displayed_text_to_source(
+            "The cat sat.",
+            "The small dog sat.",
+        )
+
+        self.assertFalse(comparison.as_dict()["scorable"])
+        self.assertEqual(comparison.source_only_words, ("dog",))
+        with self.assertRaisesRegex(
+            HighlightIncorrectWordsError,
+            "cannot be selected by the candidate",
+        ):
+            assess_highlighted_words(
+                "The cat sat.",
+                "The small dog sat.",
+                {"mode": "positions", "selections": []},
+            )
+
+    def test_reports_displayed_deletions_as_unscorable(self):
+        comparison = compare_displayed_text_to_source(
+            "The very blue mat.",
+            "The blue mat.",
+        )
+
+        self.assertFalse(comparison.as_dict()["scorable"])
+        self.assertEqual(
+            [item.word for item in comparison.incorrect_words if not item.expected],
+            ["very"],
+        )
+
     def test_scores_positioned_selections_with_wrong_selection_penalty(self):
         assessment = assess_highlighted_words(
             DISPLAYED,

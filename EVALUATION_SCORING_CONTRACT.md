@@ -100,6 +100,11 @@ comma-delimited word selections remain compatible. A correct highlight earns
 one point, a wrong highlight removes one point, and the result cannot fall below
 zero.
 
+A displayed word that is absent from the audio remains selectable and is scored
+as incorrect. Audio-only words are not selectable, so report application blocks
+them until a reviewer normalizes the scoring transcript to the displayed token
+boundary.
+
 HIW transcript preparation is a reviewed two-phase operation. The
 `prepare_highlight_incorrect_word_keys` command generates a read-only JSON report;
 only entries explicitly marked `approved` can be applied with count guards.

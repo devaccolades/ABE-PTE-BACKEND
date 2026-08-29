@@ -17,6 +17,7 @@ class AnswerKind(str, Enum):
     SINGLE_OPTION_ID = "single_option_id"
     MULTIPLE_OPTION_IDS = "multiple_option_ids"
     DELIMITED_TEXT = "delimited_text"
+    HIGHLIGHTED_WORDS = "highlighted_words"
     FREE_TEXT = "free_text"
 
 
@@ -208,8 +209,8 @@ TASK_CONTRACTS = MappingProxyType({
     ),
     "highlight_incorrect_words": _task(
         "highlight_incorrect_words",
-        AnswerKind.FREE_TEXT,
-        EvaluationEngine.AI,
+        AnswerKind.HIGHLIGHTED_WORDS,
+        EvaluationEngine.RULE,
     ),
     "write_from_dictation": _task(
         "write_from_dictation",
@@ -287,6 +288,8 @@ def inspect_answer_payload(
         return _inspect_multiple_options(answer_data)
     if contract.answer_kind == AnswerKind.DELIMITED_TEXT:
         return _inspect_delimited_text(answer_data)
+    if contract.answer_kind == AnswerKind.HIGHLIGHTED_WORDS:
+        return _inspect_highlighted_words(answer_data)
     if contract.answer_kind == AnswerKind.FREE_TEXT:
         return _inspect_free_text(answer_data)
 
@@ -656,6 +659,99 @@ def _inspect_delimited_text(answer_data):
     if issues:
         return _compatible(normalized, issues)
     return _canonical(normalized)
+
+
+def _inspect_highlighted_words(answer_data):
+    value, issues, wrapper_error = _unwrap_legacy_wrapper(answer_data)
+    if wrapper_error:
+        return _invalid(wrapper_error)
+
+    if _is_empty_answer_value(value):
+        return _unanswered({"mode": "positions", "selections": []}, issues)
+
+    if isinstance(value, str):
+        words = [
+            item.strip()
+            for item in DELIMITED_TEXT_RE.split(value)
+            if item.strip()
+        ]
+        if not words:
+            return _unanswered({"mode": "words", "words": []}, issues)
+        return _compatible(
+            {"mode": "words", "words": words},
+            issues + (
+                _issue(
+                    "legacy_highlighted_word_list",
+                    "Highlighted words were submitted without token positions.",
+                ),
+            ),
+        )
+
+    if not isinstance(value, Mapping) or set(value) != {"selections"}:
+        return _invalid(
+            _issue(
+                "highlighted_word_selections_required",
+                "Highlighted words must be an object containing a selections list.",
+            )
+        )
+
+    selections = value["selections"]
+    if not isinstance(selections, list):
+        return _invalid(
+            _issue(
+                "highlighted_word_list_required",
+                "Highlighted-word selections must be a list.",
+            )
+        )
+    if not selections:
+        return _unanswered({"mode": "positions", "selections": []}, issues)
+
+    normalized = []
+    seen_indices = set()
+    for selection in selections:
+        if not isinstance(selection, Mapping) or set(selection) != {"word_index", "word"}:
+            return _invalid(
+                _issue(
+                    "invalid_highlighted_word_selection",
+                    "Each selection must contain only word_index and word.",
+                )
+            )
+        word_index = selection["word_index"]
+        if isinstance(word_index, bool):
+            word_index = None
+        elif isinstance(word_index, str) and word_index.strip().isdigit():
+            word_index = int(word_index.strip())
+        if not isinstance(word_index, int) or word_index < 0:
+            return _invalid(
+                _issue(
+                    "invalid_highlighted_word_index",
+                    "Every highlighted word_index must be a zero-based integer.",
+                )
+            )
+        word = selection["word"]
+        if not isinstance(word, str) or not word.strip():
+            return _invalid(
+                _issue(
+                    "invalid_highlighted_word",
+                    "Every highlighted selection must contain a non-empty word.",
+                )
+            )
+        if word_index in seen_indices:
+            return _invalid(
+                _issue(
+                    "duplicate_highlighted_word_index",
+                    "The same word position cannot be highlighted more than once.",
+                )
+            )
+        seen_indices.add(word_index)
+        normalized.append({"word_index": word_index, "word": word.strip()})
+
+    if issues:
+        return _compatible(
+            {"mode": "positions", "selections": normalized},
+            issues,
+        )
+    return _canonical({"mode": "positions", "selections": normalized})
 
 
 def _inspect_free_text(answer_data):

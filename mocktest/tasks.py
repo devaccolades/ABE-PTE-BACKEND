@@ -345,10 +345,7 @@ def evaluate_user_response(self, user_answer_id, question_id):
         if user_answer.answer_data:
             evaluation_payload["answer_data"] = user_answer.answer_data
 
-        if (
-            question.correct_answer
-            and question.subsection.name != "highlight_incorrect_words"
-        ):
+        if question.correct_answer:
             evaluation_payload["reference_answer"] = question.correct_answer
 
         subsection = question.subsection.name
@@ -590,10 +587,7 @@ def evaluate_single_response(self, user_answer_id, question_id):
         if user_answer.answer_data:
             evaluation_payload["answer_data"] = user_answer.answer_data
 
-        if (
-            question.correct_answer
-            and question.subsection.name != "highlight_incorrect_words"
-        ):
+        if question.correct_answer:
             evaluation_payload["reference_answer"] = question.correct_answer
 
         subsection = question.subsection.name

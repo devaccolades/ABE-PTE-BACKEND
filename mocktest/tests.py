@@ -735,7 +735,7 @@ class RuleQuestionConfigCommandTests(TestCase):
 
         self.assertIn("looks healthy", stdout.getvalue())
 
-    def test_accepts_ai_highlight_incorrect_words_without_answer_key(self):
+    def test_rejects_highlight_incorrect_words_without_source_transcript(self):
         section = Section.objects.create(name="Listening")
         subsection = SubSection.objects.create(
             section=section,
@@ -749,15 +749,16 @@ class RuleQuestionConfigCommandTests(TestCase):
         )
         stdout = StringIO()
 
-        call_command(
-            "check_rule_question_config",
-            "--section",
-            "Listening",
-            stdout=stdout,
-        )
+        with self.assertRaises(CommandError):
+            call_command(
+                "check_rule_question_config",
+                "--section",
+                "Listening",
+                stdout=stdout,
+            )
 
-        self.assertIn("Questions checked: 0", stdout.getvalue())
-        self.assertIn("looks healthy", stdout.getvalue())
+        self.assertIn("Questions checked: 1", stdout.getvalue())
+        self.assertIn("Configuration errors: 1", stdout.getvalue())
 
     def test_can_filter_configuration_check_by_subsection(self):
         section = Section.objects.create(name="Listening")
@@ -2189,12 +2190,12 @@ class EvaluationRepairToolTests(TransactionTestCase):
 
     @patch("mocktest.tasks.run_rule_evaluation")
     @patch("mocktest.tasks.run_evaluation_for_subsection")
-    def test_highlight_incorrect_words_task_uses_ai_without_answer_key(
+    def test_highlight_incorrect_words_task_uses_rule_with_source_transcript(
         self,
         run_ai_evaluation,
         run_rule_evaluation,
     ):
-        mock_test = MockTest.objects.create(title="Highlight AI Test")
+        mock_test = MockTest.objects.create(title="Highlight Rule Test")
         section = Section.objects.create(name="Listening")
         mock_test_section = MockTestSection.objects.create(
             mock_test=mock_test,
@@ -2215,7 +2216,7 @@ class EvaluationRepairToolTests(TransactionTestCase):
             subsection=subsection,
             name="HIW-1",
             text="The policy created several ordinary benefits.",
-            correct_answer="legacy|answer|key",
+            correct_answer="The policy formed several ordinary benefits.",
             listening_score_max=3,
             reading_score_max=3,
         )
@@ -2230,7 +2231,7 @@ class EvaluationRepairToolTests(TransactionTestCase):
             question=question,
             answer_data="ordinary",
         )
-        run_ai_evaluation.return_value = {
+        run_rule_evaluation.return_value = {
             "ok": True,
             "evaluation": {
                 "scores": {
@@ -2238,7 +2239,7 @@ class EvaluationRepairToolTests(TransactionTestCase):
                 },
                 "weighted_score": 2,
                 "max_score": 3,
-                "feedback": {"summary": "The selection is contextually questionable."},
+                "feedback": {"summary": "One incorrect word was highlighted."},
             },
         }
 
@@ -2248,12 +2249,12 @@ class EvaluationRepairToolTests(TransactionTestCase):
         self.assertTrue(result.successful())
         self.assertTrue(response.evaluated)
         self.assertEqual(response.evaluation_status, "completed")
-        run_rule_evaluation.assert_not_called()
-        run_ai_evaluation.assert_called_once_with(
-            subsection,
-            question.text,
-            {"answer_data": "ordinary"},
+        run_rule_evaluation.assert_called_once_with(
+            user_answer=response,
+            question=question,
+            subsection=subsection,
         )
+        run_ai_evaluation.assert_not_called()
 
     @patch("mocktest.tasks.run_rule_evaluation")
     @patch("mocktest.tasks.run_evaluation_for_subsection")

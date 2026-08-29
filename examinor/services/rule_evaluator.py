@@ -6,6 +6,10 @@ from examinor.scoring.task_contracts import (
     inspect_answer_payload,
 )
 from examinor.scoring.validators import rubric_maxima
+from examinor.services.highlight_incorrect_words import (
+    HighlightIncorrectWordsError,
+    assess_highlighted_words,
+)
 
 # -------------------------------------------------
 # RULE QUESTION CONFIG (SOURCE OF TRUTH)
@@ -62,6 +66,11 @@ RULE_QUESTION_CONFIG = {
         "options_location": "question",
         "correctness_type": "is_correct_flag",
     },
+    "highlight_incorrect_words": {
+        "answer_format": "highlighted_words",
+        "options_location": "none",
+        "correctness_type": "transcript_difference",
+    },
     "write_from_dictation": {
         "answer_format": "free_text",
         "options_location": "none",
@@ -69,9 +78,7 @@ RULE_QUESTION_CONFIG = {
     },
 }
 
-AI_ONLY_SUBSECTIONS = {
-    "highlight_incorrect_words",
-}
+AI_ONLY_SUBSECTIONS = set()
 
 
 class RuleConfigurationError(ValueError):
@@ -257,6 +264,29 @@ def _write_from_dictation_ratio(question, answer_data):
     matcher = SequenceMatcher(None, expected, submitted, autojunk=False)
     matched = sum(block.size for block in matcher.get_matching_blocks())
     return matched / len(expected)
+
+
+def _highlight_incorrect_assessment(question, answer_data):
+    inspection = inspect_answer_payload(
+        "highlight_incorrect_words",
+        answer_data,
+    )
+    if inspection.status == PayloadStatus.INVALID:
+        message = (
+            inspection.issues[0].message
+            if inspection.issues
+            else "Invalid highlighted-word answer."
+        )
+        raise RuleConfigurationError(message)
+
+    try:
+        return assess_highlighted_words(
+            question.text,
+            question.correct_answer,
+            inspection.normalized,
+        )
+    except HighlightIncorrectWordsError as exc:
+        raise RuleConfigurationError(f"Question {question.pk}: {exc}") from exc
 
 
 def _score_from_ratio(ratio, rubric):
@@ -635,6 +665,39 @@ def _write_from_dictation_feedback(question, answer_data, ratio):
     }
 
 
+def _highlight_incorrect_feedback(question, answer_data, ratio):
+    assessment = _highlight_incorrect_assessment(question, answer_data)
+
+    def display(item):
+        if isinstance(item, dict):
+            word = item["word"]
+            word_index = item.get("word_index")
+        else:
+            word = item.word
+            word_index = item.word_index
+        return word if word_index is None else f"{word} (word {word_index + 1})"
+
+    correct_selected = [display(item) for item in assessment["correct_selected"]]
+    incorrect_selected = [
+        display(item) for item in assessment["incorrect_selected"]
+    ]
+    missed = [display(item) for item in assessment["missed"]]
+    return {
+        "summary": (
+            f"Highlighted {len(correct_selected)} correct word(s), "
+            f"{len(incorrect_selected)} incorrect word(s), and missed {len(missed)}."
+        ),
+        "details": [{
+            "label": "Highlighted words",
+            "status": _feedback_status(ratio),
+            "selected_correctly": ", ".join(correct_selected) or "None",
+            "selected_incorrectly": ", ".join(incorrect_selected) or "None",
+            "missed": ", ".join(missed) or "None",
+        }],
+        "explanation": question.answer_explanation or "",
+    }
+
+
 def build_rule_feedback(*, question, subsection, answer_data, ratio):
     if subsection.name == "fib_dropdown":
         feedback = _fib_dropdown_feedback(question, answer_data, ratio)
@@ -644,6 +707,8 @@ def build_rule_feedback(*, question, subsection, answer_data, ratio):
         feedback = _reorder_feedback(question, answer_data, ratio)
     elif subsection.name == "write_from_dictation":
         feedback = _write_from_dictation_feedback(question, answer_data, ratio)
+    elif subsection.name == "highlight_incorrect_words":
+        feedback = _highlight_incorrect_feedback(question, answer_data, ratio)
     elif subsection.name in {"mc_multiple", "l_mc_multiple"}:
         feedback = _multiple_choice_feedback(question, answer_data, ratio)
     elif subsection.name in {
@@ -677,6 +742,11 @@ def evaluate_deterministically(*, user_answer, question, subsection):
             ratio = _reorder_paragraphs_ratio(question, user_answer.answer_data)
         elif subsection.name == "write_from_dictation":
             ratio = _write_from_dictation_ratio(question, user_answer.answer_data)
+        elif subsection.name == "highlight_incorrect_words":
+            ratio = _highlight_incorrect_assessment(
+                question,
+                user_answer.answer_data,
+            )["ratio"]
         elif cfg["correctness_type"] == "text_match":
             ratio = _text_match_ratio(question, user_answer.answer_data)
         elif cfg["correctness_type"] == "is_correct_flag":

@@ -226,7 +226,7 @@ class Command(BaseCommand):
                 question.pk: question
                 for question in Question.objects.select_for_update().filter(
                     pk__in=[entry.get("question_id") for entry in approved],
-                ).select_related("subsection")
+                )
             }
             for entry in approved:
                 question = questions.get(entry.get("question_id"))

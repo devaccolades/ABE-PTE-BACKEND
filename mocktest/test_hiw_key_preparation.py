@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import connection
 from django.test import TestCase, override_settings
 
 from mocktest.models import MockTest, MockTestSection, Question, Section, SubSection
@@ -103,6 +104,15 @@ class HighlightIncorrectWordKeyPreparationTests(TestCase):
             self.question.correct_answer,
             "The dog sat on the red mat.",
         )
+
+    def test_apply_lock_query_does_not_join_nullable_relations(self):
+        queryset = Question.objects.select_for_update().filter(pk=self.question.pk)
+
+        sql = str(queryset.query)
+
+        self.assertNotIn("LEFT OUTER JOIN", sql)
+        if connection.vendor == "postgresql":
+            self.assertNotIn("JOIN", sql)
 
     @patch(
         "mocktest.management.commands.prepare_highlight_incorrect_word_keys.transcribe_audio"

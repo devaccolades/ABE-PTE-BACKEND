@@ -34,6 +34,26 @@ class TranscriptComparison:
     incorrect_words: tuple[IncorrectWord, ...]
     source_only_words: tuple[str, ...]
 
+    @property
+    def unscorable_differences(self):
+        differences = []
+        empty_expected = tuple(
+            item for item in self.incorrect_words if not item.expected
+        )
+        if empty_expected:
+            positions = ", ".join(
+                str(item.word_index) for item in empty_expected
+            )
+            differences.append(
+                f"displayed word deletion(s) at position(s): {positions}"
+            )
+        if self.source_only_words:
+            differences.append(
+                "source-only word insertion(s): "
+                + ", ".join(self.source_only_words)
+            )
+        return tuple(differences)
+
     def as_dict(self):
         return {
             "alignment_ratio": self.alignment_ratio,
@@ -41,6 +61,8 @@ class TranscriptComparison:
             "source_word_count": self.source_word_count,
             "incorrect_words": [asdict(item) for item in self.incorrect_words],
             "source_only_words": list(self.source_only_words),
+            "scorable": not self.unscorable_differences,
+            "review_warnings": list(self.unscorable_differences),
         }
 
 
@@ -119,6 +141,7 @@ def compare_displayed_text_to_source(displayed_text, source_transcript):
 
 def assess_highlighted_words(displayed_text, source_transcript, normalized_answer):
     comparison = compare_displayed_text_to_source(displayed_text, source_transcript)
+    ensure_scorable_comparison(comparison)
     expected_by_index = {
         item.word_index: item for item in comparison.incorrect_words
     }
@@ -199,3 +222,13 @@ def assess_highlighted_words(displayed_text, source_transcript, normalized_answe
         "missed": missed,
         "comparison": comparison,
     }
+
+
+def ensure_scorable_comparison(comparison):
+    if comparison.unscorable_differences:
+        raise HighlightIncorrectWordsError(
+            "Displayed text and source transcript contain insertion/deletion "
+            "differences that cannot be selected by the candidate. Normalize the "
+            "reviewed transcript to the displayed text's token boundaries: "
+            + "; ".join(comparison.unscorable_differences)
+        )

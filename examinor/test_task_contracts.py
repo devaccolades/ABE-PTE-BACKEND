@@ -35,7 +35,7 @@ class TaskRegistryTests(SimpleTestCase):
     def test_effective_engine_is_explicit(self):
         self.assertEqual(
             get_task_contract("highlight_incorrect_words").evaluation_engine,
-            EvaluationEngine.AI,
+            EvaluationEngine.RULE,
         )
         self.assertEqual(
             get_task_contract("write_from_dictation").evaluation_engine,
@@ -64,6 +64,10 @@ class AnswerPayloadInspectionTests(SimpleTestCase):
             AnswerKind.SINGLE_OPTION_ID: (10, {}),
             AnswerKind.MULTIPLE_OPTION_IDS: ([10, 11], {}),
             AnswerKind.DELIMITED_TEXT: ("alpha|beta", {}),
+            AnswerKind.HIGHLIGHTED_WORDS: (
+                {"selections": [{"word_index": 0, "word": "alpha"}]},
+                {},
+            ),
             AnswerKind.FREE_TEXT: ("Candidate answer", {}),
         }
         invalid_by_kind = {
@@ -73,6 +77,10 @@ class AnswerPayloadInspectionTests(SimpleTestCase):
             AnswerKind.SINGLE_OPTION_ID: ("not-an-id", {}),
             AnswerKind.MULTIPLE_OPTION_IDS: ([0], {}),
             AnswerKind.DELIMITED_TEXT: (123, {}),
+            AnswerKind.HIGHLIGHTED_WORDS: (
+                {"selections": [{"word_index": -1, "word": "alpha"}]},
+                {},
+            ),
             AnswerKind.FREE_TEXT: (123, {}),
         }
 

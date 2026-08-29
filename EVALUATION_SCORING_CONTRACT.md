@@ -88,11 +88,23 @@ subsections.
 | Single option ID | Reading MCQ Single, Listening MCQ Single, Highlight Correct Summary, Select Missing Word |
 | Multiple option IDs | Reading MCQ Multiple, Listening MCQ Multiple |
 | Delimited text | Listening Fill in the Blanks |
-| Free text | Summarize Written Text, Write Essay, Summarize Spoken Text, Highlight Incorrect Words, Write from Dictation |
+| Highlighted words | Highlight Incorrect Words |
+| Free text | Summarize Written Text, Write Essay, Summarize Spoken Text, Write from Dictation |
 
 The effective evaluator is deterministic for objective questions and Write from
-Dictation. Highlight Incorrect Words remains AI evaluated without requiring a
-stored answer key.
+Dictation. Highlight Incorrect Words is also deterministic: `Question.correct_answer`
+contains the reviewed source-audio transcript, and the evaluator aligns it with
+the displayed passage to derive incorrect displayed-word positions. Current
+submissions contain zero-based word positions and exact words; historical
+comma-delimited word selections remain compatible. A correct highlight earns
+one point, a wrong highlight removes one point, and the result cannot fall below
+zero.
+
+HIW transcript preparation is a reviewed two-phase operation. The
+`prepare_highlight_incorrect_word_keys` command generates a read-only JSON report;
+only entries explicitly marked `approved` can be applied with count guards.
+`reevaluate_highlight_incorrect_word_responses` similarly runs as a dry run until
+explicitly confirmed and never calls an AI evaluation provider.
 
 Stored payloads are classified without modifying them:
 

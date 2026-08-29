@@ -141,38 +141,16 @@ class EvaluationOrchestratorTests(TestCase):
         self.assertIn("requires a reference transcript", result["error"])
         mock_evaluate.assert_not_called()
 
-    @patch("examinor.services.orchestrator.evaluate_with_openai")
-    def test_highlight_incorrect_words_uses_ai_without_reference(self, mock_evaluate):
+    def test_highlight_incorrect_words_uses_rule_evaluation(self):
         section = Section.objects.create(name="Listening")
         subsection = SubSection.objects.create(
             section=section,
             name="highlight_incorrect_words",
-            evaluation_type="rule",
+            evaluation_type="ai",
             rubric={"listening_and_reading": {"max": 3}},
         )
-        mock_evaluate.return_value = {
-            "success": True,
-            "data": {
-                "scores": {
-                    "listening_and_reading": {"score": 2, "max": 3},
-                },
-                "weighted_score": 2,
-                "max_score": 3,
-                "feedback": {"summary": "Two selections are contextually incorrect."},
-            },
-        }
 
-        result = run_evaluation_for_subsection(
-            subsection,
-            "The policy created several ordinary benefits.",
-            {"answer_data": "ordinary"},
-        )
-
-        self.assertTrue(result["ok"])
-        self.assertFalse(uses_rule_evaluation(subsection))
-        prompt = mock_evaluate.call_args.args[0]
-        self.assertIn("No answer key or reference material is provided or required.", prompt)
-        self.assertIn('"""ordinary"""', prompt)
+        self.assertTrue(uses_rule_evaluation(subsection))
 
     @patch("examinor.services.orchestrator.evaluate_with_openai")
     def test_object_based_evaluation_uses_linked_subsection_rubric(self, mock_evaluate):
@@ -341,19 +319,6 @@ class PromptBuilderTests(SimpleTestCase):
         self.assertIn('"errors":[{', prompt)
         self.assertIn("exact, case-preserving substring", prompt)
         self.assertIn("Judge content only against REFERENCE_MATERIAL", prompt)
-
-    def test_highlight_incorrect_words_prompt_does_not_require_reference(self):
-        prompt, _ = build_prompt(
-            "highlight_incorrect_words",
-            "Science can continue to upset us in surprising ways today.",
-            {"answer_data": "upset"},
-            {"listening_and_reading": {"max": 3}},
-        )
-
-        self.assertIn("No answer key or reference material is provided or required.", prompt)
-        self.assertIn("contextually incorrect", prompt)
-        self.assertIn('"likely_wrong_selections"', prompt)
-
 
 class RuleEvaluatorTests(TestCase):
     def setUp(self):
@@ -642,7 +607,7 @@ class RuleEvaluatorTests(TestCase):
             "9 of 10 words were correct and in sequence.",
         )
 
-    def test_highlight_incorrect_words_is_never_rule_evaluated(self):
+    def test_highlight_incorrect_words_is_always_rule_evaluated(self):
         subsection = SubSection.objects.create(
             section=self.section,
             name="highlight_incorrect_words",
@@ -650,7 +615,7 @@ class RuleEvaluatorTests(TestCase):
             rubric={"listening_and_reading": {"max": 3}},
         )
 
-        self.assertFalse(uses_rule_evaluation(subsection))
+        self.assertTrue(uses_rule_evaluation(subsection))
 
 
 class ExplanationDrafterTests(TestCase):

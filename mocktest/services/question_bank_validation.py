@@ -340,6 +340,11 @@ class QuestionBankAuditor:
             return "Add each missing word to ordered SubQuestion.correct_answer rows."
         if subsection_name == "write_from_dictation":
             return "Set Question.correct_answer to the exact spoken sentence."
+        if subsection_name == "highlight_incorrect_words":
+            return (
+                "Set Question.correct_answer to the reviewed source-audio transcript; "
+                "the system derives incorrect displayed words from it."
+            )
         if subsection_name in {
             "mc_single",
             "l_mc_single",

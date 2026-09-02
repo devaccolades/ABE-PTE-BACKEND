@@ -1,3 +1,6 @@
+from mocktest.services.evaluation_breakdown import build_evaluation_breakdown
+
+
 ACTIVE_JOB_STATUSES = {
     "waiting_dispatch",
     "dispatched",
@@ -7,7 +10,7 @@ ACTIVE_JOB_STATUSES = {
 
 
 def build_single_practice_status(response, job):
-    """Return candidate-facing feedback without exposing scoring internals."""
+    """Return candidate-facing feedback and the persisted score explanation."""
     result = response.evaluation_result if isinstance(response.evaluation_result, dict) else {}
     evaluation = result.get("evaluation")
     if not isinstance(evaluation, dict):
@@ -19,7 +22,7 @@ def build_single_practice_status(response, job):
     if status == "failed":
         error = response.evaluation_error or str(result.get("error") or "")
 
-    return {
+    payload = {
         "response_id": response.pk,
         "question": {
             "id": response.question_id,
@@ -43,6 +46,9 @@ def build_single_practice_status(response, job):
         "transcript": _transcript_text(response.transcribed_audio_data),
         "error": error,
     }
+    if status == "completed":
+        payload["score_breakdown"] = build_evaluation_breakdown(response)
+    return payload
 
 
 def _public_status(response, job):

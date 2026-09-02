@@ -301,6 +301,19 @@ contract. Inactive tests cannot start through the public API. A newly started
 full mock-test session inherits its mock test's mode and pins it for the
 session's lifetime.
 
+Production promotion uses the guarded, dry-run-first command:
+
+```bash
+python manage.py rollout_mock_test_scoring_v2 "Mock Test Title"
+```
+
+Confirmation requires exact question, session, and evaluated-response counts.
+Any question-weight reference differences or tasks without a universal reference
+must be explicitly acknowledged after rubric-owner review. The command compiles
+all stored evaluation evidence under V2, rejects stored promoted-score drift,
+and changes only the mock test's mode. Existing and in-progress sessions remain
+pinned to their previous mode, and no historical response or session is rescored.
+
 Every initial evaluation, retry, repair, and confirmed question-maximum
 correction for a `UserResponse` uses the session pin rather than the current
 process environment. Operations may therefore canary V2 on one validated mock

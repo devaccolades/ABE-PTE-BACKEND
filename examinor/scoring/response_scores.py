@@ -1,6 +1,10 @@
 from django.conf import settings
 
-from examinor.scoring.contracts import SCORING_VERSION, VALID_SKILLS
+from examinor.scoring.contracts import (
+    SCORING_VERSION,
+    VALID_SKILLS,
+    decimal_value,
+)
 from examinor.scoring.score_calculator import compile_skill_scores
 from examinor.scoring.task_contracts import get_task_contract
 
@@ -47,6 +51,7 @@ def compile_response_score_evidence(question, evaluation_result, *, mode=None):
     if mode not in SCORING_MODES:
         raise ResponseScoringError(f"Unsupported scoring mode: {mode}")
 
+    contract = get_task_contract(question.subsection.name)
     scores = _criterion_scores(evaluation_result)
     trait_skill_map = question.subsection.trait_skill_map or {}
     skill_maxima = _skill_maxima(question)
@@ -59,30 +64,44 @@ def compile_response_score_evidence(question, evaluation_result, *, mode=None):
         "v2": None,
         "v2_error": "",
         "delta": {},
+        "promotion_reason": "",
     }
 
     if mode in {"shadow", "v2"}:
+        proportional_scoring_required = (
+            mode == "shadow" and contract.proportional_scoring_required
+        )
+        v2_scores = scores
+        if contract.proportional_scoring_required:
+            v2_scores = _scores_from_exact_answer_share(scores, evaluation_result)
         try:
-            contract = get_task_contract(question.subsection.name)
             v2 = compile_skill_scores(
-                scores,
+                v2_scores,
                 trait_skill_map,
-                _mapped_skill_maxima(scores, trait_skill_map, skill_maxima),
+                _mapped_skill_maxima(v2_scores, trait_skill_map, skill_maxima),
                 gate_traits=contract.gate_traits,
             )
         except (TypeError, ValueError) as exc:
             evidence["v2_error"] = str(exc)
-            if mode == "v2":
+            if mode == "v2" or proportional_scoring_required:
                 raise ResponseScoringError(
                     f"V2 score compilation failed: {exc}"
                 ) from exc
         else:
             evidence["v2"] = v2
             evidence["delta"] = _score_delta(legacy, v2)
-            if mode == "v2":
+            if mode == "v2" or proportional_scoring_required:
                 evidence["promoted_version"] = SCORING_VERSION
+            if proportional_scoring_required:
+                evidence["promotion_reason"] = (
+                    "Task requires proportional multiple-answer scoring."
+                )
 
-    promoted = evidence["v2"] if mode == "v2" else legacy
+    promoted = (
+        evidence["v2"]
+        if evidence["promoted_version"] == SCORING_VERSION
+        else legacy
+    )
     evidence["promoted"] = promoted
     return evidence
 
@@ -138,6 +157,46 @@ def _criterion_scores(evaluation_result):
     if not isinstance(scores, dict) or not scores:
         raise ResponseScoringError("Evaluation result has no criterion scores.")
     return scores
+
+
+def _scores_from_exact_answer_share(scores, evaluation_result):
+    answer_scoring = evaluation_result.get("evaluation", {}).get(
+        "answer_scoring"
+    )
+    if not isinstance(answer_scoring, dict):
+        return scores
+
+    raw_points = decimal_value(
+        answer_scoring.get("raw_points"),
+        "Multiple-answer raw points",
+    )
+    maximum_raw_points = decimal_value(
+        answer_scoring.get("maximum_raw_points"),
+        "Multiple-answer maximum raw points",
+    )
+    if raw_points < 0 or maximum_raw_points <= 0:
+        raise ResponseScoringError(
+            "Multiple-answer scoring counts must have a non-negative raw score "
+            "and a positive maximum."
+        )
+    if raw_points > maximum_raw_points:
+        raise ResponseScoringError(
+            "Multiple-answer raw points cannot exceed the maximum raw points."
+        )
+
+    ratio = raw_points / maximum_raw_points
+    exact_scores = {}
+    for criterion, payload in scores.items():
+        maximum_key = "maximum" if "maximum" in payload else "max"
+        maximum = decimal_value(
+            payload.get(maximum_key),
+            f"Criterion '{criterion}' maximum",
+        )
+        exact_scores[criterion] = {
+            **payload,
+            "score": maximum * ratio,
+        }
+    return exact_scores
 
 
 def _skill_maxima(question):

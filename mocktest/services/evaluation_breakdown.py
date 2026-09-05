@@ -59,6 +59,9 @@ def build_evaluation_breakdown(response):
         "scoring_version": scoring_version,
         "maximum_source": "question_paper",
         "criteria": criteria,
+        "answer_calculation": _answer_calculation(
+            evaluation.get("answer_scoring")
+        ),
         "skill_contributions": skill_contributions,
         "gate": {
             "applied": bool(gate.get("applied")),
@@ -73,6 +76,24 @@ def build_evaluation_breakdown(response):
             "This is the question-level contribution. The final PTE score is "
             "calculated from the completed exam, not from one question."
         ),
+    }
+
+
+def _answer_calculation(raw):
+    if not isinstance(raw, Mapping):
+        return None
+    required = {
+        "correct_selected",
+        "incorrect_selected",
+        "missed_correct",
+        "raw_points",
+        "maximum_raw_points",
+    }
+    if not required.issubset(raw):
+        return None
+    return {
+        key: _number(raw[key])
+        for key in sorted(required)
     }
 
 

@@ -773,6 +773,13 @@ class SingleResponse(models.Model):
 
     name = models.CharField(max_length=255, default="Single Response")
     question = models.ForeignKey("Question", on_delete=models.PROTECT)
+    scoring_mode = models.CharField(
+        max_length=10,
+        choices=SCORING_MODE_CHOICES,
+        default="shadow",
+        editable=False,
+        help_text="Scoring mode pinned from the question paper at submission.",
+    )
 
     answer_data = models.JSONField(
         default=dict, null=True, blank=True

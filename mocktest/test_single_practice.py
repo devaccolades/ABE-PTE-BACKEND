@@ -79,6 +79,23 @@ class SinglePracticeEvaluationStatusTests(TestCase):
             order=1,
             evaluation_type="ai",
             ai_input_type="text",
+            rubric={
+                "content": {
+                    "max": 3,
+                    "0": "The response does not address the topic.",
+                    "2": "The response addresses the topic clearly.",
+                    "3": "The response fully develops the topic.",
+                },
+                "form": {
+                    "max": 1,
+                    "0": "The response does not meet the required form.",
+                    "1": "The response meets the required form.",
+                },
+            },
+            trait_skill_map={
+                "content": ["writing"],
+                "form": ["writing"],
+            },
         )
         mock_test = MockTest.objects.create(title="Practice Paper")
         mock_test_section = MockTestSection.objects.create(
@@ -91,14 +108,16 @@ class SinglePracticeEvaluationStatusTests(TestCase):
             subsection=self.subsection,
             name="Practice essay",
             text="Write about public transport.",
+            writing_score_max=9,
         )
 
     def _tracked_response(self, *, job_status="completed", response_status="completed"):
         response = SingleResponse.objects.create(
             name="Candidate",
             question=self.question,
+            scoring_mode="v2",
             answer_data="Public transport should be improved.",
-            evaluated=response_status == "completed",
+            evaluated=False,
             evaluation_status=response_status,
             evaluation_stage="evaluation",
             evaluation_result={
@@ -106,6 +125,7 @@ class SinglePracticeEvaluationStatusTests(TestCase):
                 "evaluation": {
                     "scores": {
                         "content": {"score": 2, "max": 3},
+                        "form": {"score": 1, "max": 1},
                     },
                     "weighted_score": 2,
                     "max_score": 3,
@@ -135,6 +155,8 @@ class SinglePracticeEvaluationStatusTests(TestCase):
             },
             transcribed_audio_data={"transcription": {"text": "Spoken answer"}},
         )
+        if response_status == "completed":
+            response.apply_skill_scores()
         job = EvaluationJob.objects.create(
             response_type="single",
             response_id=response.pk,
@@ -150,7 +172,7 @@ class SinglePracticeEvaluationStatusTests(TestCase):
         )
         return response, job, event
 
-    def test_status_returns_feedback_but_no_scores(self):
+    def test_status_returns_feedback_and_candidate_safe_score_breakdown(self):
         saved, _, event = self._tracked_response()
 
         response = self.client.get(
@@ -170,8 +192,27 @@ class SinglePracticeEvaluationStatusTests(TestCase):
         self.assertEqual(payload["feedback"]["errors"][0]["type"], "grammar")
         self.assertEqual(payload["feedback"]["observations"][0]["label"], "Strengths")
         self.assertEqual(payload["transcript"], "Spoken answer")
-        self.assertNotIn("scores", str(payload).lower())
+        breakdown = payload["score_breakdown"]
+        self.assertEqual(breakdown["scoring_mode"], "v2")
+        self.assertEqual(breakdown["scoring_version"], "pte-score-v2")
+        self.assertEqual(breakdown["maximum_source"], "question_paper")
+        self.assertEqual(breakdown["criteria"][0]["awarded"], 2)
+        self.assertEqual(breakdown["criteria"][0]["maximum"], 3)
+        self.assertEqual(
+            breakdown["criteria"][0]["rubric"]["matched_descriptor"],
+            "The response addresses the topic clearly.",
+        )
+        self.assertEqual(breakdown["skill_contributions"][0]["skill"], "writing")
+        self.assertEqual(breakdown["skill_contributions"][0]["awarded"], 6.75)
+        self.assertEqual(
+            breakdown["skill_contributions"][0]["formula"],
+            "3 / 4 x 9 = 6.75",
+        )
+        self.assertEqual(breakdown["combined"]["awarded"], 6.75)
+        self.assertEqual(breakdown["combined"]["maximum"], 9)
+        self.assertEqual(breakdown["combined"]["performance_percentage"], 75)
         self.assertNotIn("weighted_score", str(payload).lower())
+        self.assertNotIn("scoring_evidence", str(payload).lower())
 
     def test_retrying_job_remains_non_terminal(self):
         _, _, event = self._tracked_response(
@@ -206,6 +247,25 @@ class SinglePracticeEvaluationStatusTests(TestCase):
             str(EvaluationOutbox.objects.get().event_id),
             tracking_id,
         )
+        dispatch.assert_called_once()
+
+    @patch("mocktest.views.dispatch_prepared_evaluation", return_value="evaluation")
+    def test_submission_pins_question_paper_scoring_mode(self, dispatch):
+        MockTest.objects.filter(pk=self.question.mock_test_section.mock_test_id).update(
+            scoring_mode="v2"
+        )
+
+        response = self.client.post(
+            "/mocktest/single-response/",
+            {
+                "name": "Candidate",
+                "question_id": self.question.pk,
+                "answer": "Public transport should be improved.",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(SingleResponse.objects.get().scoring_mode, "v2")
         dispatch.assert_called_once()
 
     def test_unknown_tracking_id_returns_not_found(self):

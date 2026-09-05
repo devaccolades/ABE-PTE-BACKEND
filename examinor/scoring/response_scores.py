@@ -24,9 +24,13 @@ def configured_scoring_mode():
 
 
 def response_scoring_mode(response):
-    """Return the session-pinned mode, falling back for standalone responses."""
+    """Return the response or session-pinned scoring mode."""
     session = getattr(response, "user_session", None)
-    pinned_mode = getattr(session, "scoring_mode", None)
+    pinned_mode = getattr(session, "scoring_mode", None) or getattr(
+        response,
+        "scoring_mode",
+        None,
+    )
     if pinned_mode:
         mode = str(pinned_mode).strip().lower()
         if mode not in SCORING_MODES:

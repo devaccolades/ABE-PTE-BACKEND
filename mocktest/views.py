@@ -347,6 +347,7 @@ class SingleAPIView(APIView):
             user_answer = SingleResponse.objects.create(
                 name=name,
                 question=question,
+                scoring_mode=question.mock_test_section.mock_test.scoring_mode,
                 answer_data=answer,
                 answer_audio=audio_file,
                 transcribed_audio_data=None,

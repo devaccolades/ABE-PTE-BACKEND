@@ -190,3 +190,4 @@ def _normalize_gate_traits(gate_traits, criteria):
             "Gate policy references unknown criteria: " + ", ".join(unknown)
         )
     return normalized
+        

@@ -39,6 +39,7 @@ class TaskContract:
     answer_kind: AnswerKind
     evaluation_engine: EvaluationEngine
     gate_traits: tuple[str, ...] = ()
+    proportional_scoring_required: bool = False
 
     @property
     def requires_response_audio(self):
@@ -82,12 +83,14 @@ def _task(
     evaluation_engine,
     *,
     gate_traits=(),
+    proportional_scoring_required=False,
 ):
     return TaskContract(
         subsection=subsection,
         answer_kind=answer_kind,
         evaluation_engine=evaluation_engine,
         gate_traits=tuple(gate_traits),
+        proportional_scoring_required=proportional_scoring_required,
     )
 
 
@@ -159,6 +162,7 @@ TASK_CONTRACTS = MappingProxyType({
         "mc_multiple",
         AnswerKind.MULTIPLE_OPTION_IDS,
         EvaluationEngine.RULE,
+        proportional_scoring_required=True,
     ),
     "reorder_paragraphs": _task(
         "reorder_paragraphs",
@@ -186,6 +190,7 @@ TASK_CONTRACTS = MappingProxyType({
         "l_mc_multiple",
         AnswerKind.MULTIPLE_OPTION_IDS,
         EvaluationEngine.RULE,
+        proportional_scoring_required=True,
     ),
     "l_fill_in_blanks": _task(
         "l_fill_in_blanks",

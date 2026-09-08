@@ -46,6 +46,17 @@ class TaskRegistryTests(SimpleTestCase):
             AnswerKind.AUDIO_UPLOAD,
         )
 
+    def test_multiple_answer_tasks_require_proportional_scoring(self):
+        self.assertTrue(
+            get_task_contract("mc_multiple").proportional_scoring_required
+        )
+        self.assertTrue(
+            get_task_contract("l_mc_multiple").proportional_scoring_required
+        )
+        self.assertFalse(
+            get_task_contract("mc_single").proportional_scoring_required
+        )
+
     def test_unknown_subsection_fails_closed(self):
         with self.assertRaisesRegex(TaskContractError, "No evaluation task contract"):
             get_task_contract("unknown_task")

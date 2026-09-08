@@ -97,6 +97,51 @@ class ResponseScoreEvidenceTests(SimpleTestCase):
         self.assertIn("Missing positive question maxima", evidence["v2_error"])
         self.assertEqual(promoted_skill_values(evidence)["reading"], 0)
 
+    def test_shadow_mode_promotes_exact_multiple_answer_score(self):
+        evidence = compile_response_score_evidence(
+            question(
+                "mc_multiple",
+                {"reading": ["reading"]},
+                reading=2.5,
+            ),
+            {
+                "ok": True,
+                "evaluation": {
+                    "scores": {"reading": {"score": 0.67, "max": 1}},
+                    "answer_scoring": {
+                        "raw_points": 2,
+                        "maximum_raw_points": 3,
+                    },
+                },
+            },
+            mode="shadow",
+        )
+
+        self.assertEqual(evidence["promoted_version"], "pte-score-v2")
+        self.assertAlmostEqual(evidence["legacy"]["skills"]["reading"]["score"], 0.67)
+        self.assertAlmostEqual(evidence["promoted"]["skills"]["reading"]["score"], 5 / 3)
+        self.assertEqual(
+            evidence["promotion_reason"],
+            "Task requires proportional multiple-answer scoring.",
+        )
+
+    def test_explicit_legacy_mode_preserves_multiple_answer_legacy_score(self):
+        evidence = compile_response_score_evidence(
+            question(
+                "l_mc_multiple",
+                {"listening": ["listening"]},
+                listening=1.5,
+            ),
+            evaluation({"listening": {"score": 1 / 3, "max": 1}}),
+            mode="legacy",
+        )
+
+        self.assertEqual(evidence["promoted_version"], LEGACY_SCORING_VERSION)
+        self.assertAlmostEqual(
+            evidence["promoted"]["skills"]["listening"]["score"],
+            1 / 3,
+        )
+
     def test_v2_mode_fails_closed_on_contract_error(self):
         with self.assertRaisesRegex(ResponseScoringError, "V2 score compilation failed"):
             compile_response_score_evidence(

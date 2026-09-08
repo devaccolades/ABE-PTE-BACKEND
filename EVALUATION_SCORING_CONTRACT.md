@@ -277,11 +277,14 @@ response-scoring service controlled by `EVALUATION_SCORING_MODE`:
 
 - `legacy`: calculate and promote only `pte-score-v1`;
 - `shadow` (default): promote the legacy score while storing the v2 result,
-  per-skill delta, or v2 contract error inside `evaluation_result`;
+  per-skill delta, or v2 contract error inside `evaluation_result`, except for
+  task contracts that require proportional scoring as a correctness boundary;
 - `v2`: fail closed on a v2 contract error and promote `pte-score-v2`.
 
-Shadow calculation makes no provider calls and does not alter the live awarded
-score. The persisted evidence identifies both versions and the promoted version.
+Shadow calculation makes no provider calls. It normally leaves the live awarded
+score unchanged; task-specific correctness boundaries documented below may
+promote their corrected calculation. The persisted evidence identifies both
+versions, the promoted version, and the reason for an exceptional promotion.
 Operations can produce a historical comparison without modifying responses or
 sessions:
 
@@ -299,7 +302,8 @@ Each mock test has a rollout mode and defaults to `shadow`. Enabling V2 for a
 mock test requires that it is active and passes the complete publication
 contract. Inactive tests cannot start through the public API. A newly started
 full mock-test session inherits its mock test's mode and pins it for the
-session's lifetime.
+session's lifetime. A standalone response pins the selected mock test's mode at
+submission so retries remain deterministic.
 
 Production promotion uses the guarded, dry-run-first command:
 
@@ -319,8 +323,39 @@ correction for a `UserResponse` uses the session pin rather than the current
 process environment. Operations may therefore canary V2 on one validated mock
 test without changing other new exams, partially completed exams, or historical
 sessions. Existing mock tests and sessions are backfilled as `shadow` during
-rollout. Standalone `SingleResponse` evaluations continue to use the current
-environment mode.
+rollout.
+
+### Multiple-answer correction
+
+Reading and Listening multiple-answer questions require proportional scoring in
+both `shadow` and `v2` modes. Explicitly `legacy` sessions retain the old result
+for historical reproducibility. The raw score is:
+
+```text
+max(correct selections - incorrect selections, 0)
+```
+
+The awarded skill contribution is:
+
+```text
+raw points / number of correct options * question skill maximum
+```
+
+The raw fraction is retained through score compilation and rounded only for
+display. Evaluation evidence stores candidate-safe counts for correct selected,
+incorrect selected, missed correct, raw points, and maximum raw points. It does
+not expose hidden option IDs.
+
+Historical completed responses are unchanged unless operations explicitly run
+the guarded, deterministic repair command. It is dry-run by default and never
+calls an AI provider:
+
+```bash
+python manage.py rescore_multiple_answer_responses --detail-limit 100
+```
+
+Confirmation requires both the eligible and score-changing counts observed in
+the dry run.
 
 Session-level impact can be reviewed without writes:
 

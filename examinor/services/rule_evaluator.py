@@ -302,7 +302,7 @@ def _score_from_ratio(ratio, rubric):
 
     return {
         key: {
-            "score": round(max_score * ratio, 2),
+            "score": max_score * ratio,
             "max": max_score,
         }
         for key, max_score in maxima.items()
@@ -324,6 +324,10 @@ def _single_choice_ratio(question, answer_data):
 
 
 def _multiple_choice_ratio(question, answer_data):
+    return _multiple_choice_assessment(question, answer_data)["ratio"]
+
+
+def _multiple_choice_assessment(question, answer_data):
     selected_ids = _as_multiple_id_set(answer_data)
     correct_ids = set(
         question.options.filter(is_correct=True).values_list("id", flat=True)
@@ -337,7 +341,14 @@ def _multiple_choice_ratio(question, answer_data):
     correct_selected = len(selected_ids & correct_ids)
     incorrect_selected = len(selected_ids - correct_ids)
     awarded = max(correct_selected - incorrect_selected, 0)
-    return awarded / len(correct_ids)
+    return {
+        "correct_selected": correct_selected,
+        "incorrect_selected": incorrect_selected,
+        "missed_correct": len(correct_ids - selected_ids),
+        "raw_points": awarded,
+        "maximum_raw_points": len(correct_ids),
+        "ratio": awarded / len(correct_ids),
+    }
 
 
 def _fib_dropdown_ratio(question, answer_data):
@@ -521,16 +532,27 @@ def _single_choice_feedback(question, answer_data, ratio):
     }
 
 
-def _multiple_choice_feedback(question, answer_data, ratio):
+def _multiple_choice_feedback(question, answer_data, ratio, assessment=None):
     options = {option.id: option for option in question.options.all()}
     selected_ids = _as_multiple_id_set(answer_data)
     correct_ids = {option.id for option in options.values() if option.is_correct}
     correct_selected = selected_ids & correct_ids
     incorrect_selected = selected_ids - correct_ids
     missed = correct_ids - selected_ids
+    assessment = assessment or {
+        "correct_selected": len(correct_selected),
+        "incorrect_selected": len(incorrect_selected),
+        "missed_correct": len(missed),
+        "raw_points": max(len(correct_selected) - len(incorrect_selected), 0),
+        "maximum_raw_points": len(correct_ids),
+    }
     summary = (
         f"Selected {len(correct_selected)} correct option(s), "
-        f"{len(incorrect_selected)} incorrect option(s), and missed {len(missed)} correct option(s)."
+        f"{len(incorrect_selected)} incorrect option(s), and missed "
+        f"{len(missed)} correct option(s). Raw score: "
+        f"{assessment['correct_selected']} - {assessment['incorrect_selected']} "
+        f"= {assessment['raw_points']} out of "
+        f"{assessment['maximum_raw_points']}."
     )
     return {
         "summary": summary,
@@ -539,13 +561,18 @@ def _multiple_choice_feedback(question, answer_data, ratio):
             "status": _feedback_status(ratio),
             "selected": ", ".join(
                 _option_text(options[option_id])
-                for option_id in selected_ids
+                for option_id in sorted(selected_ids)
                 if option_id in options
             ) or "No answer",
             "correct": ", ".join(
                 _option_text(options[option_id])
-                for option_id in correct_ids
+                for option_id in sorted(correct_ids)
             ),
+            "correct_selections": assessment["correct_selected"],
+            "incorrect_selections": assessment["incorrect_selected"],
+            "missed_correct": assessment["missed_correct"],
+            "raw_points": assessment["raw_points"],
+            "maximum_raw_points": assessment["maximum_raw_points"],
         }],
     }
 
@@ -698,7 +725,14 @@ def _highlight_incorrect_feedback(question, answer_data, ratio):
     }
 
 
-def build_rule_feedback(*, question, subsection, answer_data, ratio):
+def build_rule_feedback(
+    *,
+    question,
+    subsection,
+    answer_data,
+    ratio,
+    answer_scoring=None,
+):
     if subsection.name == "fib_dropdown":
         feedback = _fib_dropdown_feedback(question, answer_data, ratio)
     elif subsection.name == "fib_drag_drop":
@@ -710,7 +744,12 @@ def build_rule_feedback(*, question, subsection, answer_data, ratio):
     elif subsection.name == "highlight_incorrect_words":
         feedback = _highlight_incorrect_feedback(question, answer_data, ratio)
     elif subsection.name in {"mc_multiple", "l_mc_multiple"}:
-        feedback = _multiple_choice_feedback(question, answer_data, ratio)
+        feedback = _multiple_choice_feedback(
+            question,
+            answer_data,
+            ratio,
+            assessment=answer_scoring,
+        )
     elif subsection.name in {
         "mc_single",
         "l_mc_single",
@@ -733,6 +772,7 @@ def evaluate_deterministically(*, user_answer, question, subsection):
             "error": f"No rule configuration defined for {subsection.name}",
         }
 
+    answer_scoring = None
     try:
         if subsection.name == "fib_dropdown":
             ratio = _fib_dropdown_ratio(question, user_answer.answer_data)
@@ -751,7 +791,11 @@ def evaluate_deterministically(*, user_answer, question, subsection):
             ratio = _text_match_ratio(question, user_answer.answer_data)
         elif cfg["correctness_type"] == "is_correct_flag":
             if cfg["answer_format"] == "list_of_ids":
-                ratio = _multiple_choice_ratio(question, user_answer.answer_data)
+                answer_scoring = _multiple_choice_assessment(
+                    question,
+                    user_answer.answer_data,
+                )
+                ratio = answer_scoring["ratio"]
             else:
                 ratio = _single_choice_ratio(question, user_answer.answer_data)
         else:
@@ -772,16 +816,21 @@ def evaluate_deterministically(*, user_answer, question, subsection):
         subsection=subsection,
         answer_data=user_answer.answer_data,
         ratio=ratio,
+        answer_scoring=answer_scoring,
     )
+
+    evaluation = {
+        "scores": scores,
+        "weighted_score": sum(item["score"] for item in scores.values()),
+        "max_score": sum(item["max"] for item in scores.values()),
+        "feedback": feedback,
+    }
+    if answer_scoring is not None:
+        evaluation["answer_scoring"] = answer_scoring
 
     return {
         "ok": True,
-        "evaluation": {
-            "scores": scores,
-            "weighted_score": sum(item["score"] for item in scores.values()),
-            "max_score": sum(item["max"] for item in scores.values()),
-            "feedback": feedback,
-        },
+        "evaluation": evaluation,
     }
 
 

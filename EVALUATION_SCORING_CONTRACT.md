@@ -357,6 +357,25 @@ python manage.py rescore_multiple_answer_responses --detail-limit 100
 Confirmation requires both the eligible and score-changing counts observed in
 the dry run.
 
+### QA session replay
+
+A finalized session can be replayed for controlled end-to-end comparison with:
+
+```bash
+python manage.py replay_mock_test_session \
+  --source-session 175 \
+  --name "QA Replay 6452 - scoring verification"
+```
+
+The command is dry-run by default. It validates complete manifest coverage and
+every required source audio file before writing anything. Confirmation creates
+a new session under the question paper's current scoring mode, copies answer
+payloads and audio into independent records, clears prior transcripts and
+results, and queues the normal transcription and evaluation pipeline. The
+source session is never modified. Exact response, audio, and source-result
+version counts are required for confirmation, and a duplicate replay name is
+rejected.
+
 Session-level impact can be reviewed without writes:
 
 ```bash

@@ -14,6 +14,10 @@ from mocktest.models import (
     UserResponse,
 )
 from mocktest.services.evaluation_input import question_requires_audio
+from mocktest.services.question_config import (
+    canonical_trait_skill_map,
+    effective_question_skill_maxima,
+)
 
 
 MANIFEST_VERSION = "session-manifest-v1"
@@ -75,6 +79,11 @@ def create_session_manifest(session_id):
             subsection = question.subsection
             mock_test_section = question.mock_test_section
             section = mock_test_section.section if mock_test_section else None
+            trait_skill_map = {}
+            skill_maxima = {skill: 0 for skill in SKILL_NAMES}
+            if subsection:
+                trait_skill_map, _ = canonical_trait_skill_map(subsection)
+                skill_maxima = effective_question_skill_maxima(question)
             manifest_rows.append(
                 SessionQuestion(
                     session=session,
@@ -91,13 +100,9 @@ def create_session_manifest(session_id):
                     ),
                     question_snapshot=_question_snapshot(question),
                     rubric_snapshot=(subsection.rubric or {}) if subsection else {},
-                    trait_skill_map_snapshot=(
-                        subsection.trait_skill_map or {}
-                        if subsection
-                        else {}
-                    ),
+                    trait_skill_map_snapshot=trait_skill_map,
                     skill_maxima_snapshot={
-                        skill: float(getattr(question, f"{skill}_score_max") or 0)
+                        skill: float(skill_maxima.get(skill) or 0)
                         for skill in SKILL_NAMES
                     },
                 )

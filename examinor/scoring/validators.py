@@ -1,6 +1,9 @@
 from copy import deepcopy
 
 
+LANGUAGE_ERROR_TYPES = ("grammar", "spelling")
+
+
 def rubric_maxima(rubric):
     maxima = {}
 
@@ -90,3 +93,97 @@ def validate_and_normalize_evaluation_result(evaluation_result, rubric=None):
     normalized["evaluation"]["weighted_score"] = sum(item["score"] for item in normalized_scores.values())
 
     return True, normalized, None
+
+
+def validate_and_normalize_language_feedback(evaluation_result, answer_text):
+    """Validate candidate-facing language annotations against the saved answer."""
+    normalized = deepcopy(evaluation_result)
+    evaluation = normalized.get("evaluation")
+    if not isinstance(evaluation, dict):
+        return False, None, "Evaluation payload must be an object."
+
+    scores = evaluation.get("scores")
+    if not isinstance(scores, dict):
+        return False, None, "Evaluation scores must be an object."
+
+    feedback = evaluation.get("feedback")
+    if not isinstance(feedback, dict):
+        return False, None, "Language evaluation feedback must be an object."
+
+    raw_errors = feedback.get("errors")
+    if not isinstance(raw_errors, list):
+        return False, None, "Language evaluation feedback.errors must be a list."
+
+    answer_text = str(answer_text or "")
+    errors = []
+    seen = set()
+    for index, item in enumerate(raw_errors, start=1):
+        if not isinstance(item, dict):
+            return False, None, f"Language error {index} must be an object."
+
+        error_type = str(item.get("type") or "").strip().lower()
+        if error_type not in LANGUAGE_ERROR_TYPES:
+            return (
+                False,
+                None,
+                f"Language error {index} has unsupported type {error_type!r}.",
+            )
+
+        error_text = str(item.get("text") or item.get("original") or "").strip()
+        error_text = _exact_error_text(error_text, answer_text)
+        if not error_text:
+            return (
+                False,
+                None,
+                f"Language error {index} is not an exact substring of the candidate response.",
+            )
+
+        key = (error_type, error_text)
+        if key in seen:
+            continue
+        seen.add(key)
+        errors.append({
+            **item,
+            "type": error_type,
+            "text": error_text,
+            "suggestion": str(item.get("suggestion") or "").strip(),
+            "explanation": str(item.get("explanation") or "").strip(),
+        })
+
+    for error_type in LANGUAGE_ERROR_TYPES:
+        payload = scores.get(error_type)
+        if not isinstance(payload, dict):
+            continue
+        score = float(payload.get("score") or 0)
+        maximum = float(payload.get("max", payload.get("maximum")) or 0)
+        has_errors = any(item["type"] == error_type for item in errors)
+        if score < maximum and not has_errors:
+            return (
+                False,
+                None,
+                f"{error_type.title()} is below maximum but has no matching annotation.",
+            )
+        if maximum > 0 and score >= maximum and has_errors:
+            return (
+                False,
+                None,
+                f"{error_type.title()} is at maximum but matching errors were reported.",
+            )
+
+    normalized["evaluation"]["feedback"]["errors"] = errors
+    return True, normalized, None
+
+
+def _exact_error_text(error_text, answer_text):
+    if not error_text:
+        return ""
+    if error_text in answer_text:
+        return error_text
+
+    quote_pairs = (("\"", "\""), ("'", "'"), ("“", "”"), ("‘", "’"))
+    for opening, closing in quote_pairs:
+        if error_text.startswith(opening) and error_text.endswith(closing):
+            unquoted = error_text[len(opening):-len(closing)].strip()
+            if unquoted and unquoted in answer_text:
+                return unquoted
+    return ""

@@ -415,8 +415,14 @@
                 {% if r.scores %}
                 <div style="margin-top:4px; font-size:10px;">
                     <strong>Breakdown:</strong><br>
+                    {% if r.score_gate.applied %}
+                    <span style="color:#7a4f00;">
+                        No trait points were awarded because
+                        {{ r.score_gate.triggered_by|join:", "|title }} scored zero.
+                    </span><br>
+                    {% endif %}
                     {% for score in r.scores %}
-                    {{ score.label }}: {{ score.score }}<br>
+                    {{ score.label }}: {{ score.score }}{% if score.maximum != None %} / {{ score.maximum }}{% endif %}{% if score.gated and score.assessed_score != 0 %} (assessed {{ score.assessed_score }}, not awarded){% endif %}<br>
                     {% endfor %}
                 </div>
                 {% endif %}

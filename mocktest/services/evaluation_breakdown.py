@@ -2,6 +2,7 @@ from collections.abc import Mapping
 
 from examinor.scoring.task_contracts import get_task_contract
 from examinor.services.orchestrator import build_task_rubric
+from mocktest.services.question_config import canonical_trait_skill_map
 
 
 def build_evaluation_breakdown(response):
@@ -29,9 +30,15 @@ def build_evaluation_breakdown(response):
 
     question = response.question
     subsection = question.subsection
-    trait_skill_map = subsection.trait_skill_map or {}
+    trait_skill_map, _ = canonical_trait_skill_map(subsection)
     rubric = build_task_rubric(subsection)
-    criteria = _criteria_breakdown(scores, trait_skill_map, rubric)
+    gate = promoted.get("gate") if isinstance(promoted.get("gate"), Mapping) else {}
+    criteria = _criteria_breakdown(
+        scores,
+        trait_skill_map,
+        rubric,
+        gate_applied=bool(gate.get("applied")),
+    )
     scoring_version = str(
         evidence.get("promoted_version")
         or promoted.get("scoring_version")
@@ -45,7 +52,6 @@ def build_evaluation_breakdown(response):
 
     awarded = sum(item["awarded"] for item in skill_contributions)
     maximum = sum(item["question_maximum"] for item in skill_contributions)
-    gate = promoted.get("gate") if isinstance(promoted.get("gate"), Mapping) else {}
     evaluation_source = str(evaluation.get("evaluation_source") or "").strip()
     if not evaluation_source:
         evaluation_source = get_task_contract(
@@ -97,7 +103,7 @@ def _answer_calculation(raw):
     }
 
 
-def _criteria_breakdown(scores, trait_skill_map, rubric):
+def _criteria_breakdown(scores, trait_skill_map, rubric, *, gate_applied=False):
     criteria = []
     for name in sorted(scores):
         payload = scores[name]
@@ -121,7 +127,9 @@ def _criteria_breakdown(scores, trait_skill_map, rubric):
             {
                 "name": str(name),
                 "label": _label(name),
-                "awarded": _number(awarded),
+                "awarded": _number(0 if gate_applied else awarded),
+                "assessed": _number(awarded),
+                "gated": gate_applied,
                 "maximum": _number(maximum),
                 "percentage": _percentage(awarded, maximum),
                 "mapped_skills": sorted(str(skill) for skill in mapped_skills),

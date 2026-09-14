@@ -80,6 +80,15 @@ class Command(BaseCommand):
             self.stdout.write("Dry run only. Re-run with --apply to persist repairs.")
             return
 
+        if any(
+            subsection.name == "read_aloud"
+            for subsection, _ in subsection_repairs
+        ):
+            raise CommandError(
+                "Read Aloud requires the versioned session-snapshot correction. "
+                "Run correct_read_aloud_skill_policy instead. Nothing was changed."
+            )
+
         with transaction.atomic():
             for subsection, trait_map in subsection_repairs:
                 subsection.trait_skill_map = trait_map

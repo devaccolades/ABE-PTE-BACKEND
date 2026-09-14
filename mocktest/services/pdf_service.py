@@ -262,16 +262,37 @@ def _skill_score(responses, skill):
     return round(min((awarded / maximum) * 90, 90), 2)
 
 
-def _score_items(scores):
+def _score_gate(evaluation_result):
+    if not isinstance(evaluation_result, dict):
+        return {"applied": False, "triggered_by": []}
+    evidence = evaluation_result.get("scoring_evidence")
+    promoted = evidence.get("promoted") if isinstance(evidence, dict) else None
+    gate = promoted.get("gate") if isinstance(promoted, dict) else None
+    if not isinstance(gate, dict):
+        return {"applied": False, "triggered_by": []}
+    return {
+        "applied": bool(gate.get("applied")),
+        "triggered_by": [str(item) for item in gate.get("triggered_by", [])],
+    }
+
+
+def _score_items(scores, evaluation_result=None):
     if not isinstance(scores, dict):
         return []
 
+    gate = _score_gate(evaluation_result)
     items = []
     for key, value in scores.items():
         score = value.get("score") if isinstance(value, dict) else value
+        maximum = None
+        if isinstance(value, dict):
+            maximum = value.get("max", value.get("maximum"))
         items.append({
             "label": str(key).replace("_", " ").title(),
-            "score": score,
+            "score": 0 if gate["applied"] else score,
+            "assessed_score": score,
+            "maximum": maximum,
+            "gated": gate["applied"],
         })
 
     return items
@@ -500,7 +521,8 @@ def _build_finalized_session_pdf_context(session, result):
             "evaluation_stage": "finalized" if response else "submission",
             "evaluation_error": "",
             "skill_scores": skill_scores,
-            "scores": _score_items(scores),
+            "scores": _score_items(scores, evaluation_result),
+            "score_gate": _score_gate(evaluation_result),
             "feedback": _feedback_items(feedback),
             "feedback_details": _feedback_details(feedback),
             "answer_explanation": (
@@ -705,7 +727,8 @@ def build_session_pdf_context(session):
                 "reading": r.reading_score_awarded or 0,
                 "listening": r.listening_score_awarded or 0,
             },
-            "scores": _score_items(scores),
+            "scores": _score_items(scores, eval_data),
+            "score_gate": _score_gate(eval_data),
             "feedback": _feedback_items(feedback),
             "feedback_details": _feedback_details(feedback),
             "answer_explanation": (

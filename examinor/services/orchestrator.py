@@ -1,11 +1,25 @@
+import hashlib
+import json
+
 from django.conf import settings
 from django.db import IntegrityError
 
 from mocktest.models import SubSection
 from mocktest.models import GlobalRubric
-from examinor.services.prompt_builder import build_prompt
+from examinor.scoring.validators import (
+    validate_and_normalize_evaluation_result,
+    validate_and_normalize_language_feedback,
+)
+from examinor.services.prompt_builder import build_prompt, evaluation_answer_text
 from examinor.services.evaluator import evaluate_with_openai
 from examinor.models import EvaluationCache
+
+
+LANGUAGE_ANNOTATION_TASKS = frozenset({
+    "summarize_written_text",
+    "write_essay",
+    "summarize_spoken_text",
+})
 
 
 def build_task_rubric(subsection: SubSection) -> dict:
@@ -132,24 +146,26 @@ def run_evaluation_for_subsection(
         model=cache_model,
     ).first()
     if cached:
-        return {
-            "ok": True,
-            "prompt_hash": p_hash,
-            "model": cache_model,
-            "evaluation": cached.result,
-            "cached": True
-        }
+        valid, normalized, _ = _validate_provider_evaluation(
+            cached.result,
+            rubric,
+            subsection.name,
+            evaluation_answer_text(evaluation_payload),
+        )
+        if valid:
+            return {
+                "ok": True,
+                "prompt_hash": p_hash,
+                "model": cache_model,
+                "evaluation": normalized,
+                "cached": True
+            }
+        cached.delete()
 
     result = evaluate_with_openai(
         prompt,
-        p_hash 
+        p_hash
     )
-    if result["success"]:
-        result["data"] = save_evaluation_cache(
-            p_hash,
-            cache_model,
-            result["data"],
-        )
 
     if not result["success"]:
         return {
@@ -161,9 +177,111 @@ def run_evaluation_for_subsection(
             "raw": result.get("raw")
         }
 
+    valid, normalized, validation_error = _validate_provider_evaluation(
+        result["data"],
+        rubric,
+        subsection.name,
+        evaluation_answer_text(evaluation_payload),
+    )
+    needs_language_audit = (
+        subsection.name in LANGUAGE_ANNOTATION_TASKS
+        and (
+            not valid
+            or _has_reduced_language_score(normalized)
+        )
+    )
+    if needs_language_audit:
+        audit_reason = validation_error or (
+            "Grammar or spelling is below its maximum. Perform a final "
+            "completeness audit and include every clear error."
+        )
+        repair_prompt = (
+            f"{prompt}\n\n"
+            "FINAL LANGUAGE-ANNOTATION AUDIT:\n"
+            f"{audit_reason}\n"
+            "PREVIOUS_OUTPUT:\n"
+            f"{json.dumps(result['data'], ensure_ascii=False, separators=(',', ':'))}\n"
+            "Return the complete corrected JSON response. Re-check every sentence "
+            "and ensure every error.text is copied exactly from CANDIDATE_RESPONSE."
+        )
+        repair_hash = hashlib.sha256(repair_prompt.encode()).hexdigest()
+        result = evaluate_with_openai(repair_prompt, repair_hash)
+        if result["success"]:
+            valid, normalized, validation_error = _validate_provider_evaluation(
+                result["data"],
+                rubric,
+                subsection.name,
+                evaluation_answer_text(evaluation_payload),
+            )
+
+    if not result["success"]:
+        return {
+            "ok": False,
+            "error": result["error"],
+            "prompt_hash": p_hash,
+            "model": cache_model,
+            "prompt": prompt,
+            "raw": result.get("raw"),
+        }
+
+    if not valid:
+        return {
+            "ok": False,
+            "error": f"Evaluation output failed validation: {validation_error}",
+            "prompt_hash": p_hash,
+            "model": cache_model,
+            "raw": result.get("raw"),
+        }
+
+    normalized = save_evaluation_cache(
+        p_hash,
+        cache_model,
+        normalized,
+    )
+
     return {
         "ok": True,
         "prompt_hash": p_hash,
         "model": cache_model,
-        "evaluation": result["data"],
+        "evaluation": normalized,
     }
+
+
+def _validate_provider_evaluation(data, rubric, task_type, answer_text):
+    valid, normalized, error = validate_and_normalize_evaluation_result(
+        {"ok": True, "evaluation": data},
+        rubric,
+    )
+    if not valid:
+        return False, None, error
+
+    score_keys = normalized["evaluation"].get("scores", {})
+    if (
+        task_type in LANGUAGE_ANNOTATION_TASKS
+        and {"grammar", "spelling"} & set(score_keys)
+    ):
+        valid, normalized, error = validate_and_normalize_language_feedback(
+            normalized,
+            answer_text,
+        )
+        if not valid:
+            return False, None, error
+
+    return True, normalized["evaluation"], None
+
+
+def _has_reduced_language_score(evaluation):
+    if not isinstance(evaluation, dict):
+        return False
+    scores = evaluation.get("scores")
+    if not isinstance(scores, dict):
+        return False
+    for key in ("grammar", "spelling"):
+        payload = scores.get(key)
+        if not isinstance(payload, dict):
+            continue
+        score = float(payload.get("score") or 0)
+        maximum = float(payload.get("max", payload.get("maximum")) or 0)
+        if score < maximum:
+            return True
+    return False

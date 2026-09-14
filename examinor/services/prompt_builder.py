@@ -137,7 +137,8 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
 - Do not include style preferences as grammar errors.
 - Do not report informal but correctly spelled words as spelling errors.
 - If a grammar or spelling score is below its maximum, include at least one error of that type.
-- If a grammar or spelling score is at its maximum, do not include an error of that type.
+- Highlight every clear grammar error even when the highest grammar band permits rare errors.
+- If spelling is at its maximum, do not include a spelling error.
 - Return an empty errors array when no clear spelling or grammar error exists.
 """
         if task_type == "summarize_spoken_text":

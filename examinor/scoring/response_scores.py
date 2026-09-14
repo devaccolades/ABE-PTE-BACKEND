@@ -7,6 +7,10 @@ from examinor.scoring.contracts import (
 )
 from examinor.scoring.score_calculator import compile_skill_scores
 from examinor.scoring.task_contracts import get_task_contract
+from mocktest.services.question_config import (
+    canonical_trait_skill_map,
+    effective_question_skill_maxima,
+)
 
 
 SCORING_MODES = frozenset({"legacy", "shadow", "v2"})
@@ -53,8 +57,8 @@ def compile_response_score_evidence(question, evaluation_result, *, mode=None):
 
     contract = get_task_contract(question.subsection.name)
     scores = _criterion_scores(evaluation_result)
-    trait_skill_map = question.subsection.trait_skill_map or {}
-    skill_maxima = _skill_maxima(question)
+    trait_skill_map, _ = canonical_trait_skill_map(question.subsection)
+    skill_maxima = effective_question_skill_maxima(question)
     legacy = compile_legacy_skill_scores(scores, trait_skill_map, skill_maxima)
 
     evidence = {
@@ -197,13 +201,6 @@ def _scores_from_exact_answer_share(scores, evaluation_result):
             "score": maximum * ratio,
         }
     return exact_scores
-
-
-def _skill_maxima(question):
-    return {
-        skill: getattr(question, f"{skill}_score_max") or 0
-        for skill in VALID_SKILLS
-    }
 
 
 def _mapped_skill_maxima(scores, trait_skill_map, skill_maxima):

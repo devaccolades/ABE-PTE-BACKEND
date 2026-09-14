@@ -528,6 +528,8 @@ class UserMockTestSession(models.Model):
         self.sync_evaluation_completion()
 
     def calculate_overall_raw_score(self):
+        from mocktest.services.question_config import effective_question_skill_maxima
+
         qs = self.userresponse_set.filter(evaluated=True)
 
         speaking = sum(r.speaking_score_awarded for r in qs)
@@ -537,10 +539,11 @@ class UserMockTestSession(models.Model):
 
         raw_total = speaking + writing + reading + listening
 
-        max_speaking = sum(r.question.speaking_score_max or 0 for r in qs)
-        max_writing = sum(r.question.writing_score_max or 0 for r in qs)
-        max_reading = sum(r.question.reading_score_max or 0 for r in qs)
-        max_listening = sum(r.question.listening_score_max or 0 for r in qs)
+        maxima = [effective_question_skill_maxima(response.question) for response in qs]
+        max_speaking = sum(item["speaking"] for item in maxima)
+        max_writing = sum(item["writing"] for item in maxima)
+        max_reading = sum(item["reading"] for item in maxima)
+        max_listening = sum(item["listening"] for item in maxima)
 
         max_total = max_speaking + max_writing + max_reading + max_listening
 

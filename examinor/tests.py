@@ -4,7 +4,10 @@ from types import SimpleNamespace
 from django.test import SimpleTestCase, TestCase
 from django.test import override_settings
 
-from examinor.scoring.validators import validate_and_normalize_evaluation_result
+from examinor.scoring.validators import (
+    validate_and_normalize_evaluation_result,
+    validate_and_normalize_language_feedback,
+)
 from examinor.models import EvaluationCache
 from examinor.services.evaluator import evaluate_with_openai
 from examinor.services.orchestrator import (
@@ -82,6 +85,49 @@ class EvaluationResultValidatorTests(SimpleTestCase):
         self.assertFalse(is_valid)
         self.assertIsNone(normalized)
         self.assertIn("exceeds max", error)
+
+    def test_language_feedback_rejects_missing_and_contradictory_annotations(self):
+        result = {
+            "ok": True,
+            "evaluation": {
+                "scores": {
+                    "grammar": {"score": 1, "max": 2},
+                    "spelling": {"score": 2, "max": 2},
+                },
+                "feedback": {
+                    "errors": [{"type": "spelling", "text": "okay"}],
+                },
+            },
+        }
+
+        valid, normalized, error = validate_and_normalize_language_feedback(
+            result,
+            "This sentence is okay.",
+        )
+
+        self.assertFalse(valid)
+        self.assertIsNone(normalized)
+        self.assertIn("Grammar is below maximum", error)
+
+    def test_language_feedback_requires_exact_candidate_text(self):
+        result = {
+            "ok": True,
+            "evaluation": {
+                "scores": {"grammar": {"score": 0, "max": 2}},
+                "feedback": {
+                    "errors": [{"type": "grammar", "text": "missing words"}],
+                },
+            },
+        }
+
+        valid, normalized, error = validate_and_normalize_language_feedback(
+            result,
+            "The saved answer does not contain that phrase.",
+        )
+
+        self.assertFalse(valid)
+        self.assertIsNone(normalized)
+        self.assertIn("exact substring", error)
 
 
 class OpenAIServiceConfigurationTests(SimpleTestCase):
@@ -182,7 +228,55 @@ class EvaluationOrchestratorTests(TestCase):
 
         self.assertTrue(result["ok"])
         prompt = mock_evaluate.call_args.args[0]
-        self.assertIn('"content":{"max":5}', prompt)
+        self.assertIn('"content":{"max":5,', prompt)
+
+    @patch("examinor.services.orchestrator.evaluate_with_openai")
+    def test_language_evaluation_repairs_inconsistent_annotations_once(self, mock_evaluate):
+        section = Section.objects.create(name="Writing")
+        subsection = SubSection.objects.create(
+            section=section,
+            name="write_essay",
+            rubric={"grammar": {"max": 2}, "spelling": {"max": 2}},
+        )
+        mock_evaluate.side_effect = [
+            {
+                "success": True,
+                "data": {
+                    "scores": {
+                        "grammar": {"score": 1, "max": 2},
+                        "spelling": {"score": 2, "max": 2},
+                    },
+                    "feedback": {"errors": []},
+                },
+            },
+            {
+                "success": True,
+                "data": {
+                    "scores": {
+                        "grammar": {"score": 1, "max": 2},
+                        "spelling": {"score": 2, "max": 2},
+                    },
+                    "feedback": {
+                        "errors": [{
+                            "type": "grammar",
+                            "text": "This are",
+                            "suggestion": "This is",
+                            "explanation": "Subject-verb agreement.",
+                        }],
+                    },
+                },
+            },
+        ]
+
+        result = run_evaluation_for_subsection(
+            subsection,
+            "Question text",
+            {"answer_data": "This are incorrect."},
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(mock_evaluate.call_count, 2)
+        self.assertIn("FINAL LANGUAGE-ANNOTATION AUDIT", mock_evaluate.call_args.args[0])
 
     @override_settings(OPENAI_EVALUATION_MODEL="new-model")
     @patch("examinor.services.orchestrator.evaluate_with_openai")
@@ -294,6 +388,24 @@ class PromptBuilderTests(SimpleTestCase):
         self.assertIn('"type":"<spelling or grammar>"', prompt)
         self.assertIn("exact, case-preserving substring", prompt)
         self.assertIn("Do not include style preferences as grammar errors", prompt)
+
+    def test_writing_prompt_includes_full_exam_length_answer_and_rubric_bands(self):
+        answer = "A" * 2086
+        prompt, _ = build_prompt(
+            "write_essay",
+            "Question text",
+            {"answer_data": answer},
+            {
+                "grammar": {
+                    "0": "Contains mostly ungrammatical structures.",
+                    "2": "Shows consistently correct grammar.",
+                },
+            },
+        )
+
+        self.assertIn(answer, prompt)
+        self.assertIn("Contains mostly ungrammatical structures.", prompt)
+        self.assertNotIn("…", prompt)
 
     def test_structured_answer_fallback_is_stable_json(self):
         first = normalize_answer_text({"b": 2, "a": 1})

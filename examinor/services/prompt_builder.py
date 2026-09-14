@@ -1,7 +1,11 @@
 # examinor/services/prompt_builder.py
 import json
 import hashlib
-from django.utils.text import Truncator
+
+
+PROMPT_VERSION = "pte-evaluation-prompt-v2"
+MAX_CANDIDATE_RESPONSE_CHARS = 12000
+MAX_REFERENCE_MATERIAL_CHARS = 12000
 
 
 TEXT_ANSWER_KEYS = (
@@ -38,6 +42,17 @@ def normalize_answer_text(answer_data):
     return str(answer_data)
 
 
+def evaluation_answer_text(evaluation_payload):
+    transcribed = evaluation_payload.get("transcribed_audio_data")
+    if isinstance(transcribed, dict):
+        transcription = transcribed.get("transcription")
+        if isinstance(transcription, dict):
+            text = transcription.get("text")
+            if text not in (None, ""):
+                return normalize_answer_text(text)
+    return normalize_answer_text(evaluation_payload.get("answer_data"))
+
+
 def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, rubric: dict):
     """
     Clean, deterministic, nano-friendly PTE evaluation prompt.
@@ -46,7 +61,7 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
     # -----------------------------
     # ANSWER + OPTIONAL METADATA
     # -----------------------------
-    answer_text = normalize_answer_text(evaluation_payload.get("answer_data"))
+    answer_text = evaluation_answer_text(evaluation_payload)
     reference_text = normalize_answer_text(
         evaluation_payload.get("reference_answer")
     )
@@ -55,20 +70,14 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
     if evaluation_payload.get("transcribed_audio_data"):
         ta = evaluation_payload["transcribed_audio_data"] or {}
 
-        # transcript is the actual answer
-        answer_text = (
-            ta.get("transcription", {})
-            .get("text", "")
-        )
-
         # pass audio analytics AS-IS (may be empty / partial)
         analytics_block = json.dumps(
             ta,
             separators=(",", ":"),
         )
 
-    answer_excerpt = Truncator(answer_text).chars(1500)
-    reference_excerpt = Truncator(reference_text).chars(3000)
+    answer_excerpt = answer_text[:MAX_CANDIDATE_RESPONSE_CHARS]
+    reference_excerpt = reference_text[:MAX_REFERENCE_MATERIAL_CHARS]
 
     # -----------------------------
     # COMPACT RUBRIC
@@ -87,7 +96,10 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
         elif isinstance(value, list):
             max_score = len(value)
 
-        compact_rubric[key] = {"max": max_score}
+        compact_rubric[key] = {
+            "max": max_score,
+            "scoring_bands": value,
+        }
 
     rubric_json = json.dumps(compact_rubric, separators=(",", ":"))
 
@@ -118,10 +130,14 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
         )
         feedback_rules = """
 - Return every clear spelling and grammar error in feedback.errors.
+- Review the complete candidate response sentence by sentence before returning errors.
 - error.type must be exactly "spelling" or "grammar".
 - error.text must be an exact, case-preserving substring copied from CANDIDATE_RESPONSE.
 - Keep error.text to the shortest useful word or phrase; do not paraphrase it.
 - Do not include style preferences as grammar errors.
+- Do not report informal but correctly spelled words as spelling errors.
+- If a grammar or spelling score is below its maximum, include at least one error of that type.
+- If a grammar or spelling score is at its maximum, do not include an error of that type.
 - Return an empty errors array when no clear spelling or grammar error exists.
 """
         if task_type == "summarize_spoken_text":
@@ -133,6 +149,7 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
 
     prompt = f"""
 You are a strict, deterministic PTE examiner.
+PROMPT_VERSION: {PROMPT_VERSION}
 You MUST follow rubric keys EXACTLY as given.
 Do NOT add new criteria.
 Do NOT rename criteria.

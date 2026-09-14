@@ -52,6 +52,55 @@ def evaluation(scores):
 
 
 class ResponseScoreEvidenceTests(SimpleTestCase):
+    def test_read_aloud_awards_speaking_only_under_current_policy(self):
+        evidence = compile_response_score_evidence(
+            question(
+                "read_aloud",
+                {
+                    "content": ["reading", "speaking"],
+                    "oral_fluency": ["speaking"],
+                    "pronunciation": ["speaking"],
+                },
+                speaking=1.5,
+                reading=6,
+            ),
+            evaluation({
+                "content": {"score": 6, "max": 6},
+                "oral_fluency": {"score": 5, "max": 5},
+                "pronunciation": {"score": 4, "max": 5},
+            }),
+            mode="v2",
+        )
+
+        promoted = promoted_skill_values(evidence)
+        self.assertEqual(promoted["reading"], 0)
+        self.assertAlmostEqual(promoted["speaking"], 1.40625)
+        self.assertNotIn("reading", evidence["promoted"]["skills"])
+
+    def test_repeat_sentence_zero_content_gates_all_skill_awards(self):
+        evidence = compile_response_score_evidence(
+            question(
+                "repeat_sentence",
+                {
+                    "content": ["listening", "speaking"],
+                    "oral_fluency": ["speaking"],
+                    "pronunciation": ["speaking"],
+                },
+                speaking=1.4,
+                listening=1.5,
+            ),
+            evaluation({
+                "content": {"score": 0, "max": 3},
+                "oral_fluency": {"score": 4, "max": 5},
+                "pronunciation": {"score": 5, "max": 5},
+            }),
+            mode="v2",
+        )
+
+        self.assertTrue(evidence["promoted"]["gate"]["applied"])
+        self.assertEqual(promoted_skill_values(evidence)["speaking"], 0)
+        self.assertEqual(promoted_skill_values(evidence)["listening"], 0)
+
     def test_shadow_mode_preserves_legacy_score_and_records_v2_delta(self):
         evidence = compile_response_score_evidence(
             question(

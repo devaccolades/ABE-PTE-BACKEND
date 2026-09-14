@@ -145,6 +145,66 @@ class ConfigureListeningFillBlanksCommandTests(TestCase):
 
 
 class SessionPdfContextTests(TestCase):
+    def test_zero_content_gate_shows_trait_scores_as_not_awarded(self):
+        mock_test = MockTest.objects.create(title="PTE Mock Test")
+        section = Section.objects.create(name="Speaking")
+        mock_test_section = MockTestSection.objects.create(
+            mock_test=mock_test,
+            section=section,
+            order=1,
+        )
+        subsection = SubSection.objects.create(
+            section=section,
+            name="repeat_sentence",
+            order=1,
+        )
+        question = Question.objects.create(
+            mock_test_section=mock_test_section,
+            subsection=subsection,
+            text="Repeat the sentence.",
+            speaking_score_max=1.4,
+            listening_score_max=1.5,
+        )
+        session = UserMockTestSession.objects.create(
+            name="Speaker",
+            session_id="repeat-gate-report",
+            mock_test=mock_test,
+        )
+        UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            evaluated=True,
+            evaluation_status="completed",
+            evaluation_result={
+                "evaluation": {
+                    "scores": {
+                        "content": {"score": 0, "max": 3},
+                        "oral_fluency": {"score": 4, "max": 5},
+                        "pronunciation": {"score": 5, "max": 5},
+                    },
+                },
+                "scoring_evidence": {
+                    "promoted": {
+                        "gate": {
+                            "applied": True,
+                            "triggered_by": ["content"],
+                        },
+                    },
+                },
+            },
+        )
+
+        context = build_session_pdf_context(session)
+        response = context["sections"][0]["subsections"][0]["responses"][0]
+        self.assertTrue(response["score_gate"]["applied"])
+        self.assertEqual([item["score"] for item in response["scores"]], [0, 0, 0])
+
+        html = render_to_string("pdf/session_report.html", context)
+        self.assertIn("No trait points were awarded because", html)
+        self.assertIn("assessed 4, not awarded", html)
+        self.assertIn("assessed 5, not awarded", html)
+
     def test_summarize_spoken_text_annotates_the_saved_transcript(self):
         mock_test = MockTest.objects.create(title="PTE Mock Test")
         section = Section.objects.create(name="Listening")
@@ -881,7 +941,7 @@ class QuestionBankAuditCommandTests(TestCase):
         self.assertIn("Student Session Name", rows[0]["affected_sessions"])
         self.assertIn("session-reference-123", rows[0]["affected_sessions"])
 
-    def test_read_aloud_reports_shared_mapping_and_reading_max_not_listening_max(self):
+    def test_read_aloud_reports_non_speaking_mapping_without_requiring_other_maxima(self):
         mock_test = MockTest.objects.create(title="Speaking Test")
         section = Section.objects.create(name="Speaking")
         mock_test_section = MockTestSection.objects.create(
@@ -918,7 +978,7 @@ class QuestionBankAuditCommandTests(TestCase):
         codes = {row["code"] for row in rows}
         problems = " ".join(row["problem"] for row in rows)
         self.assertIn("invalid_trait_skill_contract", codes)
-        self.assertIn("reading maximum is zero", problems)
+        self.assertNotIn("reading maximum is zero", problems)
         self.assertNotIn("listening maximum is zero", problems)
 
 
@@ -1147,10 +1207,31 @@ class RepairQuestionBankSystemConfigCommandTests(TestCase):
         self.assertIsNone(question.speaking_score_max)
         self.assertIn("Dry run only", stdout.getvalue())
 
+        with self.assertRaisesMessage(
+            CommandError,
+            "correct_read_aloud_skill_policy",
+        ):
+            call_command(
+                "repair_question_bank_system_config",
+                "--apply",
+                "--rescore-existing",
+            )
+
         call_command(
-            "repair_question_bank_system_config",
-            "--apply",
-            "--rescore-existing",
+            "correct_read_aloud_skill_policy",
+            "--reason",
+            "Current Pearson Read Aloud policy",
+            "--expected-subsection-count",
+            "1",
+            "--expected-question-count",
+            "0",
+            "--expected-user-count",
+            "1",
+            "--expected-single-count",
+            "0",
+            "--expected-manifest-count",
+            "0",
+            "--confirm",
         )
         subsection.refresh_from_db()
         question.refresh_from_db()
@@ -1159,7 +1240,7 @@ class RepairQuestionBankSystemConfigCommandTests(TestCase):
         self.assertEqual(
             subsection.trait_skill_map,
             {
-                "content": ["reading", "speaking"],
+                "content": ["speaking"],
                 "oral_fluency": ["speaking"],
                 "pronunciation": ["speaking"],
             },

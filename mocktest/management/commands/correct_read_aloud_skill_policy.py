@@ -109,7 +109,18 @@ class Command(BaseCommand):
             user_responses = user_responses.select_for_update()
             single_responses = single_responses.select_for_update()
 
-        user_rows = list(user_responses.select_related("question__subsection"))
+        if lock:
+            # PostgreSQL cannot lock the nullable side of the subsection join.
+            # Question and subsection configuration rows are locked separately above.
+            user_rows = list(user_responses)
+            single_rows = list(single_responses)
+        else:
+            user_rows = list(
+                user_responses.select_related("question__subsection")
+            )
+            single_rows = list(
+                single_responses.select_related("question__subsection")
+            )
         session_ids = {
             response.user_session_id for response in user_rows
         } | {row.session_id for row in manifest_rows}
@@ -117,9 +128,7 @@ class Command(BaseCommand):
             "subsections": subsection_rows,
             "questions": question_rows,
             "user_responses": user_rows,
-            "single_responses": list(
-                single_responses.select_related("question__subsection")
-            ),
+            "single_responses": single_rows,
             "manifests": manifest_rows,
             "session_ids": session_ids,
         }

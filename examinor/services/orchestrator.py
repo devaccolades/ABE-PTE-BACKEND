@@ -1,5 +1,6 @@
 import hashlib
 import json
+from copy import deepcopy
 
 from django.conf import settings
 from django.db import IntegrityError
@@ -183,17 +184,16 @@ def run_evaluation_for_subsection(
         subsection.name,
         evaluation_answer_text(evaluation_payload),
     )
+    initial_normalized = normalized if valid else None
     needs_language_audit = (
         subsection.name in LANGUAGE_ANNOTATION_TASKS
-        and (
-            not valid
-            or _has_reduced_language_score(normalized)
-        )
+        and (not valid or _has_language_scores(normalized))
     )
     if needs_language_audit:
         audit_reason = validation_error or (
-            "Grammar or spelling is below its maximum. Perform a final "
-            "completeness audit and include every clear error."
+            "Perform a final sentence-by-sentence completeness audit and include "
+            "every clear grammar and spelling error, including rare errors allowed "
+            "by the highest grammar band."
         )
         repair_prompt = (
             f"{prompt}\n\n"
@@ -201,12 +201,17 @@ def run_evaluation_for_subsection(
             f"{audit_reason}\n"
             "PREVIOUS_OUTPUT:\n"
             f"{json.dumps(result['data'], ensure_ascii=False, separators=(',', ':'))}\n"
-            "Return the complete corrected JSON response. Re-check every sentence "
-            "and ensure every error.text is copied exactly from CANDIDATE_RESPONSE."
+            "Keep every non-grammar and non-spelling score exactly as shown in "
+            "PREVIOUS_OUTPUT. Return the complete corrected JSON response and ensure "
+            "every error.text is copied exactly from CANDIDATE_RESPONSE."
         )
         repair_hash = hashlib.sha256(repair_prompt.encode()).hexdigest()
         result = evaluate_with_openai(repair_prompt, repair_hash)
         if result["success"]:
+            result["data"] = _preserve_non_language_scores(
+                result["data"],
+                initial_normalized,
+            )
             valid, normalized, validation_error = _validate_provider_evaluation(
                 result["data"],
                 rubric,
@@ -270,18 +275,30 @@ def _validate_provider_evaluation(data, rubric, task_type, answer_text):
     return True, normalized["evaluation"], None
 
 
-def _has_reduced_language_score(evaluation):
+def _has_language_scores(evaluation):
     if not isinstance(evaluation, dict):
         return False
     scores = evaluation.get("scores")
     if not isinstance(scores, dict):
         return False
-    for key in ("grammar", "spelling"):
-        payload = scores.get(key)
-        if not isinstance(payload, dict):
-            continue
-        score = float(payload.get("score") or 0)
-        maximum = float(payload.get("max", payload.get("maximum")) or 0)
-        if score < maximum:
-            return True
-    return False
+    return any(
+        isinstance(scores.get(key), dict)
+        for key in ("grammar", "spelling")
+    )
+
+
+def _preserve_non_language_scores(candidate, initial):
+    if not isinstance(candidate, dict) or not isinstance(initial, dict):
+        return candidate
+    initial_scores = initial.get("scores")
+    candidate_scores = candidate.get("scores")
+    if not isinstance(initial_scores, dict) or not isinstance(candidate_scores, dict):
+        return candidate
+
+    preserved = deepcopy(candidate)
+    preserved_scores = dict(preserved["scores"])
+    for key, payload in initial_scores.items():
+        if key not in {"grammar", "spelling"}:
+            preserved_scores[key] = deepcopy(payload)
+    preserved["scores"] = preserved_scores
+    return preserved

@@ -129,6 +129,35 @@ class EvaluationResultValidatorTests(SimpleTestCase):
         self.assertIsNone(normalized)
         self.assertIn("exact substring", error)
 
+    def test_language_feedback_adds_missing_terminal_punctuation_annotation(self):
+        result = {
+            "ok": True,
+            "evaluation": {
+                "scores": {
+                    "grammar": {"score": 2, "max": 2},
+                    "spelling": {"score": 2, "max": 2},
+                },
+                "feedback": {"errors": []},
+            },
+        }
+
+        valid, normalized, error = validate_and_normalize_language_feedback(
+            result,
+            "This is otherwise grammatically correct",
+        )
+
+        self.assertTrue(valid)
+        self.assertIsNone(error)
+        self.assertEqual(
+            normalized["evaluation"]["feedback"]["errors"],
+            [{
+                "type": "grammar",
+                "text": "correct",
+                "suggestion": "correct.",
+                "explanation": "The final sentence is missing terminal punctuation.",
+            }],
+        )
+
 
 class OpenAIServiceConfigurationTests(SimpleTestCase):
     @override_settings(OPENAI_API_KEY="")
@@ -277,6 +306,53 @@ class EvaluationOrchestratorTests(TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(mock_evaluate.call_count, 2)
         self.assertIn("FINAL LANGUAGE-ANNOTATION AUDIT", mock_evaluate.call_args.args[0])
+
+    @patch("examinor.services.orchestrator.evaluate_with_openai")
+    def test_language_audit_runs_at_full_marks_and_preserves_other_scores(self, mock_evaluate):
+        section = Section.objects.create(name="Writing")
+        subsection = SubSection.objects.create(
+            section=section,
+            name="write_essay",
+            rubric={
+                "content": {"max": 3},
+                "grammar": {"max": 2},
+                "spelling": {"max": 2},
+            },
+        )
+        first = {
+            "scores": {
+                "content": {"score": 2, "max": 3},
+                "grammar": {"score": 2, "max": 2},
+                "spelling": {"score": 2, "max": 2},
+            },
+            "feedback": {"errors": []},
+        }
+        audited = {
+            "scores": {
+                "content": {"score": 0, "max": 3},
+                "grammar": {"score": 2, "max": 2},
+                "spelling": {"score": 2, "max": 2},
+            },
+            "feedback": {"errors": []},
+        }
+        mock_evaluate.side_effect = [
+            {"success": True, "data": first},
+            {"success": True, "data": audited},
+        ]
+
+        result = run_evaluation_for_subsection(
+            subsection,
+            "Question text",
+            {"answer_data": "A grammatically correct response without a period"},
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(mock_evaluate.call_count, 2)
+        self.assertEqual(result["evaluation"]["scores"]["content"]["score"], 2)
+        self.assertEqual(
+            result["evaluation"]["feedback"]["errors"][-1]["text"],
+            "period",
+        )
 
     @override_settings(OPENAI_EVALUATION_MODEL="new-model")
     @patch("examinor.services.orchestrator.evaluate_with_openai")

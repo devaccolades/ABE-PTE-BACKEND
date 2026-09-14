@@ -1,4 +1,5 @@
 from copy import deepcopy
+import re
 
 
 LANGUAGE_ERROR_TYPES = ("grammar", "spelling")
@@ -150,6 +151,8 @@ def validate_and_normalize_language_feedback(evaluation_result, answer_text):
             "explanation": str(item.get("explanation") or "").strip(),
         })
 
+    errors = _add_terminal_punctuation_error(answer_text, errors)
+
     for error_type in LANGUAGE_ERROR_TYPES:
         payload = scores.get(error_type)
         if not isinstance(payload, dict):
@@ -163,7 +166,7 @@ def validate_and_normalize_language_feedback(evaluation_result, answer_text):
                 None,
                 f"{error_type.title()} is below maximum but has no matching annotation.",
             )
-        if maximum > 0 and score >= maximum and has_errors:
+        if error_type == "spelling" and maximum > 0 and score >= maximum and has_errors:
             return (
                 False,
                 None,
@@ -172,6 +175,36 @@ def validate_and_normalize_language_feedback(evaluation_result, answer_text):
 
     normalized["evaluation"]["feedback"]["errors"] = errors
     return True, normalized, None
+
+
+def _add_terminal_punctuation_error(answer_text, errors):
+    stripped = answer_text.rstrip()
+    if not stripped:
+        return errors
+    if stripped[-1] in ".!?":
+        return errors
+    if len(stripped) > 1 and stripped[-1] in "\"'”’" and stripped[-2] in ".!?":
+        return errors
+
+    for item in errors:
+        text = item["text"]
+        start = stripped.rfind(text)
+        if item["type"] == "grammar" and start >= 0 and start + len(text) == len(stripped):
+            return errors
+
+    match = re.search(r"\S+$", stripped)
+    if not match:
+        return errors
+    text = match.group(0)
+    return [
+        *errors,
+        {
+            "type": "grammar",
+            "text": text,
+            "suggestion": f"{text}.",
+            "explanation": "The final sentence is missing terminal punctuation.",
+        },
+    ]
 
 
 def _exact_error_text(error_text, answer_text):

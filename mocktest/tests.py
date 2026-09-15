@@ -145,6 +145,68 @@ class ConfigureListeningFillBlanksCommandTests(TestCase):
 
 
 class SessionPdfContextTests(TestCase):
+    def test_language_error_does_not_highlight_inside_larger_words(self):
+        mock_test = MockTest.objects.create(title="PTE Mock Test")
+        section = Section.objects.create(name="Listening")
+        mock_test_section = MockTestSection.objects.create(
+            mock_test=mock_test,
+            section=section,
+            order=1,
+        )
+        subsection = SubSection.objects.create(
+            section=section,
+            name="summarize_spoken_text",
+            order=1,
+        )
+        question = Question.objects.create(
+            mock_test_section=mock_test_section,
+            subsection=subsection,
+            text="Summarize the lecture.",
+            writing_score_max=2,
+            listening_score_max=2,
+        )
+        session = UserMockTestSession.objects.create(
+            name="Listener",
+            session_id="language-boundary-session",
+            mock_test=mock_test,
+        )
+        UserResponse.objects.create(
+            user_session=session,
+            mock_test=mock_test,
+            question=question,
+            answer_data="Music reaches a conclusion and may replace us",
+            evaluation_result={
+                "evaluation": {
+                    "scores": {
+                        "grammar": {"score": 1, "max": 2},
+                        "spelling": {"score": 2, "max": 2},
+                    },
+                    "feedback": {
+                        "errors": [
+                            {
+                                "type": "grammar",
+                                "text": "us",
+                                "suggestion": "us.",
+                                "explanation": "Missing terminal punctuation.",
+                            },
+                        ],
+                    },
+                },
+            },
+            evaluated=True,
+            evaluation_status="completed",
+        )
+
+        context = build_session_pdf_context(session)
+        response = context["sections"][0]["subsections"][0]["responses"][0]
+        highlighted = [
+            segment["text"]
+            for segment in response["answer_segments"]
+            if segment["type"]
+        ]
+
+        self.assertEqual(highlighted, ["us"])
+
     def test_zero_content_gate_shows_trait_scores_as_not_awarded(self):
         mock_test = MockTest.objects.create(title="PTE Mock Test")
         section = Section.objects.create(name="Speaking")

@@ -464,6 +464,14 @@ class PromptBuilderTests(SimpleTestCase):
         self.assertIn('"type":"<spelling or grammar>"', prompt)
         self.assertIn("exact, case-preserving substring", prompt)
         self.assertIn("Do not include style preferences as grammar errors", prompt)
+        self.assertIn(
+            '"taking about" -> "talking about" is\n  spelling, not grammar',
+            prompt,
+        )
+        self.assertIn(
+            "Use grammar for sentence structure, agreement, tense, word order, and punctuation",
+            prompt,
+        )
 
     def test_writing_prompt_includes_full_exam_length_answer_and_rubric_bands(self):
         answer = "A" * 2086

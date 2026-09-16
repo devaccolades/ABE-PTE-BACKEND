@@ -352,7 +352,14 @@ def _answer_segments(answer, errors):
 
     candidates = []
     for error in errors:
-        for match in re.finditer(re.escape(error["text"]), answer, flags=re.IGNORECASE):
+        error_text = error["text"]
+        pattern = re.escape(error_text)
+        if error_text[0].isalnum() or error_text[0] == "_":
+            pattern = rf"(?<!\w){pattern}"
+        if error_text[-1].isalnum() or error_text[-1] == "_":
+            pattern = rf"{pattern}(?!\w)"
+
+        for match in re.finditer(pattern, answer):
             candidates.append({
                 "start": match.start(),
                 "end": match.end(),

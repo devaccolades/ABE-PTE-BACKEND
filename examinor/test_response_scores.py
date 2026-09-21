@@ -24,6 +24,11 @@ from mocktest.models import (
     UserMockTestSession,
     UserResponse,
 )
+from mocktest.services.session_finalization import (
+    complete_session_submission,
+    create_session_manifest,
+    mark_session_question_answered,
+)
 
 
 def question(
@@ -448,6 +453,108 @@ class ResponseScorePersistenceTests(TestCase):
         self.assertIn("Score-changing sessions: 1", stdout.getvalue())
         self.assertIn("delta=+57.60", stdout.getvalue())
         self.assertIn("No response or session scores were changed", stdout.getvalue())
+
+    def test_session_delta_report_uses_full_manifest_snapshot_maxima(self):
+        second_question = Question.objects.create(
+            mock_test_section=self.question.mock_test_section,
+            subsection=self.question.subsection,
+            text="Complete another blank.",
+            reading_score_max=5,
+        )
+        session = UserMockTestSession.objects.create(
+            name="Candidate",
+            session_id="manifest-session-delta-report",
+            mock_test=self.mock_test,
+        )
+        create_session_manifest(session.pk)
+        response = UserResponse.objects.create(
+            user_session=session,
+            mock_test=self.mock_test,
+            question=self.question,
+            evaluation_result=self.result,
+        )
+        response.apply_skill_scores()
+        mark_session_question_answered(session.pk, self.question.pk, response.pk)
+        complete_session_submission(session.pk)
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = f"{directory}/manifest-session-deltas.csv"
+            call_command(
+                "report_scoring_v2_session_deltas",
+                "--session",
+                str(session.pk),
+                "--output",
+                output,
+                stdout=StringIO(),
+            )
+            with open(output, encoding="utf-8") as report:
+                row = next(csv.DictReader(report))
+
+        session.refresh_from_db()
+        self.assertEqual(session.expected_question_count, 2)
+        self.assertEqual(second_question.reading_score_max, 5)
+        self.assertEqual(row["maximum_reading"], "10.0")
+        self.assertEqual(row["stored_response_total"], "7.2")
+        self.assertEqual(row["legacy_total"], "7.2")
+        self.assertEqual(row["v2_total"], "36.0")
+        self.assertEqual(row["stored_session_mismatch"], "no")
+        self.assertEqual(row["stored_response_legacy_mismatch"], "no")
+
+    def test_session_delta_report_accepts_promoted_shadow_multiple_answer_score(self):
+        subsection = SubSection.objects.create(
+            section=self.question.subsection.section,
+            name="mc_multiple",
+            evaluation_type="rule",
+            rubric={"reading": {"max": 1}},
+            trait_skill_map={"reading": ["reading"]},
+        )
+        question_row = Question.objects.create(
+            mock_test_section=self.question.mock_test_section,
+            subsection=subsection,
+            text="Choose every correct answer.",
+            reading_score_max=2.5,
+        )
+        session = UserMockTestSession.objects.create(
+            name="Candidate",
+            session_id="multiple-answer-session-delta-report",
+            mock_test=self.mock_test,
+            completed_at="2026-01-01T00:00:00Z",
+        )
+        response = UserResponse.objects.create(
+            user_session=session,
+            mock_test=self.mock_test,
+            question=question_row,
+            evaluation_result={
+                "ok": True,
+                "evaluation": {
+                    "scores": {"reading": {"score": 0.67, "max": 1}},
+                    "answer_scoring": {
+                        "raw_points": 2,
+                        "maximum_raw_points": 3,
+                    },
+                },
+            },
+        )
+        response.apply_skill_scores()
+        session.aggregate_scores()
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = f"{directory}/multiple-answer-session-deltas.csv"
+            call_command(
+                "report_scoring_v2_session_deltas",
+                "--session",
+                str(session.pk),
+                "--output",
+                output,
+                stdout=StringIO(),
+            )
+            with open(output, encoding="utf-8") as report:
+                row = next(csv.DictReader(report))
+
+        self.assertEqual(row["stored_response_legacy_mismatch"], "no")
+        self.assertEqual(row["stored_session_mismatch"], "no")
+        self.assertEqual(row["legacy_total"], "24.12")
+        self.assertEqual(row["v2_total"], "60.0")
 
     def test_session_delta_report_does_not_project_incomplete_session(self):
         session = UserMockTestSession.objects.create(

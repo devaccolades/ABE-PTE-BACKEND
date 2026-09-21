@@ -7,6 +7,7 @@ from django.db.models import Prefetch
 
 from examinor.scoring.contracts import VALID_SKILLS
 from examinor.scoring.response_scores import compile_response_score_evidence
+from examinor.scoring.response_scores import promoted_skill_values
 from mocktest.models import UserMockTestSession, UserResponse
 
 
@@ -65,7 +66,8 @@ class Command(BaseCommand):
                     "userresponse_set",
                     queryset=responses,
                     to_attr="scoring_responses",
-                )
+                ),
+                "question_manifest",
             )
             .distinct()
             .order_by("pk")
@@ -93,6 +95,7 @@ class Command(BaseCommand):
     def _row(self, session):
         skills = sorted(VALID_SKILLS)
         stored_response = {skill: 0.0 for skill in skills}
+        expected_stored_response = {skill: 0.0 for skill in skills}
         legacy = {skill: 0.0 for skill in skills}
         v2 = {skill: 0.0 for skill in skills}
         maxima = {skill: 0.0 for skill in skills}
@@ -137,25 +140,65 @@ class Command(BaseCommand):
                 v2[skill] += float(
                     evidence["v2"]["skills"].get(skill, {}).get("score", 0)
                 )
+            if session.scoring_mode == "v2":
+                expected = evidence["v2"]
+                expected_values = {
+                    skill: float(expected["skills"].get(skill, {}).get("score", 0))
+                    for skill in skills
+                }
+            elif session.scoring_mode == "legacy":
+                expected_values = {
+                    skill: float(
+                        evidence["legacy"]["skills"].get(skill, {}).get("score", 0)
+                    )
+                    for skill in skills
+                }
+            else:
+                expected_values = promoted_skill_values(evidence)
+            for skill in skills:
+                expected_stored_response[skill] += expected_values[skill]
 
         total_responses = len(session.scoring_responses)
-        evaluation_complete = bool(total_responses) and all(
-            response.evaluated or response.evaluation_status == "completed"
-            for response in session.scoring_responses
+        evaluation_complete = (
+            session.is_completed
+            if session.manifest_version
+            else bool(total_responses)
+            and all(
+                response.evaluated or response.evaluation_status == "completed"
+                for response in session.scoring_responses
+            )
         )
+        normalization_maxima = maxima
+        if session.manifest_version:
+            manifest_rows = list(session.question_manifest.all())
+            if manifest_rows:
+                normalization_maxima = {
+                    skill: sum(
+                        float(row.skill_maxima_snapshot.get(skill) or 0)
+                        for row in manifest_rows
+                    )
+                    for skill in skills
+                }
         stored_session = {
             skill: float(getattr(session, f"{skill}_score_awarded") or 0)
             for skill in skills
         }
-        stored_response_total = self._normalized_total(stored_response, maxima)
-        legacy_total = self._normalized_total(legacy, maxima)
+        stored_response_total = self._normalized_total(
+            stored_response,
+            normalization_maxima,
+        )
+        legacy_total = self._normalized_total(legacy, normalization_maxima)
         has_projection = (
             evaluation_complete
             and not compile_errors
             and eligible_count == total_responses
             and eligible_count > 0
         )
-        v2_total = self._normalized_total(v2, maxima) if has_projection else None
+        v2_total = (
+            self._normalized_total(v2, normalization_maxima)
+            if has_projection
+            else None
+        )
 
         row = {
             "session_id": session.pk,
@@ -194,7 +237,11 @@ class Command(BaseCommand):
                 else (
                     "yes"
                     if any(
-                        abs(stored_response[skill] - legacy[skill]) > 1e-9
+                        abs(
+                            stored_response[skill]
+                            - expected_stored_response[skill]
+                        )
+                        > 1e-9
                         for skill in skills
                     )
                     else "no"
@@ -202,16 +249,16 @@ class Command(BaseCommand):
             ),
         }
         for skill in skills:
-            row[f"maximum_{skill}"] = maxima[skill]
+            row[f"maximum_{skill}"] = normalization_maxima[skill]
             row[f"stored_{skill}"] = stored_session[skill]
             row[f"legacy_{skill}"] = legacy[skill]
             row[f"v2_{skill}"] = v2[skill] if has_projection else ""
             row[f"legacy_{skill}_scaled"] = self._normalized_skill(
                 legacy[skill],
-                maxima[skill],
+                normalization_maxima[skill],
             )
             row[f"v2_{skill}_scaled"] = (
-                self._normalized_skill(v2[skill], maxima[skill])
+                self._normalized_skill(v2[skill], normalization_maxima[skill])
                 if has_projection
                 else ""
             )

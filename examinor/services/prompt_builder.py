@@ -3,7 +3,7 @@ import json
 import hashlib
 
 
-PROMPT_VERSION = "pte-evaluation-prompt-v2"
+PROMPT_VERSION = "pte-evaluation-prompt-v3"
 MAX_CANDIDATE_RESPONSE_CHARS = 12000
 MAX_REFERENCE_MATERIAL_CHARS = 12000
 
@@ -136,6 +136,12 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
 - Keep error.text to the shortest useful word or phrase; do not paraphrase it.
 - Do not include style preferences as grammar errors.
 - Do not report informal but correctly spelled words as spelling errors.
+- Treat an unambiguous mistyped word as a spelling error even when the mistype is
+  itself a valid English word. For example, "taking about" -> "talking about" is
+  spelling, not grammar, because the intended word differs by a typing error.
+- Use grammar for sentence structure, agreement, tense, word order, and punctuation.
+- Keep the spelling score consistent with the number of spelling errors and the
+  supplied spelling rubric.
 - If a grammar or spelling score is below its maximum, include at least one error of that type.
 - Highlight every clear grammar error even when the highest grammar band permits rare errors.
 - If spelling is at its maximum, do not include a spelling error.

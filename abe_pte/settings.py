@@ -179,7 +179,7 @@ UNFOLD = {
                         "title": _("Question options"),
                         "icon": "list_alt",
                         "link": reverse_lazy("admin:mocktest_questionoption_changelist"),
-                    },
+                    },  
                     {
                         "title": _("Blank definitions"),
                         "icon": "view_list",

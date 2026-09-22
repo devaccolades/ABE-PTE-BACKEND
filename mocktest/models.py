@@ -41,17 +41,16 @@ class MockTest(models.Model):
     scoring_mode = models.CharField(
         max_length=10,
         choices=SCORING_MODE_CHOICES,
-        default="shadow",
-        help_text="Scoring mode inherited by newly started sessions.",
+        default="v2",
+        help_text=(
+            "Scoring mode inherited by newly started sessions. New question "
+            "papers default to V2."
+        ),
     )
 
     def save(self, *args, **kwargs):
         being_activated = self._is_being_activated()
-        enabling_v2 = self._is_enabling_v2()
-        if enabling_v2 and not self.is_active:
-            raise ValidationError(
-                {"scoring_mode": "V2 can only be enabled for an active mock test."}
-            )
+        enabling_v2 = self.is_active and self._is_enabling_v2()
         if (being_activated or enabling_v2) and not getattr(
             self, "_publication_validation_passed", False
         ):

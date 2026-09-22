@@ -354,6 +354,91 @@ class EvaluationOrchestratorTests(TestCase):
             "period",
         )
 
+    @patch("examinor.services.orchestrator.evaluate_with_openai")
+    def test_invalid_rubric_score_gets_one_bounded_repair(self, mock_evaluate):
+        section = Section.objects.create(name="Writing")
+        subsection = SubSection.objects.create(
+            section=section,
+            name="write_essay",
+            rubric={
+                "content": {"max": 6},
+                "vocabulary_range": {"max": 2},
+            },
+        )
+        invalid = {
+            "scores": {
+                "content": {"score": 5, "max": 6},
+                "vocabulary_range": {"score": 5, "max": 2},
+            },
+            "weighted_score": 10,
+            "max_score": 8,
+        }
+        repaired = {
+            "scores": {
+                "content": {"score": 0, "max": 6},
+                "vocabulary_range": {"score": 2, "max": 2},
+            },
+            "weighted_score": 2,
+            "max_score": 8,
+        }
+        mock_evaluate.side_effect = [
+            {"success": True, "data": invalid},
+            {"success": True, "data": invalid},
+            {"success": True, "data": repaired},
+        ]
+
+        result = run_evaluation_for_subsection(
+            subsection,
+            "Question text",
+            {"answer_data": "Candidate essay."},
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(mock_evaluate.call_count, 3)
+        repair_prompt = mock_evaluate.call_args.args[0]
+        self.assertIn("FINAL RUBRIC VALIDATION REPAIR", repair_prompt)
+        self.assertIn("vocabulary_range", repair_prompt)
+        self.assertIn("exceeds max", repair_prompt)
+        self.assertEqual(
+            result["evaluation"]["scores"]["content"]["score"],
+            5,
+        )
+        self.assertEqual(
+            result["evaluation"]["scores"]["vocabulary_range"]["score"],
+            2,
+        )
+        self.assertEqual(result["evaluation"]["weighted_score"], 7)
+        self.assertEqual(result["evaluation"]["max_score"], 8)
+
+    @patch("examinor.services.orchestrator.evaluate_with_openai")
+    def test_invalid_rubric_score_fails_after_single_repair(self, mock_evaluate):
+        section = Section.objects.create(name="Writing")
+        subsection = SubSection.objects.create(
+            section=section,
+            name="write_essay",
+            rubric={"vocabulary_range": {"max": 2}},
+        )
+        invalid = {
+            "scores": {
+                "vocabulary_range": {"score": 5, "max": 2},
+            },
+        }
+        mock_evaluate.side_effect = [
+            {"success": True, "data": invalid},
+            {"success": True, "data": invalid},
+            {"success": True, "data": invalid},
+        ]
+
+        result = run_evaluation_for_subsection(
+            subsection,
+            "Question text",
+            {"answer_data": "Candidate essay."},
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(mock_evaluate.call_count, 3)
+        self.assertIn("exceeds max", result["error"])
+
     @override_settings(OPENAI_EVALUATION_MODEL="new-model")
     @patch("examinor.services.orchestrator.evaluate_with_openai")
     def test_cache_is_scoped_by_evaluation_model(self, mock_evaluate):

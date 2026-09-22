@@ -8,6 +8,7 @@ from django.db import IntegrityError
 from mocktest.models import SubSection
 from mocktest.models import GlobalRubric
 from examinor.scoring.validators import (
+    rubric_maxima,
     validate_and_normalize_evaluation_result,
     validate_and_normalize_language_feedback,
 )
@@ -219,6 +220,29 @@ def run_evaluation_for_subsection(
                 evaluation_answer_text(evaluation_payload),
             )
 
+    if result["success"] and not valid:
+        previous_output = result["data"]
+        repair_prompt = _rubric_validation_repair_prompt(
+            prompt,
+            previous_output,
+            validation_error,
+            rubric,
+        )
+        repair_hash = hashlib.sha256(repair_prompt.encode()).hexdigest()
+        result = evaluate_with_openai(repair_prompt, repair_hash)
+        if result["success"]:
+            result["data"] = _preserve_valid_scores(
+                result["data"],
+                previous_output,
+                rubric,
+            )
+            valid, normalized, validation_error = _validate_provider_evaluation(
+                result["data"],
+                rubric,
+                subsection.name,
+                evaluation_answer_text(evaluation_payload),
+            )
+
     if not result["success"]:
         return {
             "ok": False,
@@ -299,6 +323,57 @@ def _preserve_non_language_scores(candidate, initial):
     preserved_scores = dict(preserved["scores"])
     for key, payload in initial_scores.items():
         if key not in {"grammar", "spelling"}:
+            preserved_scores[key] = deepcopy(payload)
+    preserved["scores"] = preserved_scores
+    return preserved
+
+
+def _rubric_validation_repair_prompt(prompt, previous, validation_error, rubric):
+    allowed_ranges = {
+        key: {"min": 0, "max": maximum}
+        for key, maximum in rubric_maxima(rubric).items()
+    }
+    return (
+        f"{prompt}\n\n"
+        "FINAL RUBRIC VALIDATION REPAIR:\n"
+        f"The previous output failed validation: {validation_error}\n"
+        "ALLOWED_SCORE_RANGES:\n"
+        f"{json.dumps(allowed_ranges, ensure_ascii=False, separators=(',', ':'))}\n"
+        "PREVIOUS_OUTPUT:\n"
+        f"{json.dumps(previous, ensure_ascii=False, separators=(',', ':'))}\n"
+        "Return the complete corrected JSON object. Keep every already-valid "
+        "criterion score and all valid feedback unchanged. Rescore only invalid "
+        "criteria using their supplied rubric bands. Every score must be within "
+        "its allowed range, every max must equal the allowed max, and weighted_score "
+        "and max_score must be recalculated. Return JSON only."
+    )
+
+
+def _preserve_valid_scores(candidate, previous, rubric):
+    if not isinstance(candidate, dict) or not isinstance(previous, dict):
+        return candidate
+    candidate_scores = candidate.get("scores")
+    previous_scores = previous.get("scores")
+    if not isinstance(candidate_scores, dict) or not isinstance(previous_scores, dict):
+        return candidate
+
+    maxima = rubric_maxima(rubric)
+    preserved = deepcopy(candidate)
+    preserved_scores = dict(candidate_scores)
+    for key, maximum in maxima.items():
+        payload = previous_scores.get(key)
+        if (
+            not isinstance(payload, dict)
+            or "score" not in payload
+            or "max" not in payload
+        ):
+            continue
+        try:
+            score = float(payload["score"])
+            declared_maximum = float(payload["max"])
+        except (TypeError, ValueError):
+            continue
+        if declared_maximum == maximum and 0 <= score <= maximum:
             preserved_scores[key] = deepcopy(payload)
     preserved["scores"] = preserved_scores
     return preserved

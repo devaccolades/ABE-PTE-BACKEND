@@ -13,7 +13,12 @@ from examinor.scoring.task_contracts import (
     get_task_contract,
     inspect_answer_payload,
 )
-from mocktest.models import SessionQuestion, UserMockTestSession, UserResponse
+from mocktest.models import (
+    SCORING_MODE_CHOICES,
+    SessionQuestion,
+    UserMockTestSession,
+    UserResponse,
+)
 from mocktest.services.evaluation_jobs import response_type_for
 from mocktest.services.evaluation_queue import (
     EvaluationQueueUnavailable,
@@ -39,6 +44,14 @@ class Command(BaseCommand):
         parser.add_argument("--expected-response-count", type=int)
         parser.add_argument("--expected-audio-count", type=int)
         parser.add_argument("--expected-source-result-version", type=int)
+        parser.add_argument(
+            "--target-scoring-mode",
+            choices=tuple(value for value, _label in SCORING_MODE_CHOICES),
+            help=(
+                "Pin the QA replay to this scoring mode without changing the "
+                "question paper's mode. Defaults to the question paper's mode."
+            ),
+        )
 
     def handle(self, *args, **options):
         self._validate_options(options)
@@ -47,7 +60,13 @@ class Command(BaseCommand):
             target_name=options["name"],
             lock=False,
         )
-        self._report(source, summary, options["name"])
+        target_scoring_mode = self._target_scoring_mode(source, options)
+        self._report(
+            source,
+            summary,
+            options["name"],
+            target_scoring_mode,
+        )
 
         if not options["confirm"]:
             self.stdout.write(
@@ -66,11 +85,13 @@ class Command(BaseCommand):
                     lock=True,
                 )
                 self._check_expectations(source, summary, options)
+                target_scoring_mode = self._target_scoring_mode(source, options)
                 target, dispatches = self._create_replay(
                     source,
                     responses,
                     options["name"],
                     copied_audio,
+                    target_scoring_mode,
                 )
         except Exception:
             self._delete_copied_audio(copied_audio)
@@ -261,7 +282,7 @@ class Command(BaseCommand):
             "rule": rule_count,
         }
 
-    def _report(self, source, summary, name):
+    def _report(self, source, summary, name, target_scoring_mode):
         self.stdout.write("Mock-test QA replay")
         self.stdout.write("===================")
         self.stdout.write(
@@ -269,7 +290,7 @@ class Command(BaseCommand):
         )
         self.stdout.write(f"Question paper: {source.mock_test.title}")
         self.stdout.write(f"Source scoring mode: {source.scoring_mode}")
-        self.stdout.write(f"Replay scoring mode: {source.mock_test.scoring_mode}")
+        self.stdout.write(f"Replay scoring mode: {target_scoring_mode}")
         self.stdout.write(f"Source result version: {source.finalized_result_version}")
         self.stdout.write(f"Replay name: {name}")
         self.stdout.write(f"Responses: {summary['responses']}")
@@ -302,12 +323,23 @@ class Command(BaseCommand):
                 "Replay expectations changed (" + "; ".join(mismatches) + ")."
             )
 
-    def _create_replay(self, source, responses, name, copied_audio):
+    @staticmethod
+    def _target_scoring_mode(source, options):
+        return options["target_scoring_mode"] or source.mock_test.scoring_mode
+
+    def _create_replay(
+        self,
+        source,
+        responses,
+        name,
+        copied_audio,
+        target_scoring_mode,
+    ):
         target = UserMockTestSession.objects.create(
             name=name,
             session_id=str(uuid.uuid4()),
             mock_test=source.mock_test,
-            scoring_mode=source.mock_test.scoring_mode,
+            scoring_mode=target_scoring_mode,
         )
         create_session_manifest(target.pk)
         target.refresh_from_db()
@@ -317,6 +349,7 @@ class Command(BaseCommand):
                 "source_session_pk": source.pk,
                 "source_session_id": source.session_id,
                 "source_result_version": source.finalized_result_version,
+                "target_scoring_mode": target_scoring_mode,
             },
         }
         target.save(update_fields=["mock_test_snapshot"])

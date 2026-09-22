@@ -163,6 +163,26 @@ class ReplayMockTestSessionTests(TestCase):
         self.assertIn("Evaluation engines: ai=1 | rule=1", output.getvalue())
         self.assertIn("Dry run only", output.getvalue())
 
+    def test_dry_run_can_override_shadow_paper_with_v2_replay(self):
+        self.mock_test.scoring_mode = "shadow"
+        self.mock_test.save(update_fields=["scoring_mode"])
+        output = StringIO()
+
+        call_command(
+            "replay_mock_test_session",
+            "--source-session",
+            str(self.source.pk),
+            "--name",
+            "QA replay V2 override dry run",
+            "--target-scoring-mode",
+            "v2",
+            stdout=output,
+        )
+
+        self.assertEqual(UserMockTestSession.objects.count(), 1)
+        self.assertIn("Replay scoring mode: v2", output.getvalue())
+        self.assertEqual(MockTest.objects.get(pk=self.mock_test.pk).scoring_mode, "shadow")
+
     @patch(
         "mocktest.management.commands.replay_mock_test_session."
         "dispatch_prepared_evaluation",
@@ -234,6 +254,42 @@ class ReplayMockTestSessionTests(TestCase):
         self.source.refresh_from_db()
         self.assertTrue(self.source.is_completed)
         self.assertEqual(self.source.userresponse_set.count(), 2)
+
+    @patch(
+        "mocktest.management.commands.replay_mock_test_session."
+        "dispatch_prepared_evaluation",
+        return_value="evaluation",
+    )
+    def test_confirm_can_pin_v2_without_promoting_shadow_paper(self, dispatch):
+        self.mock_test.scoring_mode = "shadow"
+        self.mock_test.save(update_fields=["scoring_mode"])
+
+        call_command(
+            "replay_mock_test_session",
+            "--source-session",
+            str(self.source.pk),
+            "--name",
+            "QA replay V2 override confirmed",
+            "--target-scoring-mode",
+            "v2",
+            "--expected-response-count",
+            "2",
+            "--expected-audio-count",
+            "1",
+            "--expected-source-result-version",
+            str(self.source.finalized_result_version),
+            "--confirm",
+            stdout=StringIO(),
+        )
+
+        target = UserMockTestSession.objects.exclude(pk=self.source.pk).get()
+        self.assertEqual(target.scoring_mode, "v2")
+        self.assertEqual(
+            target.mock_test_snapshot["qa_replay"]["target_scoring_mode"],
+            "v2",
+        )
+        self.assertEqual(MockTest.objects.get(pk=self.mock_test.pk).scoring_mode, "shadow")
+        self.assertEqual(dispatch.call_count, 2)
 
     def test_missing_source_audio_fails_without_creating_session(self):
         self.audio_response.answer_audio.storage.delete(

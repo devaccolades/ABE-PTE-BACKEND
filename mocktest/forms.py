@@ -43,9 +43,7 @@ class MockTestAdminForm(forms.ModelForm):
 
         is_active = self.cleaned_data.get("is_active", self.instance.is_active)
         if not is_active:
-            raise forms.ValidationError(
-                "V2 can only be enabled for an active mock test."
-            )
+            return scoring_mode
         if not self.instance.pk:
             raise forms.ValidationError(
                 "Save and validate the mock test before enabling V2."

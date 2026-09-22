@@ -1045,8 +1045,11 @@ class QuestionBankAuditCommandTests(TestCase):
 
 
 class MockTestPublicationGateTests(TestCase):
-    def _mock_test(self, *, valid=True):
-        mock_test = MockTest.objects.create(title="Publication Test")
+    def _mock_test(self, *, valid=True, scoring_mode=None):
+        values = {"title": "Publication Test"}
+        if scoring_mode is not None:
+            values["scoring_mode"] = scoring_mode
+        mock_test = MockTest.objects.create(**values)
         section = Section.objects.create(name="Reading")
         mock_test_section = MockTestSection.objects.create(
             mock_test=mock_test,
@@ -1091,7 +1094,7 @@ class MockTestPublicationGateTests(TestCase):
         mock_test = MockTest.objects.create(title="Draft Test")
 
         self.assertFalse(mock_test.is_active)
-        self.assertEqual(mock_test.scoring_mode, "shadow")
+        self.assertEqual(mock_test.scoring_mode, "v2")
 
     def test_valid_mock_test_can_be_activated(self):
         mock_test = self._mock_test()
@@ -1103,7 +1106,7 @@ class MockTestPublicationGateTests(TestCase):
         self.assertTrue(activated.is_active)
 
     def test_valid_active_mock_test_can_enable_v2(self):
-        mock_test = self._mock_test()
+        mock_test = self._mock_test(scoring_mode="shadow")
         activation = self._activation_form(mock_test)
         self.assertTrue(activation.is_valid(), activation.errors)
         mock_test = activation.save()
@@ -1114,21 +1117,18 @@ class MockTestPublicationGateTests(TestCase):
 
         self.assertEqual(mock_test.scoring_mode, "v2")
 
-    def test_inactive_mock_test_cannot_enable_v2_directly(self):
-        mock_test = self._mock_test()
+    def test_inactive_mock_test_can_prepare_v2_before_publication(self):
+        mock_test = self._mock_test(scoring_mode="shadow")
         mock_test.scoring_mode = "v2"
 
-        with self.assertRaisesMessage(
-            ValidationError,
-            "V2 can only be enabled for an active mock test",
-        ):
-            mock_test.save(update_fields=["scoring_mode"])
+        mock_test.save(update_fields=["scoring_mode"])
 
         mock_test.refresh_from_db()
-        self.assertEqual(mock_test.scoring_mode, "shadow")
+        self.assertFalse(mock_test.is_active)
+        self.assertEqual(mock_test.scoring_mode, "v2")
 
     def test_grandfathered_invalid_active_test_cannot_enable_v2(self):
-        mock_test = self._mock_test(valid=False)
+        mock_test = self._mock_test(valid=False, scoring_mode="shadow")
         MockTest.objects.filter(pk=mock_test.pk).update(is_active=True)
         mock_test.refresh_from_db()
         mock_test.scoring_mode = "v2"

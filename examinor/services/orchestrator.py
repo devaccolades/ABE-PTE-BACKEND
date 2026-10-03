@@ -23,6 +23,8 @@ LANGUAGE_ANNOTATION_TASKS = frozenset({
     "summarize_spoken_text",
 })
 
+PROVIDER_OUTPUT_VALIDATION_ERROR_CODE = "provider_output_validation_failed"
+
 
 def build_task_rubric(subsection: SubSection) -> dict:
     """
@@ -257,6 +259,8 @@ def run_evaluation_for_subsection(
         return {
             "ok": False,
             "error": f"Evaluation output failed validation: {validation_error}",
+            "code": PROVIDER_OUTPUT_VALIDATION_ERROR_CODE,
+            "retryable": True,
             "prompt_hash": p_hash,
             "model": cache_model,
             "raw": result.get("raw"),

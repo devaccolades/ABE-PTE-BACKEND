@@ -91,6 +91,11 @@ class Command(BaseCommand):
         self.stdout.write("----------------")
         mode = settings.EVALUATION_SCORING_MODE
         self.stdout.write(f"EVALUATION_SCORING_MODE={mode}")
+        repetitive_config = getattr(settings, "REPETITIVE_ANSWER_CONFIG", {})
+        self.stdout.write(
+            "REPETITIVE_ANSWER_DETECTION_ENABLED="
+            f"{bool(repetitive_config.get('enabled', True))}"
+        )
         if mode not in {"legacy", "shadow", "v2"}:
             failures.append(
                 "EVALUATION_SCORING_MODE must be legacy, shadow, or v2"

@@ -3269,6 +3269,7 @@ class EvaluationRepairToolTests(TransactionTestCase):
         self.assertIn("OPENAI_API_KEY=set", output)
         self.assertIn("OPENAI_WHISPER_API_KEY=set", output)
         self.assertIn("EVALUATION_SCORING_MODE=shadow", output)
+        self.assertIn("REPETITIVE_ANSWER_DETECTION_ENABLED=True", output)
         self.assertIn("CELERY_EVALUATION_QUEUE=evaluation", output)
         self.assertIn("CELERY_TRANSCRIPTION_QUEUE=transcription", output)
         self.assertIn("Evaluation runtime looks healthy.", output)

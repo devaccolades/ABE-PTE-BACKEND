@@ -12,7 +12,7 @@ from examinor.scoring.contracts import (
 
 
 def compile_skill_scores(
-    criterion_scores,
+    criterion_scores, 
     trait_skill_map,
     skill_maxima,
     *,

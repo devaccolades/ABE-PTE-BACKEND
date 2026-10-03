@@ -438,6 +438,11 @@ class EvaluationOrchestratorTests(TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(mock_evaluate.call_count, 3)
         self.assertIn("exceeds max", result["error"])
+        self.assertEqual(
+            result["code"],
+            "provider_output_validation_failed",
+        )
+        self.assertTrue(result["retryable"])
 
     @override_settings(OPENAI_EVALUATION_MODEL="new-model")
     @patch("examinor.services.orchestrator.evaluate_with_openai")

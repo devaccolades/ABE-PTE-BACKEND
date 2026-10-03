@@ -28,7 +28,11 @@ from mocktest.services.evaluation_queue import (
     EvaluationQueueUnavailable,
     queue_response_evaluation,
 )
-from mocktest.tasks import evaluate_user_response
+from mocktest.tasks import (
+    evaluate_user_response,
+    evaluation_retry_allowed,
+    is_transient_evaluation_error,
+)
 
 
 @override_settings(
@@ -68,6 +72,35 @@ class EvaluationJobTests(TestCase):
             question=self.question,
             answer_data={"text": "A valid answer."},
         )
+    def test_provider_output_validation_failure_gets_one_task_retry(self):
+        result = {
+            "ok": False,
+            "code": "provider_output_validation_failed",
+            "retryable": True,
+            "error": "Evaluation output failed validation: invalid score.",
+        }
+
+        self.assertTrue(evaluation_retry_allowed(result, current_retries=0))
+        self.assertFalse(evaluation_retry_allowed(result, current_retries=1))
+
+    def test_explicit_permanent_failure_overrides_transient_error_text(self):
+        result = {
+            "ok": False,
+            "retryable": False,
+            "error": "Connection failed because the input is invalid.",
+        }
+
+        self.assertFalse(is_transient_evaluation_error(result))
+        self.assertFalse(evaluation_retry_allowed(result, current_retries=0))
+
+    def test_network_failure_keeps_existing_retry_allowance(self):
+        result = {
+            "ok": False,
+            "error": "Connection temporarily unavailable.",
+        }
+
+        self.assertTrue(evaluation_retry_allowed(result, current_retries=0))
+        self.assertTrue(evaluation_retry_allowed(result, current_retries=2))
 
     @patch("mocktest.tasks.evaluate_user_response.delay")
     def test_queue_persists_job_before_successful_publish(self, mock_delay):

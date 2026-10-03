@@ -40,6 +40,7 @@ class TaskContract:
     evaluation_engine: EvaluationEngine
     gate_traits: tuple[str, ...] = ()
     proportional_scoring_required: bool = False
+    repetition_profile: str | None = None
 
     @property
     def requires_response_audio(self):
@@ -84,6 +85,7 @@ def _task(
     *,
     gate_traits=(),
     proportional_scoring_required=False,
+    repetition_profile=None,
 ):
     return TaskContract(
         subsection=subsection,
@@ -91,6 +93,7 @@ def _task(
         evaluation_engine=evaluation_engine,
         gate_traits=tuple(gate_traits),
         proportional_scoring_required=proportional_scoring_required,
+        repetition_profile=repetition_profile,
     )
 
 
@@ -115,12 +118,14 @@ TASK_CONTRACTS = MappingProxyType({
         AnswerKind.AUDIO_UPLOAD,
         EvaluationEngine.AI,
         gate_traits=("content",),
+        repetition_profile="brief_spoken",
     ),
     "retell_lecture": _task(
         "retell_lecture",
         AnswerKind.AUDIO_UPLOAD,
         EvaluationEngine.AI,
         gate_traits=("content",),
+        repetition_profile="spoken_summary",
     ),
     "answer_short_question": _task(
         "answer_short_question",
@@ -132,12 +137,14 @@ TASK_CONTRACTS = MappingProxyType({
         AnswerKind.AUDIO_UPLOAD,
         EvaluationEngine.AI,
         gate_traits=("content",),
+        repetition_profile="spoken_summary",
     ),
     "respond_to_a_situation": _task(
         "respond_to_a_situation",
         AnswerKind.AUDIO_UPLOAD,
         EvaluationEngine.AI,
         gate_traits=("content",),
+        repetition_profile="brief_spoken",
     ),
     # Writing
     "summarize_written_text": _task(
@@ -145,12 +152,14 @@ TASK_CONTRACTS = MappingProxyType({
         AnswerKind.FREE_TEXT,
         EvaluationEngine.AI,
         gate_traits=("content", "form"),
+        repetition_profile="written_summary",
     ),
     "write_essay": _task(
         "write_essay",
         AnswerKind.FREE_TEXT,
         EvaluationEngine.AI,
         gate_traits=("content", "form"),
+        repetition_profile="essay",
     ),
     # Reading
     "fib_dropdown": _task(
@@ -185,6 +194,7 @@ TASK_CONTRACTS = MappingProxyType({
         AnswerKind.FREE_TEXT,
         EvaluationEngine.AI,
         gate_traits=("content", "form"),
+        repetition_profile="written_summary",
     ),
     "l_mc_multiple": _task(
         "l_mc_multiple",

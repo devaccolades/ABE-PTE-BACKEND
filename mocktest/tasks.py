@@ -1,6 +1,7 @@
 import os
 import uuid
 import subprocess
+import logging
 from celery import shared_task
 from celery.exceptions import Retry
 from billiard.exceptions import SoftTimeLimitExceeded
@@ -8,6 +9,7 @@ from billiard.exceptions import SoftTimeLimitExceeded
 from examinor.services.rule_evaluator import run_rule_evaluation, uses_rule_evaluation
 from .models import *
 from django.core.exceptions import ObjectDoesNotExist
+from django.conf import settings
 from django.db import DatabaseError
 from django.utils import timezone
 from mocktest.services.evaluation_input import (
@@ -19,13 +21,25 @@ from examinor.scoring.task_contracts import (
     PayloadStatus,
     has_usable_transcript,
     inspect_answer_payload,
+    get_task_contract,
 )
 from examinor.scoring.validators import (
     rubric_maxima,
     validate_and_normalize_evaluation_result,
 )
-from examinor.services.orchestrator import build_task_rubric
-from examinor.services.orchestrator import run_evaluation_for_subsection
+from examinor.services.orchestrator import (
+    PROVIDER_OUTPUT_VALIDATION_ERROR_CODE,
+    build_task_rubric,
+    run_evaluation_for_subsection,
+)
+from examinor.services.prompt_builder import evaluation_answer_text
+from examinor.services.repetitive_answer import (
+    apply_repetition_score_override,
+    detect_repetitive_answer,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 class EvaluationTaskFailed(RuntimeError):
@@ -89,6 +103,10 @@ def is_transient_evaluation_error(evaluation_result):
     if not isinstance(evaluation_result, dict):
         return False
 
+    explicit_retryable = evaluation_result.get("retryable")
+    if isinstance(explicit_retryable, bool):
+        return explicit_retryable
+
     error = str(evaluation_result.get("error", "")).lower()
     transient_terms = (
         "timeout",
@@ -99,6 +117,17 @@ def is_transient_evaluation_error(evaluation_result):
         "service unavailable",
     )
     return any(term in error for term in transient_terms)
+
+
+def evaluation_retry_allowed(evaluation_result, current_retries):
+    if not is_transient_evaluation_error(evaluation_result):
+        return False
+    if (
+        evaluation_result.get("code")
+        == PROVIDER_OUTPUT_VALIDATION_ERROR_CODE
+    ):
+        return current_retries < 1
+    return True
 
 
 def is_transient_error(error):
@@ -168,7 +197,11 @@ def validate_evaluation_or_fail(response, evaluation_result, subsection):
     )
 
     if is_valid:
-        return normalized_result
+        return apply_repetitive_answer_policy(
+            response,
+            normalized_result,
+            subsection,
+        )
 
     save_evaluation_failure(
         response,
@@ -177,6 +210,61 @@ def validate_evaluation_or_fail(response, evaluation_result, subsection):
         {"raw_evaluation": evaluation_result},
     )
     return None
+
+
+def apply_repetitive_answer_policy(response, evaluation_result, subsection):
+    contract = get_task_contract(subsection.name)
+    if not contract.repetition_profile:
+        return evaluation_result
+
+    configured = getattr(settings, "REPETITIVE_ANSWER_CONFIG", {})
+    if isinstance(configured, dict) and configured.get("enabled") is False:
+        return evaluation_result
+
+    payload = {
+        "answer_data": response.answer_data,
+        "transcribed_audio_data": response.transcribed_audio_data,
+    }
+    answer_text = evaluation_answer_text(payload)
+    if not answer_text and isinstance(response.transcribed_audio_data, dict):
+        transcription = response.transcribed_audio_data.get("transcription")
+        if isinstance(transcription, str):
+            answer_text = transcription
+        else:
+            answer_text = str(response.transcribed_audio_data.get("text") or "")
+
+    detection = detect_repetitive_answer(
+        answer_text,
+        answer_type=subsection.name,
+        profile=contract.repetition_profile,
+        config=configured,
+    )
+    result = apply_repetition_score_override(evaluation_result, detection)
+
+    if detection["is_repetitive"]:
+        logger.warning(
+            "Repetitive answer score override applied: response_model=%s "
+            "response_id=%s subsection=%s score=%.4f ratio=%.4f version=%s",
+            type(response).__name__,
+            response.pk,
+            subsection.name,
+            detection["repetition_score"],
+            detection["repetition_ratio"],
+            detection["detector_version"],
+        )
+    elif detection["status"] == "moderate":
+        logger.info(
+            "Moderate answer repetition detected: response_model=%s "
+            "response_id=%s subsection=%s score=%.4f ratio=%.4f version=%s",
+            type(response).__name__,
+            response.pk,
+            subsection.name,
+            detection["repetition_score"],
+            detection["repetition_ratio"],
+            detection["detector_version"],
+        )
+
+    return result
 
 
 def normalize_queued_question_id(response, question_id):
@@ -397,6 +485,12 @@ def evaluate_user_response(self, user_answer_id, question_id):
             )
 
         if not evaluation_result.get("ok", False):
+            retryable = evaluation_retry_allowed(
+                evaluation_result,
+                self.request.retries,
+            )
+            evaluation_result = dict(evaluation_result)
+            evaluation_result["retryable"] = retryable
             user_answer.evaluation_result = evaluation_result
             user_answer.evaluation_status = "failed"
             user_answer.evaluation_stage = "evaluation"
@@ -415,9 +509,9 @@ def evaluate_user_response(self, user_answer_id, question_id):
                 user_answer,
                 succeeded=False,
                 error=user_answer.evaluation_error,
-                retryable=is_transient_evaluation_error(evaluation_result),
+                retryable=retryable,
             )
-            if is_transient_evaluation_error(evaluation_result):
+            if retryable:
                 raise self.retry(exc=Exception(evaluation_result.get("error")))
             raise EvaluationTaskFailed(user_answer.evaluation_error)
 
@@ -639,6 +733,12 @@ def evaluate_single_response(self, user_answer_id, question_id):
             )
 
         if not evaluation_result.get("ok", False):
+            retryable = evaluation_retry_allowed(
+                evaluation_result,
+                self.request.retries,
+            )
+            evaluation_result = dict(evaluation_result)
+            evaluation_result["retryable"] = retryable
             user_answer.evaluation_result = evaluation_result
             user_answer.evaluation_status = "failed"
             user_answer.evaluation_stage = "evaluation"
@@ -657,9 +757,9 @@ def evaluate_single_response(self, user_answer_id, question_id):
                 user_answer,
                 succeeded=False,
                 error=user_answer.evaluation_error,
-                retryable=is_transient_evaluation_error(evaluation_result),
+                retryable=retryable,
             )
-            if is_transient_evaluation_error(evaluation_result):
+            if retryable:
                 raise self.retry(exc=Exception(evaluation_result.get("error")))
             raise EvaluationTaskFailed(user_answer.evaluation_error)
 

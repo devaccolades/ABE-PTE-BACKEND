@@ -74,6 +74,40 @@ them merely because a model happened to return a field named `content` or
 Score Guide](https://www.pearsonpte.com/content/dam/ELL/pte/pearsonpte/resources/PTE-Academic-Test-Taker-Score-Guide.pdf)
 on 2026-08-04.
 
+### Repetitive Answer Policy
+
+Descriptive answers pass through one deterministic repetition check after the
+provider result has passed rubric validation and before skill scores are
+compiled. The common detector is used for both mock-test `UserResponse` and
+single-question `SingleResponse` records.
+
+The policy applies only to Describe Image, Retell Lecture, Summarise Group
+Discussion, Respond to a Situation, Summarize Written Text, Write Essay, and
+Summarize Spoken Text. It does not apply to objective tasks, fixed-answer tasks,
+Read Aloud, Repeat Sentence, Answer Short Question, or Write from Dictation.
+
+The detector combines repeated three-to-eight-word phrases, repeated sentence
+openings, similar sentence structures, answer coverage, repeat frequency,
+answer length, and moving lexical diversity. A phrase appearing twice cannot
+cause a zero. Short answers cannot receive a repetition-based zero. Moderate
+evidence is stored for review without changing the score. A hard-zero decision
+requires the configured minimum length plus either dominant exact repetition or
+multiple strong repetition signals.
+
+Evidence is stored at `evaluation_result.integrity_checks.repetition`. When the
+hard threshold is crossed, every criterion award and the weighted score become
+zero, while the original validated assessment is retained under
+`evaluation_result.score_overrides` with code
+`repetitive_template_answer`. No provider result or rubric maximum is silently
+altered.
+
+Defaults and task profiles live in
+`examinor.services.repetitive_answer`. Deployments can override `defaults`,
+individual `profiles`, and `answer_types` through
+`REPETITIVE_ANSWER_CONFIG`, or disable the check with
+`REPETITIVE_ANSWER_DETECTION_ENABLED=false`. Threshold changes require focused
+regression tests against natural and template-heavy answers.
+
 ## Task And Answer Contracts
 
 `examinor.scoring.task_contracts.TASK_CONTRACTS` is the source of truth for the

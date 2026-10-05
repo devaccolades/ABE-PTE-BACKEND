@@ -12,6 +12,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.template.loader import render_to_string
 from django.db import IntegrityError, connection, transaction
 from django.test import TestCase, TransactionTestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 from unittest.mock import patch
 
@@ -1144,10 +1145,56 @@ class MockTestPublicationGateTests(TestCase):
 
     def test_invalid_mock_test_cannot_be_activated_in_admin(self):
         mock_test = self._mock_test(valid=False)
+        question = Question.objects.get(
+            mock_test_section__mock_test=mock_test,
+        )
         form = self._activation_form(mock_test)
 
         self.assertFalse(form.is_valid())
         self.assertIn("exactly one correct option", str(form.errors).lower())
+        self.assertIn("not ready to publish", str(form.errors).lower())
+        self.assertIn("open question", str(form.errors).lower())
+        self.assertIn(
+            reverse("admin:mocktest_question_change", args=[question.pk]),
+            str(form.errors),
+        )
+
+    def test_publication_errors_are_explained_for_trainers(self):
+        mock_test = self._mock_test()
+        question = Question.objects.get(
+            mock_test_section__mock_test=mock_test,
+        )
+        common = {
+            "question_id": question.pk,
+            "question_name": question.name,
+        }
+
+        details = MockTestAdminForm._publication_error_details([
+            {
+                **common,
+                "code": "missing_question_skill_max",
+                "problem": (
+                    "Question awards reading, but its reading maximum is zero."
+                ),
+            },
+            {
+                **common,
+                "code": "invalid_answer_key",
+                "problem": (
+                    "Question has 0 visible blank(s), but 5 configured correct "
+                    "answer(s)."
+                ),
+            },
+        ])
+        rendered = " ".join(str(item) for item in details)
+
+        self.assertIn("maximum Reading score", rendered)
+        self.assertIn("Blank setup is incomplete", rendered)
+        self.assertIn(
+            reverse("admin:mocktest_question_change", args=[question.pk]),
+            rendered,
+        )
+        self.assertNotIn("Question.reading_score_max", rendered)
 
     def test_direct_save_cannot_bypass_publication_validation(self):
         mock_test = self._mock_test(valid=False)

@@ -17,6 +17,7 @@ from django.utils import timezone
 from unittest.mock import patch
 
 from mocktest.models import (
+    AnswerTemplate,
     EvaluationOutbox,
     MockTest,
     MockTestSection,
@@ -3303,6 +3304,11 @@ class EvaluationRepairToolTests(TransactionTestCase):
         OPENAI_WHISPER_API_KEY="test-whisper-key",
     )
     def test_runtime_check_can_skip_external_services(self):
+        AnswerTemplate.objects.create(
+            name="Runtime check template",
+            answer_type="describe_image",
+            template_text="A reviewed fixed template with [[candidate content]].",
+        )
         stdout = StringIO()
 
         call_command(
@@ -3317,6 +3323,8 @@ class EvaluationRepairToolTests(TransactionTestCase):
         self.assertIn("OPENAI_WHISPER_API_KEY=set", output)
         self.assertIn("EVALUATION_SCORING_MODE=shadow", output)
         self.assertIn("REPETITIVE_ANSWER_DETECTION_ENABLED=True", output)
+        self.assertIn("KNOWN_TEMPLATE_DETECTION_ENABLED=True", output)
+        self.assertIn("ACTIVE_ANSWER_TEMPLATES=1", output)
         self.assertIn("CELERY_EVALUATION_QUEUE=evaluation", output)
         self.assertIn("CELERY_TRANSCRIPTION_QUEUE=transcription", output)
         self.assertIn("Evaluation runtime looks healthy.", output)

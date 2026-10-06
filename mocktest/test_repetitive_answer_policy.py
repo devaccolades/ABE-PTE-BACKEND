@@ -1,6 +1,7 @@
 from django.test import TestCase, override_settings
 
 from mocktest.models import (
+    AnswerTemplate,
     MockTest,
     MockTestSection,
     Question,
@@ -162,7 +163,10 @@ class RepetitiveAnswerPolicyTests(TestCase):
         self.assertEqual(result["evaluation"]["weighted_score"], 5)
         self.assertNotIn("integrity_checks", result)
 
-    @override_settings(REPETITIVE_ANSWER_CONFIG={"enabled": False})
+    @override_settings(
+        REPETITIVE_ANSWER_CONFIG={"enabled": False},
+        KNOWN_TEMPLATE_CONFIG={"enabled": False},
+    )
     def test_policy_can_be_disabled(self):
         mock_test, question, subsection = self._question("write_essay")
         session = UserMockTestSession.objects.create(
@@ -186,3 +190,150 @@ class RepetitiveAnswerPolicyTests(TestCase):
 
         self.assertEqual(result["evaluation"]["weighted_score"], 5)
         self.assertNotIn("integrity_checks", result)
+
+    def test_known_template_dominated_single_response_is_zeroed(self):
+        _, question, subsection = self._question(
+            "describe_image",
+            input_type="audio",
+        )
+        AnswerTemplate.objects.create(
+            name="Test image framework",
+            answer_type="describe_image",
+            template_text=(
+                "The given image gives information regarding [[topic]]. It is "
+                "evident from the image that [[detail]]. All the details are "
+                "represented in an organised manner which is easy for the viewer "
+                "to comprehend and analyse. Moreover it helps us understand the "
+                "purpose of presentation very clearly. Overall it is an "
+                "informative image and can be used for future reference."
+            ),
+            minimum_match_ratio=0.55,
+            maximum_original_words=20,
+            minimum_matched_words=24,
+            minimum_match_blocks=3,
+        )
+        answer = (
+            "The given image gives information regarding sales. It is evident "
+            "from the image that phones are highest. All the details are "
+            "represented in an organised manner which is easy for the viewer to "
+            "comprehend and analyse. Moreover it helps us understand the purpose "
+            "of presentation very clearly. Overall it is an informative image and "
+            "can be used for future reference."
+        )
+        response = SingleResponse.objects.create(
+            name="Candidate",
+            question=question,
+            answer_data={},
+            transcribed_audio_data={"transcription": {"text": answer}},
+        )
+
+        result = validate_evaluation_or_fail(
+            response,
+            self._evaluation(),
+            subsection,
+        )
+
+        self.assertEqual(result["evaluation"]["weighted_score"], 0)
+        self.assertTrue(
+            result["integrity_checks"]["known_template"][
+                "is_template_dominated"
+            ]
+        )
+        self.assertEqual(
+            result["score_overrides"][0]["code"],
+            "known_template_dominated",
+        )
+
+    def test_known_template_with_substantial_original_content_is_allowed(self):
+        _, question, subsection = self._question(
+            "describe_image",
+            input_type="audio",
+        )
+        AnswerTemplate.objects.create(
+            name="Allowed framework test",
+            answer_type="describe_image",
+            template_text=(
+                "The given image gives information regarding [[topic]]. Overall "
+                "it is an informative image and can be used for future reference."
+            ),
+            minimum_match_ratio=0.30,
+            maximum_original_words=10,
+            minimum_matched_words=8,
+            minimum_match_blocks=2,
+        )
+        answer = (
+            "The given image gives information regarding employment. The chart "
+            "covers five years and compares four industries. Technology grows "
+            "steadily while retail remains stable. Manufacturing falls in 2022 "
+            "before recovering, and healthcare records the strongest final year. "
+            "The vertical axis represents thousands of workers, so the changes "
+            "are substantial rather than minor percentages. Overall it is an "
+            "informative image and can be used for future reference."
+        )
+        response = SingleResponse.objects.create(
+            name="Candidate",
+            question=question,
+            answer_data={},
+            transcribed_audio_data={"transcription": {"text": answer}},
+        )
+
+        result = validate_evaluation_or_fail(
+            response,
+            self._evaluation(),
+            subsection,
+        )
+
+        self.assertEqual(result["evaluation"]["weighted_score"], 5)
+        self.assertFalse(
+            result["integrity_checks"]["known_template"][
+                "is_template_dominated"
+            ]
+        )
+
+    @override_settings(REPETITIVE_ANSWER_CONFIG={"enabled": False})
+    def test_known_template_check_has_an_independent_feature_switch(self):
+        _, question, subsection = self._question(
+            "describe_image",
+            input_type="audio",
+        )
+        AnswerTemplate.objects.create(
+            name="Independent switch test",
+            answer_type="describe_image",
+            template_text=(
+                "This prepared framework describes the supplied image in a "
+                "clear and organised manner. The most important feature is "
+                "[[detail]]. The remaining information supports the same "
+                "general observation. Overall the image is informative and "
+                "useful for future reference."
+            ),
+            minimum_match_ratio=0.55,
+            maximum_original_words=10,
+            minimum_matched_words=20,
+            minimum_match_blocks=2,
+        )
+        answer = (
+            "This prepared framework describes the supplied image in a clear "
+            "and organised manner. The most important feature is growth. The "
+            "remaining information supports the same general observation. "
+            "Overall the image is informative and useful for future reference."
+        )
+        response = SingleResponse.objects.create(
+            name="Candidate",
+            question=question,
+            answer_data={},
+            transcribed_audio_data={"transcription": {"text": answer}},
+        )
+
+        result = validate_evaluation_or_fail(
+            response,
+            self._evaluation(),
+            subsection,
+        )
+
+        self.assertEqual(result["evaluation"]["weighted_score"], 0)
+        self.assertNotIn("repetition", result["integrity_checks"])
+        self.assertTrue(
+            result["integrity_checks"]["known_template"][
+                "is_template_dominated"
+            ]
+        )

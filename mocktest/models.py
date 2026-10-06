@@ -6,6 +6,7 @@ from django.utils import timezone
 import logging
 
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,16 @@ SCORING_MODE_CHOICES = (
     ("legacy", "Legacy"),
     ("shadow", "Shadow V2"),
     ("v2", "V2"),
+)
+
+KNOWN_TEMPLATE_ANSWER_TYPE_CHOICES = (
+    ("describe_image", "Describe Image"),
+    ("retell_lecture", "Retell Lecture"),
+    ("summarise_group_discussion", "Summarise Group Discussion"),
+    ("respond_to_a_situation", "Respond to a Situation"),
+    ("summarize_written_text", "Summarize Written Text"),
+    ("write_essay", "Write Essay"),
+    ("summarize_spoken_text", "Summarize Spoken Text"),
 )
 
 
@@ -162,6 +173,52 @@ class GlobalRubric(models.Model):
 
     def __str__(self):
         return self.key
+
+
+class AnswerTemplate(models.Model):
+    name = models.CharField(max_length=160)
+    answer_type = models.CharField(
+        max_length=60,
+        choices=KNOWN_TEMPLATE_ANSWER_TYPE_CHOICES,
+        db_index=True,
+    )
+    version = models.CharField(max_length=40, default="1")
+    source = models.CharField(max_length=255, blank=True, default="")
+    template_text = models.TextField(
+        help_text=(
+            "Use [[square brackets]] for content candidates must replace. "
+            "Only the fixed wording is used for template matching."
+        ),
+    )
+    is_active = models.BooleanField(default=True, db_index=True)
+    minimum_match_ratio = models.FloatField(
+        default=0.60,
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
+        help_text="Minimum share of the candidate answer matching fixed template wording.",
+    )
+    maximum_original_words = models.PositiveIntegerField(
+        default=25,
+        help_text=(
+            "Automatic zero can apply only when no more than this many unmatched "
+            "candidate words remain."
+        ),
+    )
+    minimum_matched_words = models.PositiveIntegerField(default=24)
+    minimum_match_blocks = models.PositiveIntegerField(default=3)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("answer_type", "name", "version")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("name", "version"),
+                name="uniq_answer_template_name_version",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.name} v{self.version}"
 
 
 class SubSection(models.Model):

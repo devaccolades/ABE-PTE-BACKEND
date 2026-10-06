@@ -33,6 +33,10 @@ from examinor.services.orchestrator import (
     run_evaluation_for_subsection,
 )
 from examinor.services.prompt_builder import evaluation_answer_text
+from examinor.services.known_answer_templates import (
+    apply_known_template_score_override,
+    detect_known_template_answer,
+)
 from examinor.services.repetitive_answer import (
     apply_repetition_score_override,
     detect_repetitive_answer,
@@ -197,7 +201,7 @@ def validate_evaluation_or_fail(response, evaluation_result, subsection):
     )
 
     if is_valid:
-        return apply_repetitive_answer_policy(
+        return apply_answer_integrity_policy(
             response,
             normalized_result,
             subsection,
@@ -212,13 +216,9 @@ def validate_evaluation_or_fail(response, evaluation_result, subsection):
     return None
 
 
-def apply_repetitive_answer_policy(response, evaluation_result, subsection):
+def apply_answer_integrity_policy(response, evaluation_result, subsection):
     contract = get_task_contract(subsection.name)
     if not contract.repetition_profile:
-        return evaluation_result
-
-    configured = getattr(settings, "REPETITIVE_ANSWER_CONFIG", {})
-    if isinstance(configured, dict) and configured.get("enabled") is False:
         return evaluation_result
 
     payload = {
@@ -233,35 +233,90 @@ def apply_repetitive_answer_policy(response, evaluation_result, subsection):
         else:
             answer_text = str(response.transcribed_audio_data.get("text") or "")
 
-    detection = detect_repetitive_answer(
-        answer_text,
-        answer_type=subsection.name,
-        profile=contract.repetition_profile,
-        config=configured,
+    result = evaluation_result
+    repetition_config = getattr(settings, "REPETITIVE_ANSWER_CONFIG", {})
+    repetition_enabled = not (
+        isinstance(repetition_config, dict)
+        and repetition_config.get("enabled") is False
     )
-    result = apply_repetition_score_override(evaluation_result, detection)
-
-    if detection["is_repetitive"]:
-        logger.warning(
-            "Repetitive answer score override applied: response_model=%s "
-            "response_id=%s subsection=%s score=%.4f ratio=%.4f version=%s",
-            type(response).__name__,
-            response.pk,
-            subsection.name,
-            detection["repetition_score"],
-            detection["repetition_ratio"],
-            detection["detector_version"],
+    if repetition_enabled:
+        detection = detect_repetitive_answer(
+            answer_text,
+            answer_type=subsection.name,
+            profile=contract.repetition_profile,
+            config=repetition_config,
         )
-    elif detection["status"] == "moderate":
-        logger.info(
-            "Moderate answer repetition detected: response_model=%s "
-            "response_id=%s subsection=%s score=%.4f ratio=%.4f version=%s",
+        result = apply_repetition_score_override(result, detection)
+
+        if detection["is_repetitive"]:
+            logger.warning(
+                "Repetitive answer score override applied: response_model=%s "
+                "response_id=%s subsection=%s score=%.4f ratio=%.4f version=%s",
+                type(response).__name__,
+                response.pk,
+                subsection.name,
+                detection["repetition_score"],
+                detection["repetition_ratio"],
+                detection["detector_version"],
+            )
+        elif detection["status"] == "moderate":
+            logger.info(
+                "Moderate answer repetition detected: response_model=%s "
+                "response_id=%s subsection=%s score=%.4f ratio=%.4f version=%s",
+                type(response).__name__,
+                response.pk,
+                subsection.name,
+                detection["repetition_score"],
+                detection["repetition_ratio"],
+                detection["detector_version"],
+            )
+
+    template_config = getattr(settings, "KNOWN_TEMPLATE_CONFIG", {})
+    if (
+        isinstance(template_config, dict)
+        and template_config.get("enabled") is False
+    ):
+        return result
+
+    templates = AnswerTemplate.objects.filter(
+        answer_type=subsection.name,
+        is_active=True,
+    )
+    template_detection = detect_known_template_answer(
+        answer_text,
+        templates,
+        answer_type=subsection.name,
+        config=template_config,
+    )
+    result = apply_known_template_score_override(result, template_detection)
+
+    if template_detection["is_template_dominated"]:
+        matched = template_detection["matched_template"] or {}
+        logger.warning(
+            "Known-template score override applied: response_model=%s "
+            "response_id=%s subsection=%s template_id=%s ratio=%.4f "
+            "original_words=%s version=%s",
             type(response).__name__,
             response.pk,
             subsection.name,
-            detection["repetition_score"],
-            detection["repetition_ratio"],
-            detection["detector_version"],
+            matched.get("id"),
+            template_detection["answer_match_ratio"],
+            template_detection["original_word_count"],
+            template_detection["detector_version"],
+        )
+    elif template_detection["status"] == "moderate":
+        matched = template_detection["matched_template"] or {}
+        logger.info(
+            "Known-template usage detected: response_model=%s response_id=%s "
+            "subsection=%s template_id=%s ratio=%.4f original_words=%s "
+            "version=%s",
+            type(response).__name__,
+            response.pk,
+            subsection.name,
+            matched.get("id"),
+            template_detection["answer_match_ratio"],
+            template_detection["original_word_count"],
+            template_detection["detector_version"],
         )
 
     return result

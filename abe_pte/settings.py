@@ -190,6 +190,13 @@ UNFOLD = {
                         "icon": "rule",
                         "link": reverse_lazy("admin:mocktest_globalrubric_changelist"),
                     },
+                    {
+                        "title": _("Answer templates"),
+                        "icon": "content_copy",
+                        "link": reverse_lazy(
+                            "admin:mocktest_answertemplate_changelist"
+                        ),
+                    },
                 ],
             },
         ],
@@ -235,6 +242,10 @@ OPENAI_TRANSCRIPTION_MODEL = os.getenv("OPENAI_TRANSCRIPTION_MODEL", "whisper-1"
 EVALUATION_SCORING_MODE = os.getenv("EVALUATION_SCORING_MODE", "shadow").lower()
 REPETITIVE_ANSWER_CONFIG = {
     "enabled": os.getenv("REPETITIVE_ANSWER_DETECTION_ENABLED", "true").lower()
+    == "true",
+}
+KNOWN_TEMPLATE_CONFIG = {
+    "enabled": os.getenv("KNOWN_TEMPLATE_DETECTION_ENABLED", "true").lower()
     == "true",
 }
 

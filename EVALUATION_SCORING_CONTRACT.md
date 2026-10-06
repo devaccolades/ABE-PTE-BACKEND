@@ -108,6 +108,35 @@ individual `profiles`, and `answer_types` through
 `REPETITIVE_ANSWER_DETECTION_ENABLED=false`. Threshold changes require focused
 regression tests against natural and template-heavy answers.
 
+### Known Answer Template Policy
+
+The same seven descriptive task types also pass through a deterministic known-
+template check. Approved template definitions are managed in **Question bank >
+Answer templates**. Fixed template wording is matched while text inside
+`[[placeholders]]` is excluded from matching.
+
+Using part of a framework is not an automatic offence. A hard zero requires all
+of the configured conditions for the best matching template: enough matched
+words, enough separate matching passages, sufficient coverage of the complete
+answer, and no more than the permitted number of unmatched, question-specific
+words. This allows a candidate to use familiar structure when the answer still
+contains substantial original content.
+
+Evidence is stored at `evaluation_result.integrity_checks.known_template`. A
+hard zero retains the original validated assessment in `score_overrides` with
+code `known_template_dominated`. The known-template and within-answer repetition
+checks have independent feature switches, and both preserve the same original
+provider assessment if they trigger together.
+
+The initial library contains the evaluator-provided Describe Image, Retell
+Lecture, Summarise Group Discussion, and Respond to a Situation frameworks.
+Additional approved versions can be added without changing scoring code.
+Set `KNOWN_TEMPLATE_DETECTION_ENABLED=false` to disable this gate globally.
+After creating the `AnswerTemplate` schema, load or refresh the reviewed library
+with `python manage.py load_known_answer_templates --expected-count 4 --confirm`.
+The runtime health check reports the active-template count and fails when the
+gate is enabled without any active templates.
+
 ## Task And Answer Contracts
 
 `examinor.scoring.task_contracts.TASK_CONTRACTS` is the source of truth for the

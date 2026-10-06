@@ -846,6 +846,23 @@ class GlobalRubricAdmin(ModelAdmin):
     search_fields = ('key',)
 
 
+@admin.register(AnswerTemplate)
+class AnswerTemplateAdmin(ModelAdmin):
+    compressed_fields = True
+    list_display = (
+        "name",
+        "answer_type",
+        "version",
+        "is_active",
+        "minimum_match_ratio",
+        "maximum_original_words",
+        "updated_at",
+    )
+    list_filter = ("answer_type", "is_active", "version")
+    search_fields = ("name", "source", "template_text")
+    ordering = ("answer_type", "name", "version")
+
+
 @admin.register(SingleResponse)
 class SingleResponseAdmin(ModelAdmin):
     compressed_fields = True

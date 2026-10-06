@@ -6,7 +6,7 @@ from django.db.utils import OperationalError, ProgrammingError
 from django.utils import timezone
 from redis import Redis
 
-from mocktest.models import EvaluationOutbox
+from mocktest.models import AnswerTemplate, EvaluationOutbox
 
 
 class Command(BaseCommand):
@@ -96,6 +96,27 @@ class Command(BaseCommand):
             "REPETITIVE_ANSWER_DETECTION_ENABLED="
             f"{bool(repetitive_config.get('enabled', True))}"
         )
+        template_config = getattr(settings, "KNOWN_TEMPLATE_CONFIG", {})
+        self.stdout.write(
+            "KNOWN_TEMPLATE_DETECTION_ENABLED="
+            f"{bool(template_config.get('enabled', True))}"
+        )
+        try:
+            active_template_count = AnswerTemplate.objects.filter(
+                is_active=True
+            ).count()
+        except (OperationalError, ProgrammingError) as exc:
+            active_template_count = "unavailable"
+            failures.append(f"Answer template storage is unavailable: {exc}")
+        self.stdout.write(f"ACTIVE_ANSWER_TEMPLATES={active_template_count}")
+        if (
+            template_config.get("enabled", True)
+            and active_template_count == 0
+        ):
+            failures.append(
+                "Known-template detection is enabled but no active answer "
+                "templates are configured."
+            )
         if mode not in {"legacy", "shadow", "v2"}:
             failures.append(
                 "EVALUATION_SCORING_MODE must be legacy, shadow, or v2"

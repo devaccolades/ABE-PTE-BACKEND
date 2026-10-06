@@ -197,11 +197,29 @@ def detect_repetitive_answer(
 
 def apply_repetition_score_override(evaluation_result, detection):
     """Attach detector evidence and zero validated criterion scores when required."""
+    return apply_answer_integrity_override(
+        evaluation_result,
+        detection,
+        check_name="repetition",
+        trigger_field="is_repetitive",
+        override_code=OVERRIDE_CODE,
+    )
+
+
+def apply_answer_integrity_override(
+    evaluation_result,
+    detection,
+    *,
+    check_name,
+    trigger_field,
+    override_code,
+):
+    """Store integrity evidence and apply an auditable zero-score override."""
     result = deepcopy(evaluation_result)
     checks = result.setdefault("integrity_checks", {})
-    checks["repetition"] = deepcopy(detection)
+    checks[check_name] = deepcopy(detection)
 
-    if not detection.get("is_repetitive"):
+    if not detection.get(trigger_field):
         return result
 
     evaluation = result.get("evaluation")
@@ -218,21 +236,29 @@ def apply_repetition_score_override(evaluation_result, detection):
         (
             item
             for item in overrides
-            if isinstance(item, Mapping) and item.get("code") == OVERRIDE_CODE
+            if isinstance(item, Mapping) and item.get("code") == override_code
+        ),
+        None,
+    )
+    preserved_override = existing_override or next(
+        (
+            item
+            for item in overrides
+            if isinstance(item, Mapping) and item.get("original_scores")
         ),
         None,
     )
     original_scores = deepcopy(
-        existing_override.get("original_scores", scores)
-        if existing_override
+        preserved_override.get("original_scores", scores)
+        if preserved_override
         else scores
     )
     original_weighted_score = (
-        existing_override.get(
+        preserved_override.get(
             "original_weighted_score",
             evaluation.get("weighted_score"),
         )
-        if existing_override
+        if preserved_override
         else evaluation.get("weighted_score")
     )
     for payload in scores.values():
@@ -243,10 +269,10 @@ def apply_repetition_score_override(evaluation_result, detection):
     overrides = [
         item
         for item in overrides
-        if not isinstance(item, Mapping) or item.get("code") != OVERRIDE_CODE
+        if not isinstance(item, Mapping) or item.get("code") != override_code
     ]
     overrides.append({
-        "code": OVERRIDE_CODE,
+        "code": override_code,
         "applied": True,
         "detector_version": detection.get("detector_version"),
         "reason": detection.get("reason"),

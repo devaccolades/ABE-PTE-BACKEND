@@ -153,14 +153,13 @@ class MockTestSection(models.Model):
     total_duration = models.PositiveIntegerField(blank=True, null=True)
 
     def save(self, *args, **kwargs):
+        mock_test_ids = [self.mock_test_id]
         if self.pk:
-            _protect_active_session_question_config(
-                Question.objects.filter(mock_test_section_id=self.pk).values_list(
-                    "pk",
-                    flat=True,
-                ),
-                "Mock-test sections",
-            )
+            previous_mock_test_id = type(self).objects.filter(pk=self.pk).values_list(
+                "mock_test_id", flat=True
+            ).first()
+            mock_test_ids.append(previous_mock_test_id)
+        _protect_question_paper_edit(mock_test_ids, "Mock-test sections")
         return super().save(*args, **kwargs)
 
     def __str__(self):
@@ -292,13 +291,10 @@ class SubSection(models.Model):
 
     def save(self, *args, **kwargs):
         if self.pk:
-            _protect_active_session_question_config(
-                Question.objects.filter(subsection_id=self.pk).values_list(
-                    "pk",
-                    flat=True,
-                ),
-                "Subsections",
+            question_ids = Question.objects.filter(subsection_id=self.pk).values_list(
+                "pk", flat=True
             )
+            _protect_question_config_edit(question_ids, "Subsections")
         return super().save(*args, **kwargs)
 
     def __str__(self):
@@ -365,8 +361,21 @@ class Question(models.Model):
     listening_score_max = models.FloatField(null=True, blank=True)
 
     def save(self, *args, **kwargs):
+        mock_test_ids = []
+        if self.mock_test_section_id:
+            mock_test_ids.append(
+                MockTestSection.objects.filter(pk=self.mock_test_section_id).values_list(
+                    "mock_test_id", flat=True
+                ).first()
+            )
         if self.pk:
-            _protect_active_session_question_config([self.pk], "Questions")
+            previous_mock_test_id = (
+                type(self).objects.filter(pk=self.pk)
+                .values_list("mock_test_section__mock_test_id", flat=True)
+                .first()
+            )
+            mock_test_ids.append(previous_mock_test_id)
+        _protect_question_paper_edit(mock_test_ids, "Questions")
         return super().save(*args, **kwargs)
 
     def __str__(self):
@@ -385,9 +394,15 @@ class SubQuestion(models.Model):
     correct_answer = models.CharField(max_length=255, blank=True, null=True)
 
     def save(self, *args, **kwargs):
-        if self.question_id:
-            _protect_active_session_question_config(
-                [self.question_id],
+        question_ids = [self.question_id]
+        if self.pk:
+            previous_question_id = type(self).objects.filter(pk=self.pk).values_list(
+                "question_id", flat=True
+            ).first()
+            question_ids.append(previous_question_id)
+        if any(question_ids):
+            _protect_question_config_edit(
+                question_ids,
                 "Sub-questions",
             )
         return super().save(*args, **kwargs)
@@ -421,13 +436,20 @@ class QuestionOption(models.Model):
     order_position = models.PositiveIntegerField(null=True, blank=True)
 
     def save(self, *args, **kwargs):
-        question_id = self.question_id
-        if question_id is None and self.sub_question_id:
-            question_id = SubQuestion.objects.filter(
-                pk=self.sub_question_id,
-            ).values_list("question_id", flat=True).first()
-        if question_id:
-            _protect_active_session_question_config([question_id], "Question options")
+        question_ids = [_option_question_id(self.question_id, self.sub_question_id)]
+        if self.pk:
+            previous = type(self).objects.filter(pk=self.pk).values(
+                "question_id", "sub_question_id"
+            ).first()
+            if previous:
+                question_ids.append(
+                    _option_question_id(
+                        previous["question_id"],
+                        previous["sub_question_id"],
+                    )
+                )
+        if any(question_ids):
+            _protect_question_config_edit(question_ids, "Question options")
         return super().save(*args, **kwargs)
 
     def __str__(self):
@@ -436,15 +458,42 @@ class QuestionOption(models.Model):
         return f"{self.question} - {self.option_text}"
 
 
-def _protect_active_session_question_config(question_ids, label):
+def _option_question_id(question_id, sub_question_id):
+    if question_id:
+        return question_id
+    if not sub_question_id:
+        return None
+    return SubQuestion.objects.filter(pk=sub_question_id).values_list(
+        "question_id", flat=True
+    ).first()
+
+
+def _protect_question_config_edit(question_ids, label):
+    question_ids = [question_id for question_id in question_ids if question_id]
     if not question_ids:
         return
-    if SessionQuestion.objects.filter(
-        question_id_snapshot__in=question_ids,
+    mock_test_ids = Question.objects.filter(pk__in=question_ids).values_list(
+        "mock_test_section__mock_test_id", flat=True
+    )
+    _protect_question_paper_edit(mock_test_ids, label)
+
+
+def _protect_question_paper_edit(mock_test_ids, label):
+    mock_test_ids = {mock_test_id for mock_test_id in mock_test_ids if mock_test_id}
+    if not mock_test_ids:
+        return
+    if MockTest.objects.filter(pk__in=mock_test_ids, is_active=True).exists():
+        raise ValidationError(
+            f"{label} in a question paper available to candidates cannot be edited. "
+            "Turn off 'Available to candidates' on the question paper first."
+        )
+    if UserMockTestSession.objects.filter(
+        mock_test_id__in=mock_test_ids,
+        is_completed=False,
     ).exists():
         raise ValidationError(
-            f"{label} used by a versioned exam session cannot be edited. "
-            "Create a new mock-test version for future candidates."
+            f"{label} cannot be edited while the question paper has an unfinished "
+            "candidate session. Complete or close that session first."
         )
 
 
@@ -1030,46 +1079,39 @@ class EvaluationOutbox(models.Model):
 
 
 @receiver(pre_delete, sender=MockTestSection)
-def protect_active_mock_test_section_delete(sender, instance, **kwargs):
-    _protect_active_session_question_config(
-        Question.objects.filter(mock_test_section=instance).values_list(
-            "pk",
-            flat=True,
-        ),
-        "Mock-test sections",
-    )
+def protect_mock_test_section_delete(sender, instance, **kwargs):
+    _protect_question_paper_edit([instance.mock_test_id], "Mock-test sections")
 
 
 @receiver(pre_delete, sender=SubSection)
-def protect_active_subsection_delete(sender, instance, **kwargs):
-    _protect_active_session_question_config(
+def protect_subsection_delete(sender, instance, **kwargs):
+    _protect_question_config_edit(
         Question.objects.filter(subsection=instance).values_list("pk", flat=True),
         "Subsections",
     )
 
 
 @receiver(pre_delete, sender=Question)
-def protect_active_question_delete(sender, instance, **kwargs):
-    _protect_active_session_question_config([instance.pk], "Questions")
+def protect_question_delete(sender, instance, **kwargs):
+    _protect_question_config_edit([instance.pk], "Questions")
 
 
 @receiver(pre_delete, sender=SubQuestion)
-def protect_active_subquestion_delete(sender, instance, **kwargs):
-    _protect_active_session_question_config(
+def protect_subquestion_delete(sender, instance, **kwargs):
+    _protect_question_config_edit(
         [instance.question_id],
         "Sub-questions",
     )
 
 
 @receiver(pre_delete, sender=QuestionOption)
-def protect_active_question_option_delete(sender, instance, **kwargs):
-    question_id = instance.question_id
-    if question_id is None and instance.sub_question_id:
-        question_id = SubQuestion.objects.filter(
-            pk=instance.sub_question_id,
-        ).values_list("question_id", flat=True).first()
+def protect_question_option_delete(sender, instance, **kwargs):
+    question_id = _option_question_id(
+        instance.question_id,
+        instance.sub_question_id,
+    )
     if question_id:
-        _protect_active_session_question_config(
+        _protect_question_config_edit(
             [question_id],
             "Question options",
         )

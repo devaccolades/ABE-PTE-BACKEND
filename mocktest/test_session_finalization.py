@@ -56,6 +56,11 @@ class SessionFinalizationTests(TestCase):
             reading_score_max=reading_max,
         )
 
+    def _remove_second_question_before_start(self):
+        MockTest.objects.filter(pk=self.mock_test.pk).update(is_active=False)
+        self.second_question.delete()
+        MockTest.objects.filter(pk=self.mock_test.pk).update(is_active=True)
+
     def _start(self):
         response = self.client.post(
             "/mocktest/start-test/",
@@ -104,7 +109,14 @@ class SessionFinalizationTests(TestCase):
             reading_score_max=100,
         )
 
-        added_later = self._question("Q-3")
+        added_later = Question(
+            mock_test_section=self.mock_test_section,
+            subsection=self.subsection,
+            name="Q-3",
+            text="Prompt for Q-3",
+            reading_score_max=1,
+        )
+        Question.objects.bulk_create([added_later])
         question_response = self.client.get(
             "/mocktest/get-question/",
             {"session_id": session.session_id},
@@ -201,7 +213,7 @@ class SessionFinalizationTests(TestCase):
         self,
         mock_delay,
     ):
-        self.second_question.delete()
+        self._remove_second_question_before_start()
         session = self._start()
         response = self._submit(session, self.first_question)
         self.assertEqual(response.status_code, 201)
@@ -299,7 +311,7 @@ class SessionFinalizationTests(TestCase):
 
     @patch("mocktest.tasks.evaluate_user_response.delay")
     def test_retry_immediately_blocks_final_pdf_until_refinalized(self, mock_delay):
-        self.second_question.delete()
+        self._remove_second_question_before_start()
         session = self._start()
         self._submit(session, self.first_question)
         saved = UserResponse.objects.get(user_session=session)
@@ -319,7 +331,7 @@ class SessionFinalizationTests(TestCase):
 
     @patch("mocktest.tasks.evaluate_user_response.delay")
     def test_finalized_pdf_context_uses_immutable_result_snapshot(self, mock_delay):
-        self.second_question.delete()
+        self._remove_second_question_before_start()
         session = self._start()
         self._submit(session, self.first_question)
         saved = UserResponse.objects.get(user_session=session)

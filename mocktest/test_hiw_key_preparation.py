@@ -21,7 +21,7 @@ class HighlightIncorrectWordKeyPreparationTests(TestCase):
         self.override.enable()
         self.addCleanup(self.override.disable)
 
-        mock_test = MockTest.objects.create(title="HIW Test", is_active=True)
+        mock_test = MockTest.objects.create(title="HIW Test")
         section = Section.objects.create(name="Listening")
         mock_test_section = MockTestSection.objects.create(
             mock_test=mock_test,
@@ -39,6 +39,7 @@ class HighlightIncorrectWordKeyPreparationTests(TestCase):
             text="The cat sat on the blue mat.",
             audio=SimpleUploadedFile("source.mp3", b"audio-data"),
         )
+        MockTest.objects.filter(pk=mock_test.pk).update(is_active=True)
 
     @patch(
         "mocktest.management.commands.prepare_highlight_incorrect_word_keys.transcribe_audio"

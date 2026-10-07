@@ -15,8 +15,10 @@ class MockTestAdminForm(forms.ModelForm):
         }
         help_texts = {
             "is_active": (
-                "Leave this off while preparing the question paper. Turn it on "
-                "when the paper is ready; any missing setup will be listed below."
+                "Turn this off before editing the paper's questions. Editing remains "
+                "locked until any unfinished candidate sessions are completed. Turn "
+                "it back on when the corrections are ready; any missing setup will "
+                "be listed below."
             ),
         }
 

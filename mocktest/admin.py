@@ -11,7 +11,6 @@ from .models import *
 from .forms import MockTestAdminForm, QuestionAdminForm
 from .services.pdf_service import generate_session_pdf
 from .services.question_config import SUBQUESTION_SUBSECTIONS
-from .services.mock_test_copy import create_editable_mock_test_copy
 from .services.evaluation_status import can_download_session_pdf
 from .services.evaluation_input import response_input_issue
 from .services.evaluation_queue import (
@@ -324,36 +323,6 @@ class MockTestAdmin(ModelAdmin):
     search_fields = ('title', 'description')
     inlines = [MockTestSectionInline]
     ordering = ['-created_at']
-    actions = ['create_editable_copies']
-
-    @admin.action(
-        description="Create editable copy of selected question paper(s)",
-        permissions=["add"],
-    )
-    def create_editable_copies(self, request, queryset):
-        copies = [
-            create_editable_mock_test_copy(source)
-            for source in queryset.order_by("created_at", "test_id")
-        ]
-        if len(copies) == 1:
-            draft = copies[0]
-            url = reverse("admin:mocktest_mocktest_change", args=[draft.pk])
-            self.message_user(
-                request,
-                format_html(
-                    'Editable draft created. <a href="{}"><strong>Open {}</strong></a>',
-                    url,
-                    draft.title,
-                ),
-                level=messages.SUCCESS,
-            )
-            return
-
-        self.message_user(
-            request,
-            f"Created {len(copies)} editable question-paper drafts.",
-            level=messages.SUCCESS,
-        )
 
 
 @admin.register(MockTestSection)

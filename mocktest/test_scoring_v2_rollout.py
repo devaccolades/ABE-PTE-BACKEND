@@ -24,8 +24,6 @@ class ScoringV2RolloutCommandTests(TestCase):
             title="Canary Test",
             scoring_mode="shadow",
         )
-        MockTest.objects.filter(pk=self.mock_test.pk).update(is_active=True)
-        self.mock_test.refresh_from_db()
         section = Section.objects.create(name="Reading")
         test_section = MockTestSection.objects.create(
             mock_test=self.mock_test,
@@ -50,6 +48,8 @@ class ScoringV2RolloutCommandTests(TestCase):
             option_text="Correct",
             is_correct=True,
         )
+        MockTest.objects.filter(pk=self.mock_test.pk).update(is_active=True)
+        self.mock_test.refresh_from_db()
         self.session = UserMockTestSession.objects.create(
             name="Existing candidate",
             session_id="existing-shadow-session",

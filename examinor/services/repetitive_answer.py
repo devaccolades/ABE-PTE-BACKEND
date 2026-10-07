@@ -74,20 +74,20 @@ def detect_repetitive_answer(
         return _result(
             answer_type=answer_type,
             word_count=word_count,
-            minimum_words=settings["minimum_words"],
             status="disabled",
             reason="Repetitive-answer detection is disabled.",
             profile=settings["profile"],
+            settings=settings,
         )
 
     if not tokens:
         return _result(
             answer_type=answer_type,
             word_count=0,
-            minimum_words=settings["minimum_words"],
             status="pass",
             reason="No text was available for repetition analysis.",
             profile=settings["profile"],
+            settings=settings,
         )
 
     exact = _exact_repetition(tokens, sentence_ranges, settings)
@@ -188,6 +188,21 @@ def detect_repetitive_answer(
         "lexical_diversity": round(lexical_diversity, 4),
         "word_count": word_count,
         "minimum_words_for_zero": settings["minimum_words"],
+        "thresholds": _thresholds(settings),
+        "conditions": {
+            "minimum_length_met": long_enough,
+            "dominant_exact_path_met": dominant_exact,
+            "composite_path": {
+                "repetition_ratio_met": (
+                    repetition_ratio >= settings["hard_ratio_threshold"]
+                ),
+                "repetition_score_met": (
+                    repetition_score >= settings["hard_score_threshold"]
+                ),
+                "strong_signals_met": strong_signals >= 2,
+                "strong_signal_count": strong_signals,
+            },
+        },
         "repeated_phrases": exact["phrases"],
         "repeated_openings": openings["openings"],
         "similar_sentence_groups": structure["groups"],
@@ -479,7 +494,7 @@ def _moving_lexical_diversity(tokens, window_size=40):
     return sum(windows) / len(windows)
 
 
-def _result(*, answer_type, word_count, minimum_words, status, reason, profile):
+def _result(*, answer_type, word_count, status, reason, profile, settings):
     return {
         "detector_version": DETECTOR_VERSION,
         "answer_type": str(answer_type or ""),
@@ -493,9 +508,31 @@ def _result(*, answer_type, word_count, minimum_words, status, reason, profile):
         "opening_repetition_ratio": 0.0,
         "lexical_diversity": 0.0,
         "word_count": word_count,
-        "minimum_words_for_zero": minimum_words,
+        "minimum_words_for_zero": settings["minimum_words"],
+        "thresholds": _thresholds(settings),
+        "conditions": {
+            "minimum_length_met": word_count >= settings["minimum_words"],
+            "dominant_exact_path_met": False,
+            "composite_path": {
+                "repetition_ratio_met": False,
+                "repetition_score_met": False,
+                "strong_signals_met": False,
+                "strong_signal_count": 0,
+            },
+        },
         "repeated_phrases": [],
         "repeated_openings": [],
         "similar_sentence_groups": [],
         "reason": reason,
+    }
+
+
+def _thresholds(settings):
+    return {
+        "minimum_words": settings["minimum_words"],
+        "minimum_repeat_count": settings["minimum_repeat_count"],
+        "hard_repetition_ratio": settings["hard_ratio_threshold"],
+        "hard_repetition_score": settings["hard_score_threshold"],
+        "dominant_exact_ratio": settings["dominant_exact_ratio_threshold"],
+        "minimum_strong_signals": 2,
     }

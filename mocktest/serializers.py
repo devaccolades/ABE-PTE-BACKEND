@@ -3,6 +3,16 @@ from rest_framework import serializers
 from .models import *
 from django.conf import settings
 from mocktest.services.evaluation_input import question_requires_audio
+from mocktest.services.answer_integrity import SUPPORTED_ANSWER_TYPES
+
+
+class AnswerIntegrityTestSerializer(serializers.Serializer):
+    text = serializers.CharField(
+        allow_blank=False,
+        trim_whitespace=True,
+        max_length=20000,
+    )
+    answer_type = serializers.ChoiceField(choices=SUPPORTED_ANSWER_TYPES)
 
 class QuestionOptionSerializer(serializers.ModelSerializer):
     class Meta:

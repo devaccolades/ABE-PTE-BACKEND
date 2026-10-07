@@ -1,9 +1,26 @@
-# urls.py
 from django.urls import path
-from .views import StartMockTestAPIView, GetQuestionAPIView, UserResponseAPIView,MockTestListAPIView,APIListingQuestions,SubSectionQuestionListAPIView,SingleAPIView,SingleResponseStatusAPIView,SessionPDFView,SessionEvaluationStatusAPIView,CompleteMockTestSessionAPIView
+
+from .views import (
+    APIListingQuestions,
+    AnswerIntegrityTestAPIView,
+    CompleteMockTestSessionAPIView,
+    GetQuestionAPIView,
+    MockTestListAPIView,
+    SessionEvaluationStatusAPIView,
+    SessionPDFView,
+    SingleAPIView,
+    SingleResponseStatusAPIView,
+    StartMockTestAPIView,
+    SubSectionQuestionListAPIView,
+    UserResponseAPIView,
+)
 
 urlpatterns = [
-   
+    path(
+        'answer-integrity-test/',
+        AnswerIntegrityTestAPIView.as_view(),
+        name='answer-integrity-test',
+    ),
     path('start-test/', StartMockTestAPIView.as_view(), name='start-test'),
     path('get-question/', GetQuestionAPIView.as_view(), name='get-question'),
     path('question/', APIListingQuestions.as_view(), name='question'),

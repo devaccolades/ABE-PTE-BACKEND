@@ -137,6 +137,14 @@ with `python manage.py load_known_answer_templates --expected-count 4 --confirm`
 The runtime health check reports the active-template count and fails when the
 gate is enabled without any active templates.
 
+Staff can test both deterministic gates without creating a response or calling
+the AI provider through `POST /mocktest/answer-integrity-test/` with JSON fields
+`answer_type` and `text`. The response reports the final pass/block decision,
+the blocking gate, human-readable reasons, thresholds, and detector evidence.
+`GET` on the same staff-only endpoint lists the supported descriptive answer
+types. This endpoint intentionally does not estimate rubric scores or run gates
+that depend on provider-generated criterion scores.
+
 ## Task And Answer Contracts
 
 `examinor.scoring.task_contracts.TASK_CONTRACTS` is the source of truth for the

@@ -33,14 +33,11 @@ from examinor.services.orchestrator import (
     run_evaluation_for_subsection,
 )
 from examinor.services.prompt_builder import evaluation_answer_text
-from examinor.services.known_answer_templates import (
-    apply_known_template_score_override,
-    detect_known_template_answer,
-)
+from examinor.services.known_answer_templates import apply_known_template_score_override
 from examinor.services.repetitive_answer import (
     apply_repetition_score_override,
-    detect_repetitive_answer,
 )
+from mocktest.services.answer_integrity import inspect_answer_integrity
 
 
 logger = logging.getLogger(__name__)
@@ -233,19 +230,12 @@ def apply_answer_integrity_policy(response, evaluation_result, subsection):
         else:
             answer_text = str(response.transcribed_audio_data.get("text") or "")
 
+    integrity = inspect_answer_integrity(answer_text, subsection.name)
     result = evaluation_result
-    repetition_config = getattr(settings, "REPETITIVE_ANSWER_CONFIG", {})
-    repetition_enabled = not (
-        isinstance(repetition_config, dict)
-        and repetition_config.get("enabled") is False
-    )
-    if repetition_enabled:
-        detection = detect_repetitive_answer(
-            answer_text,
-            answer_type=subsection.name,
-            profile=contract.repetition_profile,
-            config=repetition_config,
-        )
+
+    repetition_check = integrity["checks"]["repetition"]
+    detection = repetition_check["evidence"]
+    if repetition_check["enabled"]:
         result = apply_repetition_score_override(result, detection)
 
         if detection["is_repetitive"]:
@@ -271,24 +261,10 @@ def apply_answer_integrity_policy(response, evaluation_result, subsection):
                 detection["detector_version"],
             )
 
-    template_config = getattr(settings, "KNOWN_TEMPLATE_CONFIG", {})
-    if (
-        isinstance(template_config, dict)
-        and template_config.get("enabled") is False
-    ):
-        return result
-
-    templates = AnswerTemplate.objects.filter(
-        answer_type=subsection.name,
-        is_active=True,
-    )
-    template_detection = detect_known_template_answer(
-        answer_text,
-        templates,
-        answer_type=subsection.name,
-        config=template_config,
-    )
-    result = apply_known_template_score_override(result, template_detection)
+    template_check = integrity["checks"]["known_template"]
+    template_detection = template_check["evidence"]
+    if template_check["enabled"]:
+        result = apply_known_template_score_override(result, template_detection)
 
     if template_detection["is_template_dominated"]:
         matched = template_detection["matched_template"] or {}

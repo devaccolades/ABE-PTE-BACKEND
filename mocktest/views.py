@@ -9,8 +9,10 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
+from rest_framework.permissions import IsAdminUser
 from .models import EvaluationOutbox, Question, MockTest, MockTestSection, UserResponse, UserMockTestSession, SubQuestion,Section,SubSection,SingleResponse
 from .serializers import (
+    AnswerIntegrityTestSerializer,
     MockTestListSerializer,
     QuestionSerializer,
     SessionQuestionSerializer,
@@ -44,10 +46,41 @@ from .services.session_finalization import (
     session_question_ids,
 )
 from .services.single_practice import build_single_practice_status
+from .services.answer_integrity import inspect_answer_integrity
+from .services.answer_integrity import SUPPORTED_ANSWER_TYPES
 from django.http import FileResponse
 
 
 logger = logging.getLogger(__name__)
+
+
+class AnswerIntegrityTestAPIView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        return Response(
+            {
+                "supported_answer_types": SUPPORTED_ANSWER_TYPES,
+                "request": {
+                    "method": "POST",
+                    "content_type": "application/json",
+                    "required_fields": ["answer_type", "text"],
+                },
+                "scope_note": (
+                    "This diagnostic runs deterministic text-integrity gates "
+                    "without calling AI or saving a response."
+                ),
+            }
+        )
+
+    def post(self, request):
+        serializer = AnswerIntegrityTestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = inspect_answer_integrity(
+            serializer.validated_data["text"],
+            serializer.validated_data["answer_type"],
+        )
+        return Response(result, status=status.HTTP_200_OK)
 
 
 def required_audio_error(question, audio_file, request):

@@ -360,7 +360,7 @@ class Question(models.Model):
     reading_score_max = models.FloatField(null=True, blank=True)
     listening_score_max = models.FloatField(null=True, blank=True)
 
-    def save(self, *args, **kwargs):
+    def _edit_mock_test_ids(self):
         mock_test_ids = []
         if self.mock_test_section_id:
             mock_test_ids.append(
@@ -375,6 +375,14 @@ class Question(models.Model):
                 .first()
             )
             mock_test_ids.append(previous_mock_test_id)
+        return mock_test_ids
+
+    def clean(self):
+        super().clean()
+        _protect_question_paper_edit(self._edit_mock_test_ids(), "Questions")
+
+    def save(self, *args, **kwargs):
+        mock_test_ids = self._edit_mock_test_ids()
         _protect_question_paper_edit(mock_test_ids, "Questions")
         return super().save(*args, **kwargs)
 
@@ -491,9 +499,15 @@ def _protect_question_paper_edit(mock_test_ids, label):
         mock_test_id__in=mock_test_ids,
         is_completed=False,
     ).exists():
+        unfinished_count = UserMockTestSession.objects.filter(
+            mock_test_id__in=mock_test_ids,
+            is_completed=False,
+        ).count()
         raise ValidationError(
-            f"{label} cannot be edited while the question paper has an unfinished "
-            "candidate session. Complete or close that session first."
+            f"{label} cannot be edited because the question paper has "
+            f"{unfinished_count} unfinished candidate session(s). In Test sessions, "
+            "filter by this question paper and use 'Close selected unfinished "
+            "sessions', then try again."
         )
 
 

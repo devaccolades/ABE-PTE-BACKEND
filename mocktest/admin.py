@@ -13,6 +13,7 @@ from .services.pdf_service import generate_session_pdf
 from .services.question_config import SUBQUESTION_SUBSECTIONS
 from .services.evaluation_status import can_download_session_pdf
 from .services.evaluation_input import response_input_issue
+from .services.session_finalization import complete_session_submission
 from .services.evaluation_queue import (
     EvaluationQueueUnavailable,
     queue_response_evaluation,
@@ -446,7 +447,42 @@ class UserMockTestSessionAdmin(ModelAdmin):
     # -------------------------
     # BULK ACTION
     # -------------------------
-    actions = ['sync_completion_status', 'retry_failed_or_pending_evaluations', 'recalculate_scores']
+    actions = [
+        'close_unfinished_sessions',
+        'sync_completion_status',
+        'retry_failed_or_pending_evaluations',
+        'recalculate_scores',
+    ]
+
+    @admin.action(description="Close selected unfinished sessions")
+    def close_unfinished_sessions(self, request, queryset):
+        selected = queryset.filter(is_completed=False)
+        selected_count = selected.count()
+        completed = 0
+
+        for session in selected:
+            complete_session_submission(session.pk)
+            session.refresh_from_db()
+            if session.is_completed:
+                completed += 1
+
+        still_evaluating = selected_count - completed
+        if still_evaluating:
+            self.message_user(
+                request,
+                f"Closed submission for {selected_count} session(s). "
+                f"{still_evaluating} session(s) still have evaluations to finish "
+                "before the paper can be edited.",
+                level=messages.WARNING,
+            )
+            return
+
+        self.message_user(
+            request,
+            f"Closed and completed {completed} unfinished session(s). The inactive "
+            "question paper can now be edited.",
+            level=messages.SUCCESS,
+        )
 
     def sync_completion_status(self, request, queryset):
         updated = 0

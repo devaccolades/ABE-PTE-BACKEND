@@ -10,7 +10,11 @@ from mocktest.models import (
     SubSection,
     UserMockTestSession,
 )
-from mocktest.services.session_finalization import create_session_manifest
+from mocktest.forms import QuestionAdminForm
+from mocktest.services.session_finalization import (
+    complete_session_submission,
+    create_session_manifest,
+)
 
 
 class QuestionPaperEditingTests(TestCase):
@@ -87,6 +91,33 @@ class QuestionPaperEditingTests(TestCase):
         with self.assertRaisesMessage(ValidationError, "unfinished candidate session"):
             self.question.save(update_fields=["text"])
 
+    def test_admin_form_reports_unfinished_session_as_validation_error(self):
+        self._session()
+        self.question.question_type = "single_answer"
+        form = QuestionAdminForm(
+            instance=self.question,
+            data={
+                "mock_test_section": self.paper_section.pk,
+                "question_type": "single_answer",
+                "difficulty": "medium",
+                "subsection": self.question.subsection_id,
+                "name": self.question.name,
+                "text": "Corrected prompt",
+                "correct_answer": "",
+                "answer_explanation": "",
+                "answer_explanation_draft": "",
+                "reading_time": 0,
+                "answering_time": 0,
+                "speaking_score_max": "",
+                "writing_score_max": "",
+                "reading_score_max": 1,
+                "listening_score_max": "",
+            },
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Close selected unfinished sessions", str(form.errors))
+
     def test_inactive_paper_with_completed_session_can_be_edited(self):
         session = self._session(completed=True)
         snapshot = session.question_manifest.get(question=self.question)
@@ -98,3 +129,15 @@ class QuestionPaperEditingTests(TestCase):
         snapshot.refresh_from_db()
         self.assertEqual(self.question.text, "Corrected after testing")
         self.assertEqual(snapshot.question_snapshot["text"], "Original prompt")
+
+    def test_closing_unanswered_session_unblocks_direct_editing(self):
+        session = self._session()
+
+        complete_session_submission(session.pk)
+        session.refresh_from_db()
+        self.assertTrue(session.is_completed)
+
+        self.question.text = "Corrected after closing session"
+        self.question.save(update_fields=["text"])
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.text, "Corrected after closing session")

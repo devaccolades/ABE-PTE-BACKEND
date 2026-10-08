@@ -53,6 +53,17 @@ Compilation must fail rather than silently repair or cap evidence when:
 - a positive question maximum has no mapped criterion;
 - a mapping or gate policy references an unknown criterion or skill.
 
+### Speech evidence guardrails
+
+New audio evaluations store `speech-evidence-v2` analytics. Fluency is measured
+from speech rate, timestamp gaps, fillers, immediate repetitions, restarts, and
+continuous word runs. Pronunciation is capped by acoustic recognition confidence;
+the system does not synthesize pronunciation evidence when confidence metadata is
+unavailable. Read Aloud and Repeat Sentence content is additionally capped by
+deterministic word-sequence alignment with the presented text. These caps can
+reduce an AI criterion score but never increase it, and each reduction is stored
+in `score_guardrails` with its reason and evidence.
+
 ## Gate Policy
 
 There is no global `content=0` or `form=0` rule in the compiler. A zero-score gate

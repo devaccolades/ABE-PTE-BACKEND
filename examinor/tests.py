@@ -134,7 +134,7 @@ class EvaluationResultValidatorTests(SimpleTestCase):
             "ok": True,
             "evaluation": {
                 "scores": {
-                    "grammar": {"score": 2, "max": 2},
+                    "grammar": {"score": 1, "max": 2},
                     "spelling": {"score": 2, "max": 2},
                 },
                 "feedback": {"errors": []},
@@ -330,7 +330,7 @@ class EvaluationOrchestratorTests(TestCase):
         audited = {
             "scores": {
                 "content": {"score": 0, "max": 3},
-                "grammar": {"score": 2, "max": 2},
+                "grammar": {"score": 1, "max": 2},
                 "spelling": {"score": 2, "max": 2},
             },
             "feedback": {"errors": []},
@@ -349,6 +349,7 @@ class EvaluationOrchestratorTests(TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(mock_evaluate.call_count, 2)
         self.assertEqual(result["evaluation"]["scores"]["content"]["score"], 2)
+        self.assertEqual(result["evaluation"]["scores"]["grammar"]["score"], 1)
         self.assertEqual(
             result["evaluation"]["feedback"]["errors"][-1]["text"],
             "period",

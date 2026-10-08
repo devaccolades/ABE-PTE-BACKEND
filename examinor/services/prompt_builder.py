@@ -3,7 +3,7 @@ import json
 import hashlib
 
 
-PROMPT_VERSION = "pte-evaluation-prompt-v3"
+PROMPT_VERSION = "pte-evaluation-prompt-v4"
 MAX_CANDIDATE_RESPONSE_CHARS = 12000
 MAX_REFERENCE_MATERIAL_CHARS = 12000
 
@@ -187,6 +187,9 @@ SCORING INSTRUCTIONS:
     score = integer from 0 to max.
 - Do NOT use decimals unless max > 1 and scaling requires it.
 - Do NOT create weights unless explicitly given in rubric.
+- When speech analytics provide an oral fluency or pronunciation band, the
+  corresponding criterion score must not exceed that measured band.
+- Never infer perfect pronunciation merely because a transcript is readable.
 - weighted_score = sum(score values)
 - max_score = sum(max values)
 {feedback_rules}

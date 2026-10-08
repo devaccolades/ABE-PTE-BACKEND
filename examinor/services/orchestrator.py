@@ -14,6 +14,7 @@ from examinor.scoring.validators import (
 )
 from examinor.services.prompt_builder import build_prompt, evaluation_answer_text
 from examinor.services.evaluator import evaluate_with_openai
+from examinor.services.speech_score_guardrails import apply_speech_score_guardrails
 from examinor.models import EvaluationCache
 
 
@@ -157,6 +158,12 @@ def run_evaluation_for_subsection(
             evaluation_answer_text(evaluation_payload),
         )
         if valid:
+            normalized = apply_speech_score_guardrails(
+                normalized,
+                task_type=subsection.name,
+                question_text=question_text,
+                evaluation_payload=evaluation_payload,
+            )
             return {
                 "ok": True,
                 "prompt_hash": p_hash,
@@ -266,10 +273,22 @@ def run_evaluation_for_subsection(
             "raw": result.get("raw"),
         }
 
+    normalized = apply_speech_score_guardrails(
+        normalized,
+        task_type=subsection.name,
+        question_text=question_text,
+        evaluation_payload=evaluation_payload,
+    )
     normalized = save_evaluation_cache(
         p_hash,
         cache_model,
         normalized,
+    )
+    normalized = apply_speech_score_guardrails(
+        normalized,
+        task_type=subsection.name,
+        question_text=question_text,
+        evaluation_payload=evaluation_payload,
     )
 
     return {

@@ -1,71 +1,42 @@
+import math
 import re
-import numpy as np
+
+WORD_RE = re.compile(r"[^\W_]+(?:['-][^\W_]+)?", re.UNICODE)
+FILLERS = {"ah", "eh", "erm", "er", "hmm", "mm", "uh", "uhh", "um", "umm"}
 
 
-def count_vowels(word):
-    return sum(1 for ch in word.lower() if ch in "aeiou")
-
-def count_consonants(word):
-    return sum(1 for ch in word.lower() if ch.isalpha() and ch not in "aeiou")
-
-
-
-def analyse_speech(transcription_text: str, word_timestamps: list, audio_duration: float):
-    """
-    transcription_text: Full string
-    word_timestamps: [{ "word": "hello", "start": 0.23, "end": 0.56 }, ...]
-    audio_duration: seconds
-    """
-
-    words = transcription_text.split()
-    num_words = len(words)
-
-    vowel_accuracy = estimate_vowel_accuracy(words)
-    consonant_accuracy = estimate_consonant_accuracy(words)
-    mispronounced = detect_mispronunciations(words)
-    stress_data = analyse_stress_patterns(words)
-    connected_speech = analyse_connected_speech(transcription_text)
-
-    pronunciation_band, pron_justification = map_pronunciation_band(
-        vowel_accuracy, consonant_accuracy, mispronounced, stress_data
-    )
-
-
-    fluency = analyse_fluency(word_timestamps, audio_duration)
-
-    fluency_band, fluency_justification = map_fluency_band(
-        fluency["num_hesitations"],
-        fluency["num_repetitions"],
-        fluency["num_false_starts"],
-        fluency["long_pauses_count"],
-        fluency["speech_rate_wpm"]
-    )
-
+def analyse_speech(
+    transcription_text: str,
+    word_timestamps: list,
+    audio_duration: float,
+    recognition_segments: list | None = None,
+):
+    """Build measurable speech evidence from ASR timestamps and confidence."""
+    tokens = _tokens(transcription_text)
+    timestamps = _normalized_timestamps(word_timestamps)
+    fluency = analyse_fluency(tokens, timestamps, audio_duration)
+    recognition = analyse_recognition_confidence(recognition_segments or [])
+    fluency_band, fluency_justification = map_fluency_band(fluency)
+    pronunciation_band, pronunciation_justification = map_pronunciation_band(recognition)
 
     return {
+        "analysis_version": "speech-evidence-v2",
         "audio_metadata": {
-            "duration_seconds": audio_duration,
-            "num_words": num_words
+            "duration_seconds": max(float(audio_duration or 0), 0.0),
+            "num_words": len(tokens),
         },
-
-        "transcription": {
-            "text": transcription_text,
-            # "words": word_timestamps
-        },
-
+        "transcription": {"text": transcription_text},
         "pronunciation_analysis": {
             "overall_score_0_to_5": pronunciation_band,
-            "vowel_accuracy_percentage": vowel_accuracy,
-            "consonant_accuracy_percentage": consonant_accuracy,
-            "mispronounced_words": mispronounced,
-            "stress_accuracy": stress_data,
-            "connected_speech_features": connected_speech,
+            "evidence_available": recognition["evidence_available"],
+            "asr_confidence_proxy": recognition["confidence"],
+            "average_log_probability": recognition["average_log_probability"],
+            "average_no_speech_probability": recognition["average_no_speech_probability"],
             "rubric_matching": {
                 "best_fit_band": pronunciation_band,
-                "justification": pron_justification
-            }
+                "justification": pronunciation_justification,
+            },
         },
-
         "fluency_analysis": {
             "overall_score_0_to_5": fluency_band,
             "speech_rate_wpm": fluency["speech_rate_wpm"],
@@ -76,118 +47,189 @@ def analyse_speech(transcription_text: str, word_timestamps: list, audio_duratio
             "smooth_runs": fluency["smooth_runs"],
             "pause_details": {
                 "long_pauses_count": fluency["long_pauses_count"],
-                "long_pauses_positions": fluency["long_pause_positions"]
+                "long_pauses_positions": fluency["long_pause_positions"],
             },
             "phrasing_rhythm": fluency["phrasing_rhythm"],
             "rubric_matching": {
                 "best_fit_band": fluency_band,
-                "justification": fluency_justification
-            }
+                "justification": fluency_justification,
+            },
         },
-
         "final_overview": {
             "pronunciation_band": pronunciation_band,
-            "fluency_band": fluency_band
-        }
-    }
-
-
-# ------------------------------------------------------------
-#  PRONUNCIATION HELPERS (Simplified ML-free heuristics)
-# ------------------------------------------------------------
-def estimate_vowel_accuracy(words):
-    return max(70, 95 - len([w for w in words if len(w) > 8]))  # heuristic placeholder
-
-def estimate_consonant_accuracy(words):
-    return max(70, 93 - len([w for w in words if w.endswith("tion")]))  # heuristic placeholder
-
-def detect_mispronunciations(words):
-    common_hard_words = ["world", "communication", "technology", "algorithm"]
-    return [w for w in words if w.lower() in common_hard_words]
-
-def analyse_stress_patterns(words):
-    return {
-        "word_stress_correct_percentage": 90,
-        "sentence_stress_correct_percentage": 85,
-        "incorrect_stress_words": []
-    }
-
-def analyse_connected_speech(text):
-    return {
-        "assimilation_detected": True,
-        "elision_detected": False,
-        "linking_detected": True,
-        "comments": "Natural linking between words detected."
-    }
-
-
-def map_pronunciation_band(vacc, cacc, misp, stress):
-    if vacc > 90 and cacc > 90 and len(misp) == 0:
-        return 5, "Clear vowels, consonants, correct stress, and natural speech flow."
-    if vacc > 85 and cacc > 85:
-        return 4, "Minor distortions but overall pronunciation clear."
-    if vacc > 80:
-        return 3, "Mostly clear with occasional unclear words."
-    if vacc > 70:
-        return 2, "Noticeable mispronunciations affecting clarity."
-    return 1, "Frequent pronunciation issues."
-
-
-# ------------------------------------------------------------
-#  FLUENCY HELPERS
-# ------------------------------------------------------------
-def analyse_fluency(word_timestamps, audio_duration):
-    pauses = []
-    hesitations = 0
-    repetitions = 0
-    false_starts = 0
-
-    for i in range(1, len(word_timestamps)):
-        prev = word_timestamps[i-1]["end"]
-        curr = word_timestamps[i]["start"]
-
-        pause = curr - prev
-        pauses.append(pause)
-
-        if pause > 1.0:
-            false_starts += 1
-
-    long_pauses = [p for p in pauses if p > 1.2]
-
-    return {
-        "speech_rate_wpm": round((len(word_timestamps) / audio_duration) * 60, 2),
-        "avg_pause_ms": np.mean(pauses) * 1000 if pauses else 0,
-        "num_hesitations": hesitations,
-        "num_repetitions": repetitions,
-        "num_false_starts": false_starts,
-        "smooth_runs": {
-            "longest_run_words": detect_longest_run(word_timestamps),
-            "three_word_runs_count": detect_three_word_runs(word_timestamps)
+            "fluency_band": fluency_band,
         },
-        "long_pauses_count": len(long_pauses),
-        "long_pause_positions": long_pauses,
-        "phrasing_rhythm": {
-            "is_smooth": len(long_pauses) <= 1,
-            "is_staccato": len(long_pauses) >= 3,
-            "comment": "Speech mostly smooth" if len(long_pauses) <= 1 else "Breaking rhythm"
-        }
     }
 
 
-def detect_longest_run(words):
-    return 5  # stubbed placeholder
+def analyse_fluency(tokens, word_timestamps, audio_duration):
+    pauses = []
+    pause_positions = []
+    for index in range(1, len(word_timestamps)):
+        pause = max(
+            0.0,
+            word_timestamps[index]["start"] - word_timestamps[index - 1]["end"],
+        )
+        pauses.append(pause)
+        if pause >= 1.2:
+            pause_positions.append(round(word_timestamps[index - 1]["end"], 3))
 
-def detect_three_word_runs(words):
-    return 3  # stubbed placeholder
+    filler_count = sum(token in FILLERS for token in tokens)
+    repeated_count = _immediate_repetition_count(tokens)
+    restart_count = sum(pause >= 0.8 for pause in pauses)
+    duration = max(float(audio_duration or 0), 0.0)
+    speech_rate = round((len(tokens) / duration) * 60, 2) if duration else 0.0
+    longest_run, three_word_runs = _smooth_runs(word_timestamps)
+    disruption_count = filler_count + repeated_count + restart_count
+
+    return {
+        "word_count": len(tokens),
+        "speech_rate_wpm": speech_rate,
+        "avg_pause_ms": round((sum(pauses) / len(pauses)) * 1000, 2) if pauses else 0.0,
+        "num_hesitations": filler_count,
+        "num_repetitions": repeated_count,
+        "num_false_starts": restart_count,
+        "disruption_count": disruption_count,
+        "smooth_runs": {
+            "longest_run_words": longest_run,
+            "three_word_runs_count": three_word_runs,
+        },
+        "long_pauses_count": len(pause_positions),
+        "long_pause_positions": pause_positions,
+        "phrasing_rhythm": {
+            "is_smooth": disruption_count <= 1 and not pause_positions,
+            "is_staccato": restart_count >= 3 or len(pause_positions) >= 2,
+            "comment": (
+                "Speech rhythm is continuous."
+                if disruption_count <= 1 and not pause_positions
+                else "Speech contains measurable disruptions."
+            ),
+        },
+    }
 
 
-def map_fluency_band(hes, rep, fs, long_pauses, wpm):
-    if hes == 0 and rep == 0 and fs <= 1 and long_pauses <= 1 and wpm > 120:
-        return 5, "Highly fluent with smooth rhythm."
-    if hes <= 1 and rep <= 1 and long_pauses <= 1:
-        return 4, "Good rhythm with minimal disruptions."
-    if hes <= 2 and long_pauses <= 2:
-        return 3, "Acceptable fluency with a few disruptions."
-    if hes <= 3:
-        return 2, "Uneven and inconsistent phrasing."
-    return 1, "Frequent pauses and disrupted fluency."
+def map_fluency_band(fluency):
+    words = fluency["word_count"]
+    rate = fluency["speech_rate_wpm"]
+    disruptions = fluency["disruption_count"]
+    long_pauses = fluency["long_pauses_count"]
+    longest_run = fluency["smooth_runs"]["longest_run_words"]
+
+    if words < 3 or rate < 45:
+        return 1, "Too little continuous speech or an extremely slow delivery."
+    if rate < 70 or rate > 210 or disruptions >= 5 or long_pauses >= 3:
+        return 2, "Delivery is uneven with substantial timing or continuity problems."
+    if rate < 90 or rate > 195 or disruptions >= 3 or long_pauses >= 2:
+        return 3, "Delivery is understandable but has several measurable disruptions."
+    if (
+        disruptions <= 1
+        and long_pauses <= 1
+        and longest_run >= min(words, 5)
+        and 105 <= rate <= 180
+    ):
+        return 5, "Delivery has a natural rate and sustained continuous phrasing."
+    return 4, "Delivery is generally continuous with limited measurable disruption."
+
+
+def analyse_recognition_confidence(segments):
+    weighted_log_probability = 0.0
+    weighted_no_speech = 0.0
+    total_weight = 0.0
+    for segment in segments:
+        average_log_probability = _number(segment, "avg_logprob")
+        if average_log_probability is None:
+            continue
+        start = _number(segment, "start") or 0.0
+        end = _number(segment, "end") or start
+        weight = max(end - start, 0.1)
+        weighted_log_probability += average_log_probability * weight
+        weighted_no_speech += (_number(segment, "no_speech_prob") or 0.0) * weight
+        total_weight += weight
+
+    if not total_weight:
+        return {
+            "evidence_available": False,
+            "confidence": None,
+            "average_log_probability": None,
+            "average_no_speech_probability": None,
+        }
+
+    average_log_probability = weighted_log_probability / total_weight
+    average_no_speech_probability = weighted_no_speech / total_weight
+    confidence = math.exp(min(average_log_probability, 0.0)) * (
+        1.0 - min(max(average_no_speech_probability, 0.0), 1.0)
+    )
+    return {
+        "evidence_available": True,
+        "confidence": round(confidence, 4),
+        "average_log_probability": round(average_log_probability, 4),
+        "average_no_speech_probability": round(average_no_speech_probability, 4),
+    }
+
+
+def map_pronunciation_band(recognition):
+    confidence = recognition["confidence"]
+    if confidence is None:
+        return None, "Pronunciation evidence was unavailable; no synthetic band was created."
+    if confidence >= 0.88:
+        return 5, "Speech was recognized with very high acoustic confidence."
+    if confidence >= 0.76:
+        return 4, "Speech was recognized with high acoustic confidence."
+    if confidence >= 0.62:
+        return 3, "Speech was recognized with moderate acoustic confidence."
+    if confidence >= 0.45:
+        return 2, "Speech had low acoustic recognition confidence."
+    return 1, "Speech had very low acoustic recognition confidence."
+
+
+def _tokens(text):
+    return [token.casefold() for token in WORD_RE.findall(str(text or ""))]
+
+
+def _normalized_timestamps(items):
+    normalized = []
+    for item in items or []:
+        try:
+            start = float(item.get("start", 0))
+            end = float(item.get("end", start))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        normalized.append({"start": start, "end": max(end, start)})
+    return normalized
+
+
+def _immediate_repetition_count(tokens):
+    repeats = sum(tokens[index] == tokens[index - 1] for index in range(1, len(tokens)))
+    for width in (2, 3):
+        index = width
+        while index + width <= len(tokens):
+            if tokens[index - width:index] == tokens[index:index + width]:
+                repeats += 1
+                index += width
+            else:
+                index += 1
+    return repeats
+
+
+def _smooth_runs(timestamps):
+    if not timestamps:
+        return 0, 0
+    runs = []
+    current = 1
+    for index in range(1, len(timestamps)):
+        gap = timestamps[index]["start"] - timestamps[index - 1]["end"]
+        if gap < 0.8:
+            current += 1
+        else:
+            runs.append(current)
+            current = 1
+    runs.append(current)
+    return max(runs), sum(run // 3 for run in runs)
+
+
+def _number(value, key):
+    raw = value.get(key) if isinstance(value, dict) else getattr(value, key, None)
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None

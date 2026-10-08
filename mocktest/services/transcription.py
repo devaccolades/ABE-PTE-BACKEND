@@ -20,6 +20,13 @@ def transcribe_audio(audio_file_path: str):
         text (str)
         word_timestamps: [{word,start,end}, ...]
     """
+    text, word_timestamps, _segments = _transcribe_audio_with_evidence(
+        audio_file_path,
+    )
+    return text, word_timestamps
+
+
+def _transcribe_audio_with_evidence(audio_file_path: str):
     if not settings.OPENAI_WHISPER_API_KEY:
         raise RuntimeError(
             "OPENAI_WHISPER_API_KEY is missing. Set it in the Django and Celery worker environment."
@@ -36,15 +43,16 @@ def transcribe_audio(audio_file_path: str):
                 model=settings.OPENAI_TRANSCRIPTION_MODEL,
                 file=audio_file,
                 response_format="verbose_json",
-                timestamp_granularities=["word"]
+                timestamp_granularities=["word", "segment"]
             )
     except Exception as e:
         raise RuntimeError(f"{format_openai_error(e)}: {e}") from e
 
     transcription_text = response.text
     word_timestamps = response.words  # list of word-level timestamps
+    recognition_segments = getattr(response, "segments", None) or []
 
-    return transcription_text, word_timestamps
+    return transcription_text, word_timestamps, recognition_segments
 
 
 # -----------------------------------------
@@ -72,7 +80,9 @@ def transcribe_and_analyse(audio_file_path: str):
 
 
     # 2. Transcription
-    text, timestamps = transcribe_audio(audio_file_path)
+    text, timestamps, recognition_segments = _transcribe_audio_with_evidence(
+        audio_file_path,
+    )
 
     # 3. Analysis (your existing function)
     report = analyse_speech(
@@ -82,7 +92,8 @@ def transcribe_and_analyse(audio_file_path: str):
             "start": w.start,
             "end": w.end
         } for w in timestamps],
-        audio_duration=duration
+        audio_duration=duration,
+        recognition_segments=recognition_segments,
     )
 
     return report

@@ -166,7 +166,7 @@ def validate_and_normalize_language_feedback(evaluation_result, answer_text):
                 None,
                 f"{error_type.title()} is below maximum but has no matching annotation.",
             )
-        if error_type == "spelling" and maximum > 0 and score >= maximum and has_errors:
+        if maximum > 0 and score >= maximum and has_errors:
             return (
                 False,
                 None,

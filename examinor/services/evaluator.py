@@ -21,8 +21,7 @@ def get_openai_client():
 def extract_json(text: str):
     """
     Extract FIRST JSON object from the model output.
-    Usually not needed because gpt-5-nano outputs clean JSON,
-    but kept for safety.
+    Fallback for provider output containing surrounding text.
     """
     try:
         match = re.search(r"\{.*\}", text, re.DOTALL)

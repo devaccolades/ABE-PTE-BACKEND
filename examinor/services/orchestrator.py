@@ -14,6 +14,10 @@ from examinor.scoring.validators import (
 )
 from examinor.services.prompt_builder import build_prompt, evaluation_answer_text
 from examinor.services.evaluator import evaluate_with_openai
+from examinor.services.evaluation_context import (
+    EvaluationContextError,
+    validate_evaluation_context,
+)
 from examinor.services.speech_score_guardrails import apply_speech_score_guardrails
 from examinor.models import EvaluationCache
 
@@ -125,17 +129,12 @@ def run_evaluation_for_subsection(
     SubSection rows with the same choice value.
     """
 
-    if (
-        subsection.name == "summarize_spoken_text"
-        and not evaluation_payload.get("reference_answer")
-    ):
-        return {
-            "ok": False,
-            "error": (
-                "Summarize Spoken Text requires a reference transcript, "
-                "model answer, or key points in question.correct_answer."
-            ),
-        }
+    try:
+        evaluation_payload, input_context = validate_evaluation_context(
+            subsection.name, evaluation_payload,
+        )
+    except EvaluationContextError as exc:
+        return exc.as_result()
 
     rubric = build_task_rubric(subsection)
     prompt, p_hash = build_prompt(
@@ -169,13 +168,15 @@ def run_evaluation_for_subsection(
                 "prompt_hash": p_hash,
                 "model": cache_model,
                 "evaluation": normalized,
+                "input_context": input_context,
                 "cached": True
             }
         cached.delete()
 
-    result = evaluate_with_openai(
+    result = _evaluate_with_context(
         prompt,
-        p_hash
+        p_hash,
+        evaluation_payload,
     )
 
     if not result["success"]:
@@ -195,6 +196,13 @@ def run_evaluation_for_subsection(
         evaluation_answer_text(evaluation_payload),
     )
     initial_normalized = normalized if valid else None
+    if initial_normalized is None:
+        scores_valid, score_result, _ = validate_and_normalize_evaluation_result(
+            {"ok": True, "evaluation": result["data"]}, rubric,
+        )
+        if scores_valid:
+            # Invalid language annotations must not discard valid content/form scores.
+            initial_normalized = score_result["evaluation"]
     needs_language_audit = (
         subsection.name in LANGUAGE_ANNOTATION_TASKS
         and (not valid or _has_language_scores(normalized))
@@ -216,7 +224,7 @@ def run_evaluation_for_subsection(
             "every error.text is copied exactly from CANDIDATE_RESPONSE."
         )
         repair_hash = hashlib.sha256(repair_prompt.encode()).hexdigest()
-        result = evaluate_with_openai(repair_prompt, repair_hash)
+        result = _evaluate_with_context(repair_prompt, repair_hash, evaluation_payload)
         if result["success"]:
             result["data"] = _preserve_non_language_scores(
                 result["data"],
@@ -238,13 +246,19 @@ def run_evaluation_for_subsection(
             rubric,
         )
         repair_hash = hashlib.sha256(repair_prompt.encode()).hexdigest()
-        result = evaluate_with_openai(repair_prompt, repair_hash)
+        result = _evaluate_with_context(repair_prompt, repair_hash, evaluation_payload)
         if result["success"]:
-            result["data"] = _preserve_valid_scores(
-                result["data"],
-                previous_output,
-                rubric,
+            scores_valid, _, _ = validate_and_normalize_evaluation_result(
+                {"ok": True, "evaluation": previous_output}, rubric,
             )
+            if scores_valid and subsection.name in LANGUAGE_ANNOTATION_TASKS:
+                result["data"] = _preserve_non_language_scores(
+                    result["data"], previous_output,
+                )
+            else:
+                result["data"] = _preserve_valid_scores(
+                    result["data"], previous_output, rubric,
+                )
             valid, normalized, validation_error = _validate_provider_evaluation(
                 result["data"],
                 rubric,
@@ -296,7 +310,15 @@ def run_evaluation_for_subsection(
         "prompt_hash": p_hash,
         "model": cache_model,
         "evaluation": normalized,
+        "input_context": input_context,
     }
+
+
+def _evaluate_with_context(prompt, prompt_hash, payload):
+    image = payload.get("question_image")
+    if image:
+        return evaluate_with_openai(prompt, prompt_hash, image_data_url=image["data_url"])
+    return evaluate_with_openai(prompt, prompt_hash)
 
 
 def _validate_provider_evaluation(data, rubric, task_type, answer_text):

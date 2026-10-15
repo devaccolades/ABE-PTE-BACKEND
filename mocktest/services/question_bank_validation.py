@@ -1,5 +1,6 @@
 import math
 
+from examinor.services.evaluation_context import REFERENCE_REQUIRED_TASKS, TASK_LABELS
 from examinor.services.rule_evaluator import run_rule_evaluation, uses_rule_evaluation
 from mocktest.services.question_config import (
     CANONICAL_TRAIT_SKILL_CONTRACTS,
@@ -84,13 +85,13 @@ class QuestionBankAuditor:
         if subsection.name in IMAGE_REQUIRED_SUBSECTIONS:
             self._check_file(question, question.image, "image", add)
 
-        if subsection.name == "summarize_spoken_text":
-            if not question.correct_answer:
+        if subsection.name in REFERENCE_REQUIRED_TASKS:
+            if not (question.correct_answer or "").strip():
                 add(
                     "error",
                     "missing_ai_reference",
-                    "Summarize Spoken Text has no reference material.",
-                    "Add a source transcript, model answer, or key points to Question.correct_answer.",
+                    f"{TASK_LABELS[subsection.name]} has no reference material.",
+                    "Add the source transcript or reviewed key points to the question's Correct answer field.",
                 )
         elif uses_rule_evaluation(subsection):
             result = run_rule_evaluation(

@@ -42,6 +42,29 @@ raw task result such as 5/5 or 4/5 to a fractional score capped at one.
 
 ## Validation
 
+AI evaluation requires a non-empty submitted answer or transcript. The evaluator
+receives the candidate response separately from examiner-only source material.
+Describe Image sends the uploaded question image through the
+[Responses API image input](https://developers.openai.com/api/docs/guides/images-vision).
+The actual image bytes are included in its cache identity, so replacing an image
+cannot reuse the previous image's result. The image is retained during provider
+validation repairs.
+
+Retell Lecture, Summarise Group Discussion, and Summarize Spoken Text require a
+source transcript, model answer, or reviewed key points in `Question.correct_answer`.
+Runtime evaluation and publication checks reject missing references with
+`missing_ai_reference`; the evaluator must not invent the original source content.
+Unreadable or missing Describe Image files also stop evaluation before the AI call.
+These are configuration failures, not candidate zero-score answers or transient
+provider errors. They require question correction before retrying.
+
+Each AI result stores `input_context` hashes for the candidate answer, reference,
+and attached image. Prompt version `pte-evaluation-prompt-v5` prevents reuse of
+pre-change cache results. The diagnostic `/exam/test/` endpoint accepts
+`reference_answer` and a base64 `question_image` data URL, and applies the same
+answer/context validation as exam evaluation. No external image URL is fetched.
+Grammar/spelling repairs preserve previously valid content and form scores.
+
 Compilation must fail rather than silently repair or cap evidence when:
 
 - a criterion score or maximum is missing or non-numeric;

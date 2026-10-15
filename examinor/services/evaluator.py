@@ -33,7 +33,7 @@ def extract_json(text: str):
     return None
 
 
-def evaluate_with_openai(prompt, phash):
+def evaluate_with_openai(prompt, phash, *, image_data_url=None):
     """
     Original working version, with safety upgrades.
     NO response_format, NO chat API.
@@ -52,10 +52,18 @@ def evaluate_with_openai(prompt, phash):
     try:
         client = get_openai_client()
 
-        # Minimal valid call – same as your old working version
+        provider_input = prompt
+        if image_data_url:
+            provider_input = [{
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": prompt},
+                    {"type": "input_image", "image_url": image_data_url, "detail": "high"},
+                ],
+            }]
         completion = client.responses.create(
             model=settings.OPENAI_EVALUATION_MODEL,
-            input=prompt
+            input=provider_input,
         )
 
         # Same as old version: responses.create() → output_text

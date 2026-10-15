@@ -17,6 +17,10 @@ from mocktest.services.evaluation_input import (
     response_input_issue,
 )
 from mocktest.services.transcription import transcribe_and_analyse
+from examinor.services.evaluation_context import (
+    EvaluationContextError,
+    question_source_payload,
+)
 from examinor.scoring.task_contracts import (
     PayloadStatus,
     has_usable_transcript,
@@ -98,6 +102,18 @@ def mark_evaluation_attempt(response, status, stage, task_id=""):
         ]
     )
     return claim_status
+
+
+def _run_ai_evaluation(question, evaluation_payload):
+    try:
+        evaluation_payload.update(question_source_payload(question))
+    except EvaluationContextError as exc:
+        return exc.as_result()
+    return run_evaluation_for_subsection(
+        question.subsection,
+        question.text,
+        evaluation_payload,
+    )
 
 
 def is_transient_evaluation_error(evaluation_result):
@@ -509,11 +525,7 @@ def evaluate_user_response(self, user_answer_id, question_id):
             # AI-BASED EVALUATION
             # -------------------------
 
-            evaluation_result = run_evaluation_for_subsection(
-                subsection_obj,
-                question.text,
-                evaluation_payload
-            )
+            evaluation_result = _run_ai_evaluation(question, evaluation_payload)
 
         if not evaluation_result.get("ok", False):
             retryable = evaluation_retry_allowed(
@@ -757,11 +769,7 @@ def evaluate_single_response(self, user_answer_id, question_id):
             # AI-BASED EVALUATION
             # -------------------------
 
-            evaluation_result = run_evaluation_for_subsection(
-                subsection_obj,
-                question.text,
-                evaluation_payload
-            )
+            evaluation_result = _run_ai_evaluation(question, evaluation_payload)
 
         if not evaluation_result.get("ok", False):
             retryable = evaluation_retry_allowed(

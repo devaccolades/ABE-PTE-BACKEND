@@ -108,6 +108,11 @@ class MockTestAdminForm(forms.ModelForm):
             guidance = "The question image is missing. Upload the required image."
         elif code in {"missing_audio", "missing_audio_file"}:
             guidance = "The question audio is missing. Upload the required audio."
+        elif code == "missing_ai_reference":
+            guidance = (
+                "The evaluator needs the original content to check answers. "
+                "Enter the audio transcript or reviewed key points in Correct answer."
+            )
         elif code == "invalid_answer_key":
             guidance = f"Answer setup is incomplete. {problem}"
         else:

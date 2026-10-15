@@ -3,6 +3,8 @@ from copy import deepcopy
 from difflib import SequenceMatcher
 from html import unescape
 
+from examinor.services.prompt_builder import evaluation_answer_text
+
 
 WORD_RE = re.compile(r"[^\W_]+(?:['-][^\W_]+)?", re.UNICODE)
 HTML_TAG_RE = re.compile(r"<[^>]+>")
@@ -30,9 +32,16 @@ def apply_speech_score_guardrails(
     if task_type in REFERENCE_CONTENT_TASKS and "content" in scores:
         answer = _transcript_text(transcript_data)
         maximum = _score_maximum(scores["content"])
+        reference_text = question_text
+        reference_source = "question_text"
+        if task_type == "repeat_sentence":
+            configured_reference = evaluation_payload.get("reference_answer")
+            if isinstance(configured_reference, str) and configured_reference.strip():
+                reference_text = configured_reference
+                reference_source = "reference_answer"
         content_cap, similarity = _content_cap(
             task_type,
-            question_text,
+            reference_text,
             answer,
             maximum,
         )
@@ -42,7 +51,10 @@ def apply_speech_score_guardrails(
             content_cap,
             adjustments,
             reason="reference_word_alignment",
-            evidence={"word_alignment_ratio": similarity},
+            evidence={
+                "word_alignment_ratio": similarity,
+                "reference_source": reference_source,
+            },
         )
 
     if transcript_data.get("analysis_version") == "speech-evidence-v2":
@@ -131,10 +143,7 @@ def _cap_score(scores, key, cap, adjustments, *, reason, evidence=None):
 
 
 def _transcript_text(transcript_data):
-    transcription = transcript_data.get("transcription")
-    if isinstance(transcription, dict):
-        return str(transcription.get("text") or "")
-    return str(transcription or "")
+    return evaluation_answer_text({"transcribed_audio_data": transcript_data})
 
 
 def _tokens(value):

@@ -4,6 +4,15 @@
 
 `pte-score-v2`
 
+The default AI evaluation model is `gpt-5.4-mini`, configurable with
+`OPENAI_EVALUATION_MODEL`. Transcription remains independently configurable with
+`OPENAI_TRANSCRIPTION_MODEL` (default `whisper-1`). Evaluation cache entries are
+scoped by both model and prompt hash; changing the evaluation model cannot reuse
+an old Nano result. Previously completed responses are not automatically rescored.
+Deployment must update any explicit `.env` or PM2 model override and restart Django
+and Celery with the new environment. Verify account access with a small provider
+request and compare tutor-reviewed samples before claiming improved grading accuracy.
+
 This contract defines how already validated rubric criterion scores are converted
 into fixed question-level PTE skill scores. It does not change question rubrics,
 answer keys, question maxima, or stored historical results.

@@ -91,6 +91,7 @@ class Command(BaseCommand):
         self.stdout.write("----------------")
         mode = settings.EVALUATION_SCORING_MODE
         self.stdout.write(f"EVALUATION_SCORING_MODE={mode}")
+        self.stdout.write(f"STRICT_FORM_POLICY_ENABLED={getattr(settings, 'STRICT_FORM_POLICY_ENABLED', True)}")
         repetitive_config = getattr(settings, "REPETITIVE_ANSWER_CONFIG", {})
         self.stdout.write(
             "REPETITIVE_ANSWER_DETECTION_ENABLED="
@@ -100,6 +101,11 @@ class Command(BaseCommand):
         self.stdout.write(
             "KNOWN_TEMPLATE_DETECTION_ENABLED="
             f"{bool(template_config.get('enabled', True))}"
+        )
+        semantic_config = getattr(settings, "TEMPLATE_CONTENT_CONFIG", {})
+        self.stdout.write(
+            "TEMPLATE_CONTENT_DETECTION_ENABLED="
+            f"{bool(semantic_config.get('enabled', True))}"
         )
         try:
             active_template_count = AnswerTemplate.objects.filter(

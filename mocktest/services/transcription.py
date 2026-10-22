@@ -1,12 +1,15 @@
 
-import os
-# import librosa
+import numpy as np
 import soundfile as sf
 from openai import OpenAI
 from django.conf import settings
 
 from examinor.services.openai_errors import format_openai_error
 from .audio_analysis import analyse_speech
+from .transcription_quality import (
+    TranscriptionReliabilityError,
+    inspect_transcription_quality,
+)
 
 
 
@@ -43,13 +46,14 @@ def _transcribe_audio_with_evidence(audio_file_path: str):
                 model=settings.OPENAI_TRANSCRIPTION_MODEL,
                 file=audio_file,
                 response_format="verbose_json",
+                language="en",
                 timestamp_granularities=["word", "segment"]
             )
     except Exception as e:
         raise RuntimeError(f"{format_openai_error(e)}: {e}") from e
 
     transcription_text = response.text
-    word_timestamps = response.words  # list of word-level timestamps
+    word_timestamps = getattr(response, "words", None) or []
     recognition_segments = getattr(response, "segments", None) or []
 
     return transcription_text, word_timestamps, recognition_segments
@@ -78,6 +82,13 @@ def transcribe_and_analyse(audio_file_path: str):
 
     duration = len(audio_data) / samplerate
 
+    if not audio_data.size or not np.isfinite(audio_data).all():
+        raise RuntimeError("The recording is empty or contains invalid audio samples.")
+    if float(np.max(np.abs(audio_data))) <= 1e-7:
+        raise TranscriptionReliabilityError({
+            "transcription_quality": inspect_transcription_quality("", [], silent_audio=True),
+        })
+
 
     # 2. Transcription
     text, timestamps, recognition_segments = _transcribe_audio_with_evidence(
@@ -87,13 +98,16 @@ def transcribe_and_analyse(audio_file_path: str):
     # 3. Analysis (your existing function)
     report = analyse_speech(
         transcription_text=text,
-        word_timestamps=[{
-            "word": w.word,
-            "start": w.start,
-            "end": w.end
-        } for w in timestamps],
+        word_timestamps=[
+            w if isinstance(w, dict) else {"word": w.word, "start": w.start, "end": w.end}
+            for w in timestamps
+        ],
         audio_duration=duration,
         recognition_segments=recognition_segments,
     )
+
+    report["transcription_quality"] = inspect_transcription_quality(text, recognition_segments)
+    if report["transcription_quality"]["requires_review"]:
+        raise TranscriptionReliabilityError(report)
 
     return report

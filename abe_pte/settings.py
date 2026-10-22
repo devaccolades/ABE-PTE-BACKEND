@@ -239,7 +239,12 @@ OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "60"))
 OPENAI_MAX_RETRIES = int(os.getenv("OPENAI_MAX_RETRIES", "2"))
 OPENAI_EVALUATION_MODEL = os.getenv("OPENAI_EVALUATION_MODEL", "gpt-5.4-mini")
 OPENAI_TRANSCRIPTION_MODEL = os.getenv("OPENAI_TRANSCRIPTION_MODEL", "whisper-1")
+TRANSCRIPTION_RELIABILITY_CONFIG = {
+    "minimum_avg_logprob": float(os.getenv("TRANSCRIPTION_MINIMUM_AVG_LOGPROB", "-1.0")),
+    "no_speech_threshold": float(os.getenv("TRANSCRIPTION_NO_SPEECH_THRESHOLD", "0.8")),
+}
 EVALUATION_SCORING_MODE = os.getenv("EVALUATION_SCORING_MODE", "shadow").lower()
+STRICT_FORM_POLICY_ENABLED = os.getenv("STRICT_FORM_POLICY_ENABLED", "true").lower() == "true"
 REPETITIVE_ANSWER_CONFIG = {
     "enabled": os.getenv("REPETITIVE_ANSWER_DETECTION_ENABLED", "true").lower()
     == "true",
@@ -247,6 +252,9 @@ REPETITIVE_ANSWER_CONFIG = {
 KNOWN_TEMPLATE_CONFIG = {
     "enabled": os.getenv("KNOWN_TEMPLATE_DETECTION_ENABLED", "true").lower()
     == "true",
+}
+TEMPLATE_CONTENT_CONFIG = {
+    "enabled": os.getenv("TEMPLATE_CONTENT_DETECTION_ENABLED", "true").lower() == "true",
 }
 
 # Database

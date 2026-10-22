@@ -118,7 +118,7 @@ class ProviderImageInputTests(SimpleTestCase):
         self.assertEqual(get_client.return_value.responses.create.call_args.kwargs["input"], "Candidate answer")
 
 
-@override_settings(OPENAI_EVALUATION_MODEL="gpt-5-nano")
+@override_settings(OPENAI_EVALUATION_MODEL="gpt-5-nano", STRICT_FORM_POLICY_ENABLED=False)
 class GroundedEvaluationTests(TestCase):
     def setUp(self):
         self.section = Section.objects.create(name="Speaking")

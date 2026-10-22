@@ -20,7 +20,7 @@ def analyse_speech(
     pronunciation_band, pronunciation_justification = map_pronunciation_band(recognition)
 
     return {
-        "analysis_version": "speech-evidence-v2",
+        "analysis_version": "speech-evidence-v3",
         "audio_metadata": {
             "duration_seconds": max(float(audio_duration or 0), 0.0),
             "num_words": len(tokens),
@@ -30,6 +30,7 @@ def analyse_speech(
             "overall_score_0_to_5": pronunciation_band,
             "evidence_available": recognition["evidence_available"],
             "asr_confidence_proxy": recognition["confidence"],
+            "assessment_method": "asr_confidence_proxy_not_phonetic_assessment",
             "average_log_probability": recognition["average_log_probability"],
             "average_no_speech_probability": recognition["average_no_speech_probability"],
             "rubric_matching": {
@@ -40,6 +41,9 @@ def analyse_speech(
         "fluency_analysis": {
             "overall_score_0_to_5": fluency_band,
             "speech_rate_wpm": fluency["speech_rate_wpm"],
+            "recording_rate_wpm": fluency["recording_rate_wpm"],
+            "speech_span_seconds": fluency["speech_span_seconds"],
+            "timing_evidence_available": fluency["timing_evidence_available"],
             "avg_pause_duration_ms": fluency["avg_pause_ms"],
             "num_hesitations": fluency["num_hesitations"],
             "num_repetitions": fluency["num_repetitions"],
@@ -78,13 +82,24 @@ def analyse_fluency(tokens, word_timestamps, audio_duration):
     repeated_count = _immediate_repetition_count(tokens)
     restart_count = sum(pause >= 0.8 for pause in pauses)
     duration = max(float(audio_duration or 0), 0.0)
-    speech_rate = round((len(tokens) / duration) * 60, 2) if duration else 0.0
+    recording_rate = round((len(tokens) / duration) * 60, 2) if duration else 0.0
+    # Keep pauses within the response, but do not let recording padding hide
+    # rushed delivery or make a short, normally spoken answer look slow.
+    speech_span = (
+        word_timestamps[-1]["end"] - word_timestamps[0]["start"]
+        if len(word_timestamps) >= 2 else 0.0
+    )
+    timing_available = speech_span > 0
+    speech_rate = round(len(tokens) * 60 / speech_span, 2) if timing_available else None
     longest_run, three_word_runs = _smooth_runs(word_timestamps)
     disruption_count = filler_count + repeated_count + restart_count
 
     return {
         "word_count": len(tokens),
         "speech_rate_wpm": speech_rate,
+        "recording_rate_wpm": recording_rate,
+        "speech_span_seconds": round(speech_span, 3),
+        "timing_evidence_available": timing_available,
         "avg_pause_ms": round((sum(pauses) / len(pauses)) * 1000, 2) if pauses else 0.0,
         "num_hesitations": filler_count,
         "num_repetitions": repeated_count,
@@ -115,6 +130,8 @@ def map_fluency_band(fluency):
     long_pauses = fluency["long_pauses_count"]
     longest_run = fluency["smooth_runs"]["longest_run_words"]
 
+    if rate is None:
+        return None, "Reliable word timing was unavailable; no synthetic fluency band was created."
     if words < 3 or rate < 45:
         return 1, "Too little continuous speech or an extremely slow delivery."
     if rate < 70 or rate > 210 or disruptions >= 5 or long_pauses >= 3:
@@ -194,7 +211,10 @@ def _normalized_timestamps(items):
             end = float(item.get("end", start))
         except (AttributeError, TypeError, ValueError):
             continue
-        normalized.append({"start": start, "end": max(end, start)})
+        if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
+            continue
+        normalized.append({"start": start, "end": end})
+    normalized.sort(key=lambda item: item["start"])
     return normalized
 
 
@@ -230,6 +250,7 @@ def _smooth_runs(timestamps):
 def _number(value, key):
     raw = value.get(key) if isinstance(value, dict) else getattr(value, key, None)
     try:
-        return float(raw)
+        number = float(raw)
     except (TypeError, ValueError):
         return None
+    return number if math.isfinite(number) else None

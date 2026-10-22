@@ -12,13 +12,23 @@ from examinor.scoring.validators import (
     validate_and_normalize_evaluation_result,
     validate_and_normalize_language_feedback,
 )
-from examinor.services.prompt_builder import build_prompt, evaluation_answer_text
+from examinor.services.prompt_builder import (
+    MAX_CANDIDATE_RESPONSE_CHARS, MAX_REFERENCE_MATERIAL_CHARS,
+    build_prompt, evaluation_answer_text, normalize_answer_text,
+)
 from examinor.services.evaluator import evaluate_with_openai
 from examinor.services.evaluation_context import (
     EvaluationContextError,
     validate_evaluation_context,
 )
 from examinor.services.speech_score_guardrails import apply_speech_score_guardrails
+from examinor.services.prompt_copy import detect_prompt_copy, apply_prompt_copy_override
+from examinor.services.strict_form import (
+    inspect_strict_form, apply_strict_form_override, apply_strict_form_policy,
+)
+from examinor.services.template_content import (
+    apply_template_content_override, inspect_template_content, validate_template_assessment,
+)
 from examinor.models import EvaluationCache
 
 
@@ -145,6 +155,21 @@ def run_evaluation_for_subsection(
     )
 
     cache_model = settings.OPENAI_EVALUATION_MODEL
+    strict_form = inspect_strict_form(evaluation_answer_text(evaluation_payload), subsection.name)
+    if strict_form["is_invalid"]:
+        return apply_strict_form_override(
+            _zero_policy_result(rubric, p_hash, cache_model, input_context, strict_form["reason"]),
+            strict_form,
+        )
+    prompt_copy = detect_prompt_copy(
+        evaluation_answer_text(evaluation_payload), question_text, subsection.name,
+    )
+    if prompt_copy["is_prompt_copy"]:
+        return apply_prompt_copy_override(
+            _zero_policy_result(rubric, p_hash, cache_model, input_context, prompt_copy["reason"]),
+            prompt_copy,
+        )
+
     cached = EvaluationCache.objects.filter(
         prompt_hash=p_hash,
         model=cache_model,
@@ -163,14 +188,14 @@ def run_evaluation_for_subsection(
                 question_text=question_text,
                 evaluation_payload=evaluation_payload,
             )
-            return {
+            return _apply_template_policy({
                 "ok": True,
                 "prompt_hash": p_hash,
                 "model": cache_model,
                 "evaluation": normalized,
                 "input_context": input_context,
                 "cached": True
-            }
+            }, subsection.name, question_text, evaluation_payload)
         cached.delete()
 
     result = _evaluate_with_context(
@@ -194,6 +219,12 @@ def run_evaluation_for_subsection(
         rubric,
         subsection.name,
         evaluation_answer_text(evaluation_payload),
+    )
+    template_valid, _ = validate_template_assessment(
+        result["data"], subsection.name, evaluation_answer_text(evaluation_payload),
+    ) if isinstance(result["data"], dict) else (False, None)
+    initial_template_assessment = (
+        deepcopy(result["data"].get("template_assessment")) if template_valid else None
     )
     initial_normalized = normalized if valid else None
     if initial_normalized is None:
@@ -226,6 +257,7 @@ def run_evaluation_for_subsection(
         repair_hash = hashlib.sha256(repair_prompt.encode()).hexdigest()
         result = _evaluate_with_context(repair_prompt, repair_hash, evaluation_payload)
         if result["success"]:
+            _restore_template_assessment(result["data"], initial_template_assessment)
             result["data"] = _preserve_non_language_scores(
                 result["data"],
                 initial_normalized,
@@ -248,6 +280,7 @@ def run_evaluation_for_subsection(
         repair_hash = hashlib.sha256(repair_prompt.encode()).hexdigest()
         result = _evaluate_with_context(repair_prompt, repair_hash, evaluation_payload)
         if result["success"]:
+            _restore_template_assessment(result["data"], initial_template_assessment)
             scores_valid, _, _ = validate_and_normalize_evaluation_result(
                 {"ok": True, "evaluation": previous_output}, rubric,
             )
@@ -305,13 +338,52 @@ def run_evaluation_for_subsection(
         evaluation_payload=evaluation_payload,
     )
 
-    return {
+    return _apply_template_policy({
         "ok": True,
         "prompt_hash": p_hash,
         "model": cache_model,
         "evaluation": normalized,
         "input_context": input_context,
+    }, subsection.name, question_text, evaluation_payload)
+
+
+def _restore_template_assessment(candidate, assessment):
+    if isinstance(candidate, dict) and assessment is not None:
+        candidate["template_assessment"] = deepcopy(assessment)
+
+
+def _zero_policy_result(rubric, prompt_hash, model, context, reason):
+    maxima = rubric_maxima(rubric)
+    return {
+        "ok": True, "prompt_hash": prompt_hash, "model": model,
+        "provider_called": False, "input_context": context,
+        "evaluation": {
+            "scores": {trait: {"score": 0.0, "max": maximum} for trait, maximum in maxima.items()},
+            "weighted_score": 0.0, "max_score": sum(maxima.values()),
+            "feedback": {"summary": reason, "errors": []},
+        },
     }
+
+
+def _apply_template_policy(result, task_type, question_text, payload):
+    answer = evaluation_answer_text(payload)
+    reference = normalize_answer_text(payload.get("reference_answer"))
+    if task_type == "describe_image":
+        source_available = bool(payload.get("question_image"))
+    elif task_type in {"retell_lecture", "summarise_group_discussion", "summarize_spoken_text"}:
+        source_available = bool(reference.strip())
+    else:
+        source_available = bool(str(question_text or "").strip())
+    detection = inspect_template_content(
+        result["evaluation"], task_type, answer,
+        source_available=source_available,
+        context_complete=(
+            len(answer) <= MAX_CANDIDATE_RESPONSE_CHARS
+            and len(reference) <= MAX_REFERENCE_MATERIAL_CHARS
+        ),
+    )
+    result = apply_template_content_override(result, detection)
+    return apply_strict_form_policy(result, task_type, answer)
 
 
 def _evaluate_with_context(prompt, prompt_hash, payload):
@@ -326,6 +398,10 @@ def _validate_provider_evaluation(data, rubric, task_type, answer_text):
         {"ok": True, "evaluation": data},
         rubric,
     )
+    if not valid:
+        return False, None, error
+
+    valid, error = validate_template_assessment(normalized["evaluation"], task_type, answer_text)
     if not valid:
         return False, None, error
 

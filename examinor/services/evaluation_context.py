@@ -62,6 +62,13 @@ def question_source_payload(question):
 
 def validate_evaluation_context(task_type, payload):
     """Fail before provider/cache use if the answer or required source is missing."""
+    transcript = payload.get("transcribed_audio_data")
+    quality = transcript.get("transcription_quality") if isinstance(transcript, dict) else None
+    if isinstance(quality, dict) and quality.get("requires_review"):
+        raise EvaluationContextError(
+            "unreliable_transcription",
+            "Review the original recording before grading this unreliable transcript.",
+        )
     answer = evaluation_answer_text(payload)
     if not answer.strip():
         raise EvaluationContextError(

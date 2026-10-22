@@ -1,9 +1,11 @@
 # examinor/services/prompt_builder.py
 import json
 import hashlib
+from examinor.services.template_content import template_assessment_instructions
+from examinor.services.strict_form import strict_form_instructions
 
 
-PROMPT_VERSION = "pte-evaluation-prompt-v5"
+PROMPT_VERSION = "pte-evaluation-prompt-v6"
 MAX_CANDIDATE_RESPONSE_CHARS = 12000
 MAX_REFERENCE_MATERIAL_CHARS = 12000
 
@@ -91,6 +93,8 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
 
     answer_excerpt = answer_text[:MAX_CANDIDATE_RESPONSE_CHARS]
     reference_excerpt = reference_text[:MAX_REFERENCE_MATERIAL_CHARS]
+    template_rules, template_shape = template_assessment_instructions(task_type, answer_text)
+    form_rules = strict_form_instructions(task_type, answer_text)
 
     # -----------------------------
     # COMPACT RUBRIC
@@ -214,9 +218,15 @@ SCORING INSTRUCTIONS:
 - When speech analytics provide an oral fluency or pronunciation band, the
   corresponding criterion score must not exceed that measured band.
 - Never infer perfect pronunciation merely because a transcript is readable.
+- Speaking pace belongs to oral fluency. Do not deduct pronunciation marks just
+  because speech is fast or slow; use the available acoustic recognition evidence.
+- ASR confidence is only a pronunciation proxy, not phoneme-level proof. Do not
+  invent specific mispronounced sounds from a corrected or readable transcript.
 - weighted_score = sum(score values)
 - max_score = sum(max values)
 {feedback_rules}
+{form_rules}
+{template_rules}
 
 OUTPUT STRICTLY AS:
 {{
@@ -228,7 +238,7 @@ OUTPUT STRICTLY AS:
   }},
   "weighted_score": <number>,
   "max_score": <number>,
-  "feedback": {feedback_shape}
+  "feedback": {feedback_shape}{template_shape}
 }}
 
 RULE:

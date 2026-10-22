@@ -103,6 +103,7 @@ pyphen==0.17.2
 PyPrind==2.11.3
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.1
+pysbd==0.3.4
 python-json-logger==4.0.0
 pytz==2025.2
 pyxlsb==1.0.10

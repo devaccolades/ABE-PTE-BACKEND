@@ -153,6 +153,12 @@ regression tests against natural and template-heavy answers.
 
 ### Known Answer Template Policy
 
+The full trainer/developer policy, including the source-grounded semantic gate,
+is documented in [docs/TEMPLATE_ANSWER_POLICY.md](docs/TEMPLATE_ANSWER_POLICY.md).
+The stricter company word-count/Form gate is documented separately in
+[docs/STRICT_FORM_POLICY.md](docs/STRICT_FORM_POLICY.md); its thresholds deliberately
+differ from Pearson's partial-credit ranges.
+
 The same seven descriptive task types also pass through a deterministic known-
 template check. Approved template definitions are managed in **Question bank >
 Answer templates**. Fixed template wording is matched while text inside
@@ -549,3 +555,48 @@ responses, changes only one skill maximum, recompiles stored criterion evidence
 without calling an AI provider, recalculates affected sessions, and appends a
 before/after record to `evaluation_result.score_corrections`. A changed current
 maximum or response count aborts the operation without writes.
+
+## Copied-question answers
+
+Essay and Respond to a Situation reject answers that reproduce the question
+instead of responding to it. The shared `prompt-copy-v1` check ignores case,
+punctuation and HTML formatting. An exact match of at least four words, or an
+answer of at least eight words with 90% or more covered by copied four-word
+prompt fragments, receives zero across all criteria and skill contributions.
+Ordinary topic overlap and quotations with substantial original content are
+not blocked. This is a conservative copy check, not a semantic paraphrase detector.
+
+The check runs before AI/cache lookup and again at score validation for full
+exams and single-question practice. Evidence is stored under
+`integrity_checks.prompt_copy`, with override code `copied_question_answer`.
+Read Aloud, Repeat Sentence and other task types are unchanged. Historical
+responses are not automatically modified; this change needs no migration.
+
+## Speech timing and transcription reliability
+
+`speech-evidence-v3` measures speaking pace between the first and last timed
+words, including pauses between them. Leading/trailing recording padding is
+excluded; the whole-recording rate remains available as `recording_rate_wpm`.
+Absent/invalid word timing produces no measured fluency band. Existing heuristic
+fluency thresholds are unchanged; they are application policy, not published
+Pearson numeric cutoffs. Very slow or rushed delivery can cap oral fluency.
+
+Speed alone does not change pronunciation. The current pronunciation band is
+explicitly an ASR-confidence proxy, not phoneme-level pronunciation assessment;
+clear fast speech must not be penalized for pronunciation merely for being fast.
+
+Candidate Whisper requests specify English without supplying answer-key hints.
+Digital silence is rejected before ASR. Segments with both `avg_logprob < -1.0`
+and `no_speech_prob >= 0.8` hold the response for recording review. These joint
+thresholds are conservative local policy, configurable via
+`TRANSCRIPTION_MINIMUM_AVG_LOGPROB` and `TRANSCRIPTION_NO_SPEECH_THRESHOLD`.
+Low recognition confidence alone does not block poorly pronounced real speech.
+The candidate words and segment evidence are retained unchanged under
+`transcription_quality`; flagged reports are stored in the failure result's
+`transcription_report` with code `unreliable_transcription`. Both full and single
+response tasks stop without automatic retries or awarding an artificial zero.
+
+These safeguards do not guarantee verbatim transcription: a confident ASR error
+can still pass. Real recording/tutor comparisons remain necessary. Existing
+stored transcripts/results are unchanged; verifying the new timing/reliability
+path requires retranscription from the original recording.

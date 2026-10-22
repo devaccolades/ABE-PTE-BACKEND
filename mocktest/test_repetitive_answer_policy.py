@@ -14,6 +14,7 @@ from mocktest.models import (
 from mocktest.tasks import validate_evaluation_or_fail
 
 
+@override_settings(STRICT_FORM_POLICY_ENABLED=False)
 class RepetitiveAnswerPolicyTests(TestCase):
     def _question(self, subsection_name, *, input_type="text"):
         skill = "speaking" if input_type == "audio" else "writing"

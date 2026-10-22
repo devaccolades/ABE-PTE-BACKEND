@@ -174,6 +174,7 @@ class OpenAIServiceConfigurationTests(SimpleTestCase):
             transcribe_audio("/tmp/nonexistent-audio.wav")
 
 
+@override_settings(STRICT_FORM_POLICY_ENABLED=False)
 class EvaluationOrchestratorTests(TestCase):
     def test_name_based_evaluation_rejects_duplicate_subsections(self):
         section = Section.objects.create(name="Writing")

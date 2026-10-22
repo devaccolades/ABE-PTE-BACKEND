@@ -57,7 +57,7 @@ def apply_speech_score_guardrails(
             },
         )
 
-    if transcript_data.get("analysis_version") == "speech-evidence-v2":
+    if transcript_data.get("analysis_version") in {"speech-evidence-v2", "speech-evidence-v3"}:
         fluency_band = _nested_number(
             transcript_data,
             "fluency_analysis",
@@ -70,6 +70,10 @@ def apply_speech_score_guardrails(
                 fluency_band,
                 adjustments,
                 reason="measured_fluency_band",
+                evidence={
+                    "speech_rate_wpm": transcript_data.get("fluency_analysis", {}).get("speech_rate_wpm"),
+                    "speech_span_seconds": transcript_data.get("fluency_analysis", {}).get("speech_span_seconds"),
+                },
             )
 
         pronunciation_band = _nested_number(

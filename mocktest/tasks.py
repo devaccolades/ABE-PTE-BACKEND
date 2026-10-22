@@ -17,6 +17,7 @@ from mocktest.services.evaluation_input import (
     response_input_issue,
 )
 from mocktest.services.transcription import transcribe_and_analyse
+from mocktest.services.transcription_quality import TranscriptionReliabilityError
 from examinor.services.evaluation_context import (
     EvaluationContextError,
     question_source_payload,
@@ -37,6 +38,8 @@ from examinor.services.orchestrator import (
     run_evaluation_for_subsection,
 )
 from examinor.services.prompt_builder import evaluation_answer_text
+from examinor.services.prompt_copy import detect_prompt_copy, apply_prompt_copy_override
+from examinor.services.strict_form import apply_strict_form_policy
 from examinor.services.known_answer_templates import apply_known_template_score_override
 from examinor.services.repetitive_answer import (
     apply_repetition_score_override,
@@ -247,7 +250,10 @@ def apply_answer_integrity_policy(response, evaluation_result, subsection):
             answer_text = str(response.transcribed_audio_data.get("text") or "")
 
     integrity = inspect_answer_integrity(answer_text, subsection.name)
-    result = evaluation_result
+    result = apply_prompt_copy_override(
+        evaluation_result,
+        detect_prompt_copy(answer_text, response.question.text, subsection.name),
+    )
 
     repetition_check = integrity["checks"]["repetition"]
     detection = repetition_check["evidence"]
@@ -279,6 +285,26 @@ def apply_answer_integrity_policy(response, evaluation_result, subsection):
 
     template_check = integrity["checks"]["known_template"]
     template_detection = template_check["evidence"]
+    semantic = result.get("integrity_checks", {}).get("template_content", {})
+    if semantic.get("is_template_dominated"):
+        logger.warning(
+            "Template-content score override applied: response_model=%s response_id=%s "
+            "subsection=%s generic_ratio=%.4f version=%s",
+            type(response).__name__, response.pk, subsection.name,
+            semantic["generic_word_ratio"], semantic["detector_version"],
+        )
+    if (
+        template_detection["is_template_dominated"]
+        and semantic.get("source_available") and semantic.get("context_complete")
+        and semantic.get("assessment", {}).get("specific_points")
+    ):
+        template_detection = {
+            **template_detection,
+            "is_template_dominated": False,
+            "status": "moderate",
+            "lexical_match_would_block": True,
+            "reason": "Known framework matched, but meaningful source-specific content was identified; review instead of automatic zero.",
+        }
     if template_check["enabled"]:
         result = apply_known_template_score_override(result, template_detection)
 
@@ -311,7 +337,7 @@ def apply_answer_integrity_policy(response, evaluation_result, subsection):
             template_detection["detector_version"],
         )
 
-    return result
+    return apply_strict_form_policy(result, subsection.name, answer_text)
 
 
 def normalize_queued_question_id(response, question_id):
@@ -421,6 +447,12 @@ def transcribe_task(self,user_response_id,):
             result={"transcription": transcript},
             final=False,
         )
+    except TranscriptionReliabilityError as e:
+        save_evaluation_failure(user_response, "transcription", e, {
+            "code": "unreliable_transcription", "retryable": False,
+            "transcription_report": e.report,
+        })
+        raise EvaluationTaskFailed(str(e)) from e
     except Exception as e:
         save_evaluation_failure(user_response, "transcription", e)
         raise self.retry(exc=e)
@@ -667,6 +699,12 @@ def transcribe_single_task(self,user_response_id,):
             result={"transcription": transcript},
             final=False,
         )
+    except TranscriptionReliabilityError as e:
+        save_evaluation_failure(user_response, "transcription", e, {
+            "code": "unreliable_transcription", "retryable": False,
+            "transcription_report": e.report,
+        })
+        raise EvaluationTaskFailed(str(e)) from e
     except Exception as e:
         save_evaluation_failure(user_response, "transcription", e)
         raise self.retry(exc=e)

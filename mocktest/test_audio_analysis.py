@@ -24,7 +24,7 @@ class SpeechAnalysisTests(SimpleTestCase):
             [{"start": 0, "end": 4, "avg_logprob": -0.08, "no_speech_prob": 0.01}],
         )
 
-        self.assertEqual(result["analysis_version"], "speech-evidence-v2")
+        self.assertEqual(result["analysis_version"], "speech-evidence-v3")
         self.assertEqual(result["fluency_analysis"]["overall_score_0_to_5"], 5)
         self.assertEqual(result["pronunciation_analysis"]["overall_score_0_to_5"], 5)
 
@@ -45,8 +45,38 @@ class SpeechAnalysisTests(SimpleTestCase):
 
     def test_very_slow_short_response_cannot_receive_high_fluency(self):
         text = "among heating systems to be superior"
-        result = analyse_speech(text, timestamps(text), 10.0)
+        result = analyse_speech(text, timestamps(text, word_seconds=2.0), 12.0)
 
         self.assertEqual(result["fluency_analysis"]["overall_score_0_to_5"], 1)
         self.assertIsNone(result["pronunciation_analysis"]["overall_score_0_to_5"])
+
+    def test_silence_padding_does_not_change_measured_pace(self):
+        text = "clear continuous speech should receive strong measurable evidence today"
+        timing = timestamps(text)
+        shifted = [{**item, "start": item["start"] + 10, "end": item["end"] + 10} for item in timing]
+        original = analyse_speech(text, timing, 4)
+        padded = analyse_speech(text, shifted, 40)
+        for key in ("speech_rate_wpm", "overall_score_0_to_5", "speech_span_seconds"):
+            self.assertEqual(original["fluency_analysis"][key], padded["fluency_analysis"][key])
+        self.assertNotEqual(original["fluency_analysis"]["recording_rate_wpm"], padded["fluency_analysis"]["recording_rate_wpm"])
+
+    def test_fast_delivery_reduces_fluency_but_not_clear_pronunciation(self):
+        text = "clear continuous speech should receive strong measurable evidence today"
+        timing = timestamps(text, word_seconds=0.15)
+        clear = analyse_speech(text, timing, 10, [
+            {"start": 0, "end": 2, "avg_logprob": -0.08, "no_speech_prob": 0.01},
+        ])
+        unclear = analyse_speech(text, timing, 10, [
+            {"start": 0, "end": 2, "avg_logprob": -0.9, "no_speech_prob": 0.01},
+        ])
+        self.assertGreater(clear["fluency_analysis"]["speech_rate_wpm"], 210)
+        self.assertLessEqual(clear["fluency_analysis"]["overall_score_0_to_5"], 2)
+        self.assertEqual(clear["pronunciation_analysis"]["overall_score_0_to_5"], 5)
+        self.assertLess(unclear["pronunciation_analysis"]["overall_score_0_to_5"], 5)
+
+    def test_missing_or_invalid_word_timing_does_not_create_fluency_band(self):
+        for timing in ([], [{"start": 0, "end": 0}], [{"start": float("nan"), "end": 2}]):
+            with self.subTest(timing=timing):
+                result = analyse_speech("some spoken words", timing, 2)
+                self.assertIsNone(result["fluency_analysis"]["overall_score_0_to_5"])
 

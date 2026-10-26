@@ -142,9 +142,16 @@ class GroundedEvaluationTests(TestCase):
         evaluate.assert_not_called()
         self.assertEqual(EvaluationCache.objects.count(), 0)
 
+    @patch("examinor.services.source_fidelity.evaluate_with_openai")
     @patch("examinor.services.orchestrator.evaluate_with_openai")
-    def test_valid_lecture_reference_and_candidate_are_both_sent(self, evaluate):
+    def test_valid_lecture_reference_and_candidate_are_both_sent(self, evaluate, review):
         evaluate.return_value = provider_result()
+        review.return_value = {"success": True, "data": {
+            "verdict": "grounded", "confidence": 0.99, "reason": "Summary matches source.",
+            "evidence": [{"candidate_quote": "Candidate's actual spoken summary",
+                          "source_quote": "Source lecture about climate adaptation",
+                          "relation": "supported", "reason": "Faithful source summary."}],
+        }}
         result = run_evaluation_for_subsection(self.subsection("retell_lecture"), "Retell the lecture", {
             "transcribed_audio_data": {"transcription": "Candidate's actual spoken summary"},
             "reference_answer": "Source lecture about climate adaptation",
@@ -181,10 +188,17 @@ class GroundedEvaluationTests(TestCase):
         self.assertNotEqual(first["prompt_hash"], changed["prompt_hash"])
         self.assertEqual(evaluate.call_count, 2)
 
+    @patch("examinor.services.source_fidelity.evaluate_with_openai")
     @patch("examinor.services.orchestrator.evaluate_with_openai")
-    def test_diagnostic_endpoint_accepts_spoken_string_and_reference(self, evaluate):
+    def test_diagnostic_endpoint_accepts_spoken_string_and_reference(self, evaluate, review):
         self.subsection("retell_lecture")
         evaluate.return_value = provider_result()
+        review.return_value = {"success": True, "data": {
+            "verdict": "grounded", "confidence": 0.99, "reason": "Summary matches source.",
+            "evidence": [{"candidate_quote": "Actual spoken answer",
+                          "source_quote": "Original lecture key points",
+                          "relation": "supported", "reason": "Faithful source summary."}],
+        }}
         response = APIClient().post("/exam/test/", {
             "subsection_name": "retell_lecture", "question_text": "Retell the lecture",
             "audio_text": "Actual spoken answer", "reference_answer": "Original lecture key points",

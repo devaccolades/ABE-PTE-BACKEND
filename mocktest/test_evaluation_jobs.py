@@ -5,6 +5,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 from django.utils import timezone
+from examinor.services.prompt_builder import PROMPT_VERSION
 
 from mocktest.models import (
     EvaluationAttempt,
@@ -283,6 +284,7 @@ class EvaluationJobTests(TestCase):
         self.response.refresh_from_db()
         job.refresh_from_db()
         attempt = EvaluationAttempt.objects.get(job=job)
+        self.assertEqual(attempt.prompt_version, PROMPT_VERSION)
         self.assertTrue(self.response.evaluated)
         self.assertEqual(self.response.evaluation_status, "completed")
         self.assertEqual(job.status, "completed")

@@ -600,3 +600,20 @@ These safeguards do not guarantee verbatim transcription: a confident ASR error
 can still pass. Real recording/tutor comparisons remain necessary. Existing
 stored transcripts/results are unchanged; verifying the new timing/reliability
 path requires retranscription from the original recording.
+
+## Independent summary source fidelity
+
+RL, SGD, SST and SWT now receive a separate source/answer meaning review in the
+common orchestrator, on fresh grades and grading-cache hits. It is independent
+of repetition/template matching and does not see the grader's awarded marks.
+Evidence quotes are checked against both inputs. A high-confidence entirely
+off-topic or meaning-reversed summary with no supported source point zeroes the
+whole answer, preserving original marks under `source_fidelity_failed`.
+Grounded/partially faithful summaries retain normal rubric grading. Uncertain or
+invalid reviews return an explicit evaluation failure, not a fabricated score.
+
+The audit has its own source/answer/model-bound cache and retained input snapshot.
+Prompt v7 and new attempt/result metadata improve traceability. Existing saved
+responses are not rewritten. Essay disagreement, WFD and other tasks are unchanged.
+See `docs/SOURCE_FIDELITY_POLICY.md` for limits, cost, rollback and a non-saving
+server diagnostic for SingleResponse 289. No migration is required.

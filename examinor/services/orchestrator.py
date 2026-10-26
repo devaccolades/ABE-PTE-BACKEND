@@ -13,6 +13,7 @@ from examinor.scoring.validators import (
     validate_and_normalize_language_feedback,
 )
 from examinor.services.prompt_builder import (
+    PROMPT_VERSION,
     MAX_CANDIDATE_RESPONSE_CHARS, MAX_REFERENCE_MATERIAL_CHARS,
     build_prompt, evaluation_answer_text, normalize_answer_text,
 )
@@ -30,6 +31,9 @@ from examinor.services.template_content import (
     apply_template_content_override, inspect_template_content, validate_template_assessment,
 )
 from examinor.models import EvaluationCache
+from examinor.services.source_fidelity import (
+    audit_source_fidelity, apply_source_fidelity_override,
+)
 
 
 LANGUAGE_ANNOTATION_TASKS = frozenset({
@@ -355,7 +359,7 @@ def _restore_template_assessment(candidate, assessment):
 def _zero_policy_result(rubric, prompt_hash, model, context, reason):
     maxima = rubric_maxima(rubric)
     return {
-        "ok": True, "prompt_hash": prompt_hash, "model": model,
+        "ok": True, "prompt_hash": prompt_hash, "model": model, "prompt_version": PROMPT_VERSION,
         "provider_called": False, "input_context": context,
         "evaluation": {
             "scores": {trait: {"score": 0.0, "max": maximum} for trait, maximum in maxima.items()},
@@ -366,6 +370,7 @@ def _zero_policy_result(rubric, prompt_hash, model, context, reason):
 
 
 def _apply_template_policy(result, task_type, question_text, payload):
+    result["prompt_version"] = PROMPT_VERSION
     answer = evaluation_answer_text(payload)
     reference = normalize_answer_text(payload.get("reference_answer"))
     if task_type == "describe_image":
@@ -383,7 +388,21 @@ def _apply_template_policy(result, task_type, question_text, payload):
         ),
     )
     result = apply_template_content_override(result, detection)
-    return apply_strict_form_policy(result, task_type, answer)
+    result = apply_strict_form_policy(result, task_type, answer)
+    # An existing integrity zero must not become a provider error or lose its reason.
+    if any(item.get("applied") for item in result.get("score_overrides", []) if isinstance(item, dict)):
+        return result
+    source = str(question_text or "") if task_type == "summarize_written_text" else reference
+    fidelity = audit_source_fidelity(task_type, answer, source)
+    if fidelity["status"] == "unavailable":
+        return {
+            "ok": False, "code": "source_fidelity_unavailable",
+            "error": fidelity["reason"], "retryable": fidelity["retryable"],
+            "model": result["model"], "prompt_hash": result["prompt_hash"], "prompt_version": PROMPT_VERSION,
+            "input_context": result.get("input_context"),
+            "integrity_checks": {**result.get("integrity_checks", {}), "source_fidelity": fidelity},
+        }
+    return apply_source_fidelity_override(result, fidelity)
 
 
 def _evaluate_with_context(prompt, prompt_hash, payload):

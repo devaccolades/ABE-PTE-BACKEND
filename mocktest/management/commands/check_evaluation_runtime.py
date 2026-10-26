@@ -92,6 +92,11 @@ class Command(BaseCommand):
         mode = settings.EVALUATION_SCORING_MODE
         self.stdout.write(f"EVALUATION_SCORING_MODE={mode}")
         self.stdout.write(f"STRICT_FORM_POLICY_ENABLED={getattr(settings, 'STRICT_FORM_POLICY_ENABLED', True)}")
+        self.stdout.write(f"SOURCE_FIDELITY_ENABLED={getattr(settings, 'SOURCE_FIDELITY_ENABLED', True)}")
+        confidence = getattr(settings, "SOURCE_FIDELITY_MIN_CONFIDENCE", 0.9)
+        self.stdout.write(f"SOURCE_FIDELITY_MIN_CONFIDENCE={confidence}")
+        if not 0 <= confidence <= 1:
+            failures.append("SOURCE_FIDELITY_MIN_CONFIDENCE must be between 0 and 1.")
         repetitive_config = getattr(settings, "REPETITIVE_ANSWER_CONFIG", {})
         self.stdout.write(
             "REPETITIVE_ANSWER_DETECTION_ENABLED="

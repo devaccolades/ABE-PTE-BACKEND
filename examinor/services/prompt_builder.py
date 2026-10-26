@@ -5,7 +5,7 @@ from examinor.services.template_content import template_assessment_instructions
 from examinor.services.strict_form import strict_form_instructions
 
 
-PROMPT_VERSION = "pte-evaluation-prompt-v6"
+PROMPT_VERSION = "pte-evaluation-prompt-v7"
 MAX_CANDIDATE_RESPONSE_CHARS = 12000
 MAX_REFERENCE_MATERIAL_CHARS = 12000
 

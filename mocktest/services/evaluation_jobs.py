@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from examinor.scoring.contracts import SCORING_VERSION
 from examinor.scoring.task_contracts import has_usable_transcript
+from examinor.services.prompt_builder import PROMPT_VERSION
 from mocktest.models import (
     EvaluationAttempt,
     EvaluationJob,
@@ -250,6 +251,7 @@ def start_evaluation_attempt(response, stage, task_id=""):
             stage=stage,
             task_id=task_id,
             provider="openai" if stage == "evaluation" else "whisper",
+            prompt_version=PROMPT_VERSION if stage == "evaluation" else "",
             model=(
                 settings.OPENAI_EVALUATION_MODEL
                 if stage == "evaluation"

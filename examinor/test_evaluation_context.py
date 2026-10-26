@@ -5,6 +5,7 @@ from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase, override_settings
 from PIL import Image
@@ -123,6 +124,19 @@ class GroundedEvaluationTests(TestCase):
     def setUp(self):
         self.section = Section.objects.create(name="Speaking")
 
+    def admin_client(self):
+        client = APIClient()
+        client.force_authenticate(
+            User.objects.create(username=f"admin-{User.objects.count()}", is_staff=True)
+        )
+        return client
+
+    def test_diagnostic_endpoint_requires_admin(self):
+        response = APIClient().post("/exam/test/", {
+            "subsection_name": "retell_lecture", "question_text": "Retell the lecture",
+        }, format="json")
+        self.assertIn(response.status_code, (401, 403))
+
     def subsection(self, name):
         return SubSection.objects.create(
             section=self.section, name=name, evaluation_type="ai",
@@ -199,7 +213,7 @@ class GroundedEvaluationTests(TestCase):
                           "source_quote": "Original lecture key points",
                           "relation": "supported", "reason": "Faithful source summary."}],
         }}
-        response = APIClient().post("/exam/test/", {
+        response = self.admin_client().post("/exam/test/", {
             "subsection_name": "retell_lecture", "question_text": "Retell the lecture",
             "audio_text": "Actual spoken answer", "reference_answer": "Original lecture key points",
         }, format="json")
@@ -211,7 +225,7 @@ class GroundedEvaluationTests(TestCase):
     def test_diagnostic_endpoint_rejects_absent_answer_and_source(self, evaluate):
         self.subsection("retell_lecture")
         for extra, code in (({}, "missing_candidate_answer"), ({"audio_text": "An answer"}, "missing_ai_reference")):
-            response = APIClient().post("/exam/test/", {
+            response = self.admin_client().post("/exam/test/", {
                 "subsection_name": "retell_lecture", "question_text": "Retell the lecture", **extra,
             }, format="json")
             self.assertEqual(response.status_code, 400)
@@ -222,7 +236,7 @@ class GroundedEvaluationTests(TestCase):
     def test_diagnostic_spoken_answer_receives_exam_content_guardrails(self, evaluate):
         self.subsection("repeat_sentence")
         evaluate.return_value = provider_result(score=3)
-        response = APIClient().post("/exam/test/", {
+        response = self.admin_client().post("/exam/test/", {
             "subsection_name": "repeat_sentence",
             "question_text": "Students must submit the assignment before Friday",
             "audio_text": "Purple elephants dance beneath silver clouds",
@@ -234,7 +248,7 @@ class GroundedEvaluationTests(TestCase):
     def test_diagnostic_endpoint_accepts_question_image(self, evaluate):
         self.subsection("describe_image")
         evaluate.return_value = provider_result()
-        response = APIClient().post("/exam/test/", {
+        response = self.admin_client().post("/exam/test/", {
             "subsection_name": "describe_image", "question_text": "Describe this chart",
             "audio_text": "The chart shows rising sales.", "question_image": image_url(),
         }, format="json")

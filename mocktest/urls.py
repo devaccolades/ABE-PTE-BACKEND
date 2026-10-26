@@ -42,5 +42,5 @@ urlpatterns = [
         name='single-response-status',
     ),
 
-    path("sessions/<int:pk>/pdf/", SessionPDFView.as_view()),
+    path("sessions/<str:session_id>/pdf/", SessionPDFView.as_view()),
 ]

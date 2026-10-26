@@ -824,7 +824,7 @@ def build_session_pdf_context(session):
     }
 
 
-def generate_session_pdf(session, file_path):
+def generate_session_pdf(session):
     context = build_session_pdf_context(session)
     html = render_to_string("pdf/session_report.html", context)
-    HTML(string=html).write_pdf(file_path)
+    return HTML(string=html).write_pdf()

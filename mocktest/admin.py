@@ -1,3 +1,5 @@
+from io import BytesIO
+
 from django.contrib import admin, messages
 from django.contrib.auth.models import Group, User
 from django.urls import path, reverse
@@ -615,11 +617,8 @@ class UserMockTestSessionAdmin(ModelAdmin):
             )
             return redirect(request.META.get("HTTP_REFERER") or "../")
 
-        file_path = f"/tmp/session_{session.id}.pdf"
-        generate_session_pdf(session, file_path)
-
         return FileResponse(
-            open(file_path, "rb"),
+            BytesIO(generate_session_pdf(session)),
             as_attachment=True,
             filename=f"session_{session.id}.pdf",
         )

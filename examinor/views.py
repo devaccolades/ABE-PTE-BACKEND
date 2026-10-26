@@ -1,5 +1,6 @@
 # examinor/api/views.py
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework import status
 
@@ -7,9 +8,11 @@ from examinor.services.orchestrator import run_evaluation
 
 
 @api_view(["POST"])
+@permission_classes([IsAdminUser])
 def evaluate_pte(request):
     """
-    Simple endpoint to test the evaluation engine.
+    Simple endpoint to test the evaluation engine. Admin-only because every
+    call is billed to the OpenAI account.
     Required BODY:
         {
             "subsection_name": "read_aloud",

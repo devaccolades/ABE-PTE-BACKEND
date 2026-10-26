@@ -3,6 +3,7 @@ import uuid
 import tempfile
 import logging
 import json
+from io import BytesIO
 from urllib.parse import urlencode
 from django.db import DatabaseError, IntegrityError, transaction
 from rest_framework.views import APIView
@@ -192,8 +193,8 @@ def is_final_mock_test_question(question, mock_test):
 
 
 class SessionPDFView(APIView):
-    def get(self, request, pk):
-        session = get_object_or_404(UserMockTestSession, pk=pk)
+    def get(self, request, session_id):
+        session = get_object_or_404(UserMockTestSession, session_id=session_id)
 
         if not can_download_session_pdf(session):
             return Response(
@@ -204,12 +205,8 @@ class SessionPDFView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        file_path = f"/tmp/session_{session.id}.pdf"
-
-        generate_session_pdf(session, file_path)
-
         return FileResponse(
-            open(file_path, "rb"),
+            BytesIO(generate_session_pdf(session)),
             as_attachment=True,
             filename=f"session_{session.id}.pdf"
         )

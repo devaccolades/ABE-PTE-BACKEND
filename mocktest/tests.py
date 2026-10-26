@@ -2165,7 +2165,7 @@ class UserResponseSubmissionTests(TestCase):
         )
         session.mark_submission_completed()
 
-        response = self.client.get(f"/mocktest/sessions/{session.pk}/pdf/")
+        response = self.client.get(f"/mocktest/sessions/{session.session_id}/pdf/")
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["code"], "evaluation_incomplete")

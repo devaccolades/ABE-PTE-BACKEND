@@ -6,7 +6,7 @@ from django.urls import path, reverse
 from django.http import FileResponse, Http404
 from django.shortcuts import redirect
 from django.utils.html import format_html
-from django.db.models import F, Max, Prefetch, Q
+from django.db.models import F, Prefetch, Q
 from unfold.admin import ModelAdmin, TabularInline
 
 from .models import *
@@ -14,6 +14,7 @@ from .forms import MockTestAdminForm, QuestionAdminForm
 from .services.pdf_service import generate_session_pdf
 from .services.question_config import SUBQUESTION_SUBSECTIONS
 from .services.evaluation_status import can_download_session_pdf
+from .services.openai_status import openai_status
 from .services.evaluation_input import response_input_issue
 from .services.session_finalization import complete_session_submission
 from .services.evaluation_queue import (
@@ -26,60 +27,12 @@ admin.site.unregister(Group)
 admin.site.unregister(User)
 
 
-RATE_LIMIT_ERROR_MARKERS = (
-    "429",
-    "rate limit",
-    "too many requests",
-    "quota",
-    "insufficient_quota",
-)
-
-
-def is_api_limit_error(error):
-    error_text = str(error or "").lower()
-    return any(marker in error_text for marker in RATE_LIMIT_ERROR_MARKERS)
-
-
-def api_limit_error_query():
-    query = Q()
-    for marker in RATE_LIMIT_ERROR_MARKERS:
-        query |= Q(evaluation_error__icontains=marker)
-    return query
-
-
-def add_api_limit_warning(modeladmin, request, response_model):
-    failed_limit_responses = response_model.objects.filter(
-        evaluation_status="failed",
-    ).filter(api_limit_error_query())
-    count = failed_limit_responses.count()
-
-    if not count:
+def add_api_limit_warning(modeladmin, request):
+    status = openai_status()
+    if status["state"] == "working" and not status["affected"]:
         return
-
-    latest_limit_at = failed_limit_responses.aggregate(
-        latest=Max("last_evaluation_attempt_at"),
-    )["latest"]
-    latest_success_at = response_model.objects.filter(
-        evaluation_status="completed",
-    ).aggregate(latest=Max("last_evaluation_attempt_at"))["latest"]
-
-    recovery_note = ""
-    if latest_limit_at and latest_success_at and latest_success_at > latest_limit_at:
-        recovery_note = (
-            " A newer evaluation completed after the latest quota/rate-limit "
-            "failure, so the OpenAI API key appears active again."
-        )
-
-    modeladmin.message_user(
-        request,
-        (
-            f"OpenAI API quota/rate limit issue detected on {count} failed "
-            "evaluation response(s). Evaluation retries may continue failing "
-            "until the API limit resets or quota is increased."
-            f"{recovery_note}"
-        ),
-        level=messages.WARNING,
-    )
+    level = messages.ERROR if status["state"] == "credits_exhausted" else messages.WARNING
+    modeladmin.message_user(request, f"{status['title']}. {status['detail']}", level=level)
 
 
 def evaluation_status_badge(obj):
@@ -401,7 +354,7 @@ class UserMockTestSessionAdmin(ModelAdmin):
         return qs.select_related('mock_test')
 
     def changelist_view(self, request, extra_context=None):
-        add_api_limit_warning(self, request, UserResponse)
+        add_api_limit_warning(self, request)
         return super().changelist_view(request, extra_context=extra_context)
 
     # -------------------------
@@ -660,7 +613,7 @@ class UserResponseAdmin(ModelAdmin):
     actions = ['requeue_selected_evaluations']
 
     def changelist_view(self, request, extra_context=None):
-        add_api_limit_warning(self, request, UserResponse)
+        add_api_limit_warning(self, request)
         return super().changelist_view(request, extra_context=extra_context)
 
     def evaluation_status(self, obj):
@@ -932,7 +885,7 @@ class SingleResponseAdmin(ModelAdmin):
     actions = ['requeue_selected_evaluations']
 
     def changelist_view(self, request, extra_context=None):
-        add_api_limit_warning(self, request, SingleResponse)
+        add_api_limit_warning(self, request)
         return super().changelist_view(request, extra_context=extra_context)
 
     def evaluation_status(self, obj):

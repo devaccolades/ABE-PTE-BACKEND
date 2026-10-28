@@ -4,7 +4,7 @@ import json
 import re
 from django.conf import settings
 from openai import OpenAI
-from .openai_errors import format_openai_error
+from .openai_errors import format_openai_error, is_credits_exhausted
 
 
 def get_openai_client():
@@ -96,6 +96,8 @@ def evaluate_with_openai(prompt, phash, *, image_data_url=None):
         return {
             "success": False,
             "error": format_openai_error(e),
+            # Retrying cannot help until credits are added; staff retry afterwards.
+            "retryable": False if is_credits_exhausted(e) else None,
             "details": str(e),
             "raw": None,
             "prompt_hash": phash

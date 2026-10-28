@@ -193,6 +193,7 @@ def audit_source_fidelity(task_type, answer, source, *, use_cache=True):
             response = evaluate_with_openai(request, request_hash)
             if not response.get("success"):
                 return _failure(response.get("error") or "Source fidelity provider failed.",
+                                retryable=response.get("retryable") is not False,
                                 prompt_hash=key, model=model)
             data = response.get("data")
             valid, error = validate_fidelity_assessment(data, answer, source)

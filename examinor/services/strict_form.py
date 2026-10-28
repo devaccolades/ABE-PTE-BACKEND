@@ -1,5 +1,6 @@
 """Company policy: full Form eligibility or zero for the complete answer."""
 
+import re
 import unicodedata
 
 from django.conf import settings
@@ -13,6 +14,11 @@ WORD_LIMITS = {
     "summarize_written_text": (5, 75),
     "write_essay": (200, 300),
 }
+# Form 0 in each task's rubric: "written in capital letters" and "consists only of
+# bullet points". Cased letters this upper-case count as all capitals, which leaves
+# room for acronyms and capitalised names in ordinary writing.
+CAPITALS_SHARE = 0.9
+BULLET_RE = re.compile(r"^\s*(?:[-*•·‣▪●◦–]|\d{1,2}[.)])\s+")
 
 
 def inspect_strict_form(answer, task_type, evaluation=None):
@@ -34,6 +40,10 @@ def inspect_strict_form(answer, task_type, evaluation=None):
     violations = []
     if not minimum <= count <= maximum:
         violations.append("word_count_outside_full_credit_range")
+    if _written_in_capitals(text):
+        violations.append("written_in_capitals")
+    if _only_bullet_points(text):
+        violations.append("only_bullet_points")
     sentence_count = None
     if task_type == "summarize_written_text":
         sentence_count = len(pysbd.Segmenter(language="en", clean=False).segment(text))
@@ -49,6 +59,10 @@ def inspect_strict_form(answer, task_type, evaluation=None):
         details = f"Company policy requires {minimum}-{maximum} words; this answer contains {count}."
         if "not_one_sentence" in violations:
             details += f" A written summary must be one sentence; detected {sentence_count}."
+        if "written_in_capitals" in violations:
+            details += " The answer is written in capital letters."
+        if "only_bullet_points" in violations:
+            details += " The answer consists only of bullet points."
         if "form_credit_below_maximum" in violations:
             details += " The assessed Form score is below full credit."
         reason = f"{details} The whole answer receives zero under the company strict Form policy."
@@ -65,6 +79,16 @@ def inspect_strict_form(answer, task_type, evaluation=None):
         "violations": violations,
         "reason": reason,
     }
+
+
+def _written_in_capitals(text):
+    cased = [character for character in text if character.isalpha() and character.lower() != character.upper()]
+    return len(cased) >= 20 and sum(character.isupper() for character in cased) / len(cased) >= CAPITALS_SHARE
+
+
+def _only_bullet_points(text):
+    lines = [line for line in text.splitlines() if line.strip()]
+    return len(lines) >= 2 and all(BULLET_RE.match(line) for line in lines)
 
 
 def apply_strict_form_override(result, detection):

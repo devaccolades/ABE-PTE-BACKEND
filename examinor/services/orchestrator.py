@@ -429,8 +429,9 @@ def _evaluate_with_context(prompt, prompt_hash, payload):
 
 
 def _validate_provider_evaluation(data, rubric, task_type, answer_text, *, strict_evidence=False):
-    # strict_evidence before a repair request, so unusable template evidence can be
-    # repaired; after it, unusable evidence is dropped instead of failing the answer.
+    # strict_evidence before a repair request, so unusable template evidence and
+    # language annotations can be repaired; after it, they are dropped or recorded
+    # instead of failing the answer.
     valid, normalized, error = validate_and_normalize_evaluation_result(
         {"ok": True, "evaluation": data},
         rubric,
@@ -452,6 +453,7 @@ def _validate_provider_evaluation(data, rubric, task_type, answer_text, *, stric
         valid, normalized, error = validate_and_normalize_language_feedback(
             normalized,
             answer_text,
+            strict=strict_evidence,
         )
         if not valid:
             return False, None, error

@@ -192,3 +192,41 @@ class StrictFormIntegrationTests(TestCase):
         result = validate_evaluation_or_fail(response, {"ok": True, "evaluation": evaluation()}, subsection)
         self.assertEqual(result["evaluation"]["weighted_score"], 0)
         self.assertEqual(result["score_overrides"][0]["original_weighted_score"], 6)
+
+
+@override_settings(STRICT_FORM_POLICY_ENABLED=True)
+class CapitalsAndBulletFormTests(SimpleTestCase):
+    SUMMARY = (
+        "The lecture explained that emotional stability differs between people, and while some "
+        "enjoy intense experiences, the speaker argued that a calm and stable mood matters more "
+        "for lasting happiness, so moderation and balance between excitement and contentment are "
+        "the real secret of a good life for most people."
+    )
+
+    def violations(self, answer, task="summarize_spoken_text"):
+        return inspect_strict_form(answer, task)["violations"]
+
+    def test_answers_in_capital_letters_get_form_zero_for_every_task(self):
+        for task in ("summarize_written_text", "summarize_spoken_text", "write_essay"):
+            with self.subTest(task=task):
+                result = inspect_strict_form(self.SUMMARY.upper(), task)
+                self.assertTrue(result["is_invalid"])
+                self.assertIn("written_in_capitals", result["violations"])
+                self.assertIn("capital letters", result["reason"])
+
+    def test_names_acronyms_and_a_capitalised_heading_are_not_all_capitals(self):
+        answer = "NASA, the UN and the WHO agree. " + self.SUMMARY
+        self.assertNotIn("written_in_capitals", self.violations(answer))
+        self.assertNotIn("written_in_capitals", self.violations("SUMMARY: " + self.SUMMARY))
+
+    def test_answers_made_only_of_bullet_points_get_form_zero(self):
+        for marker in ("-", "*", "•", "1.", "2)"):
+            answer = "\n".join(f"{marker} {line}" for line in self.SUMMARY.split(", "))
+            with self.subTest(marker=marker):
+                self.assertIn("only_bullet_points", self.violations(answer))
+
+    def test_prose_with_a_list_or_hyphenated_words_is_not_only_bullet_points(self):
+        mixed = self.SUMMARY + "\n- moderation\n- balance"
+        self.assertNotIn("only_bullet_points", self.violations(mixed))
+        self.assertNotIn("only_bullet_points", self.violations("- " + self.SUMMARY))
+        self.assertNotIn("only_bullet_points", self.violations(self.SUMMARY.replace("calm", "well-balanced")))

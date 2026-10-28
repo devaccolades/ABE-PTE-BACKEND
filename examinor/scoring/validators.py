@@ -96,8 +96,13 @@ def validate_and_normalize_evaluation_result(evaluation_result, rubric=None):
     return True, normalized, None
 
 
-def validate_and_normalize_language_feedback(evaluation_result, answer_text):
-    """Validate candidate-facing language annotations against the saved answer."""
+def validate_and_normalize_language_feedback(evaluation_result, answer_text, *, strict=True):
+    """Validate candidate-facing language annotations against the saved answer.
+
+    strict rejects any inconsistency so the caller can request a repair. Otherwise
+    unusable annotations are dropped and score/annotation mismatches are recorded
+    in feedback.annotation_issues; the grader's scores are never changed.
+    """
     normalized = deepcopy(evaluation_result)
     evaluation = normalized.get("evaluation")
     if not isinstance(evaluation, dict):
@@ -117,27 +122,27 @@ def validate_and_normalize_language_feedback(evaluation_result, answer_text):
 
     answer_text = str(answer_text or "")
     errors = []
+    issues = []
     seen = set()
     for index, item in enumerate(raw_errors, start=1):
+        problem = None
+        error_type = error_text = ""
         if not isinstance(item, dict):
-            return False, None, f"Language error {index} must be an object."
-
-        error_type = str(item.get("type") or "").strip().lower()
-        if error_type not in LANGUAGE_ERROR_TYPES:
-            return (
-                False,
-                None,
-                f"Language error {index} has unsupported type {error_type!r}.",
+            problem = f"Language error {index} must be an object."
+        else:
+            error_type = str(item.get("type") or "").strip().lower()
+            error_text = _exact_error_text(
+                str(item.get("text") or item.get("original") or "").strip(), answer_text,
             )
-
-        error_text = str(item.get("text") or item.get("original") or "").strip()
-        error_text = _exact_error_text(error_text, answer_text)
-        if not error_text:
-            return (
-                False,
-                None,
-                f"Language error {index} is not an exact substring of the candidate response.",
-            )
+            if error_type not in LANGUAGE_ERROR_TYPES:
+                problem = f"Language error {index} has unsupported type {error_type!r}."
+            elif not error_text:
+                problem = f"Language error {index} is not an exact substring of the candidate response."
+        if problem:
+            if strict:
+                return False, None, problem
+            issues.append(problem)
+            continue
 
         key = (error_type, error_text)
         if key in seen:
@@ -161,19 +166,21 @@ def validate_and_normalize_language_feedback(evaluation_result, answer_text):
         maximum = float(payload.get("max", payload.get("maximum")) or 0)
         has_errors = any(item["type"] == error_type for item in errors)
         if score < maximum and not has_errors:
-            return (
-                False,
-                None,
-                f"{error_type.title()} is below maximum but has no matching annotation.",
-            )
+            problem = f"{error_type.title()} is below maximum but has no matching annotation."
+            if strict:
+                return False, None, problem
+            issues.append(problem)
         if maximum > 0 and score >= maximum and has_errors:
-            return (
-                False,
-                None,
-                f"{error_type.title()} is at maximum but matching errors were reported.",
-            )
+            problem = f"{error_type.title()} is at maximum but matching errors were reported."
+            if strict:
+                return False, None, problem
+            # The full mark stands, so annotations contradicting it are not shown.
+            errors = [item for item in errors if item["type"] != error_type]
+            issues.append(problem)
 
     normalized["evaluation"]["feedback"]["errors"] = errors
+    if issues:
+        normalized["evaluation"]["feedback"]["annotation_issues"] = issues
     return True, normalized, None
 
 

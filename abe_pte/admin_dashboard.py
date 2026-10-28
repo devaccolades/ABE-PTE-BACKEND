@@ -1,23 +1,8 @@
-from django.db.models import Count, Q
+from django.db.models import Count
 from django.urls import reverse
 
 from mocktest.models import MockTest, UserMockTestSession, UserResponse
-
-
-API_LIMIT_MARKERS = (
-    "429",
-    "rate limit",
-    "too many requests",
-    "quota",
-    "insufficient_quota",
-)
-
-
-def _api_limit_query():
-    query = Q()
-    for marker in API_LIMIT_MARKERS:
-        query |= Q(evaluation_error__icontains=marker)
-    return query
+from mocktest.services.openai_status import openai_status
 
 
 def failed_evaluations_badge(request):
@@ -49,9 +34,7 @@ def dashboard_callback(request, context):
         + response_counts.get("evaluating", 0)
     )
     pending = response_counts.get("pending", 0)
-    quota_failures = UserResponse.objects.filter(
-        evaluation_status="failed",
-    ).filter(_api_limit_query()).count()
+    api_status = openai_status()
 
     context.update(
         {
@@ -91,8 +74,8 @@ def dashboard_callback(request, context):
                 "pending": pending,
                 "processing": processing,
                 "failed": failed,
-                "quota_failures": quota_failures,
             },
+            "openai_status": api_status,
             "latest_sessions": latest_sessions,
             "session_list_url": reverse(
                 "admin:mocktest_usermocktestsession_changelist"

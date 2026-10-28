@@ -18,6 +18,29 @@
         </p>
     </div>
 
+    <section class="bg-white border border-base-200 flex flex-col gap-4 p-5 rounded-default shadow-xs md:flex-row md:items-center md:justify-between dark:bg-base-900 dark:border-base-800" style="border-left: 4px solid var(--abe-{{ openai_status.tone }});">
+        <div class="flex items-center gap-4">
+            <span class="material-symbols-outlined abe-status-{{ openai_status.tone }}">{% if openai_status.state == "credits_exhausted" %}credit_card_off{% elif openai_status.state == "rate_limited" %}hourglass_top{% else %}cloud_done{% endif %}</span>
+            <div>
+                <h2 class="font-semibold text-base text-font-important-light dark:text-font-important-dark">{{ openai_status.title }}</h2>
+                <p class="mt-1 text-sm text-font-subtle-light dark:text-font-subtle-dark">
+                    {{ openai_status.detail }}
+                    {% if openai_status.since %}Failing since {{ openai_status.since|date:"j M Y, H:i" }}.{% endif %}
+                    {% if openai_status.last_success %}Last successful evaluation {{ openai_status.last_success|timesince }} ago.{% endif %}
+                </p>
+            </div>
+        </div>
+        <div class="flex flex-wrap gap-4 text-sm">
+            {% if openai_status.state != "working" %}
+            <a href="{{ openai_status.billing_url }}" target="_blank" rel="noopener" class="font-semibold text-primary-600 hover:text-primary-700 dark:text-primary-400">OpenAI billing</a>
+            {% endif %}
+            {% if openai_status.affected %}
+            <a href="{{ openai_status.failed_url }}" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">Failed responses</a>
+            <a href="{{ openai_status.single_failed_url }}" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">Failed single evaluations</a>
+            {% endif %}
+        </div>
+    </section>
+
     <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {% for metric in dashboard_metrics %}
         <a href="{{ metric.url }}" class="bg-white border border-base-200 flex items-center gap-4 p-5 rounded-default shadow-xs transition hover:border-primary-500 dark:bg-base-900 dark:border-base-800">
@@ -43,7 +66,7 @@
                 <div class="flex items-center justify-between"><dt>Processing</dt><dd class="abe-status-primary font-semibold">{{ evaluation_health.processing }}</dd></div>
                 <div class="flex items-center justify-between"><dt>Pending</dt><dd class="abe-status-warning font-semibold">{{ evaluation_health.pending }}</dd></div>
                 <div class="flex items-center justify-between"><dt>Failed</dt><dd class="abe-status-danger font-semibold">{{ evaluation_health.failed }}</dd></div>
-                <div class="border-t border-base-200 flex items-center justify-between pt-4 dark:border-base-800"><dt>API limit failures</dt><dd class="font-semibold {% if evaluation_health.quota_failures %}abe-status-danger{% endif %}">{{ evaluation_health.quota_failures }}</dd></div>
+                <div class="border-t border-base-200 flex items-center justify-between pt-4 dark:border-base-800"><dt>OpenAI credit/limit failures</dt><dd class="font-semibold {% if openai_status.affected %}abe-status-danger{% endif %}">{{ openai_status.affected }}</dd></div>
             </dl>
         </section>
 

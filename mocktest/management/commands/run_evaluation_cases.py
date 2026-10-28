@@ -5,6 +5,7 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -17,6 +18,7 @@ from django.test.utils import setup_databases, teardown_databases
 
 from examinor.models import EvaluationCache
 from examinor.scoring.task_contracts import EvaluationEngine, get_task_contract
+from examinor.services.openai_errors import CREDITS_EXHAUSTED_ERROR
 from mocktest.evaluation_cases import CASES
 from mocktest.evaluation_cases.answers import build_submission
 from mocktest.evaluation_cases.schema import check_expectations, observe
@@ -73,6 +75,14 @@ class Command(BaseCommand):
             f"Running {len(cases)} case(s) x {options['repeat']} "
             f"({ai_count} call OpenAI model {settings.OPENAI_EVALUATION_MODEL})."
         )
+        if ai_count:
+            # Grading, template/fidelity checks and repairs: usually 2-4 requests per AI case.
+            self.stdout.write(self.style.WARNING(
+                f"This spends credits on the OPENAI_API_KEY in use: about "
+                f"{2 * ai_count * options['repeat']}-{4 * ai_count * options['repeat']} requests. "
+                "Use a key separate from production's."
+            ))
+        self._credits_exhausted = threading.Event()
 
         with self._isolated_database():
             call_command("loaddata", str(bank), verbosity=0)
@@ -85,9 +95,20 @@ class Command(BaseCommand):
                 EvaluationCache.objects.all().delete()
                 with self._quiet(options["verbose"]), ThreadPoolExecutor(options["workers"]) as pool:
                     for case, observation in pool.map(self._evaluate, prepared):
+                        if observation is None:
+                            continue
                         runs[case.id].append(observation)
                         self.stdout.write(f"  [{round_number}] {case.id}: {observation.status}")
+                if self._credits_exhausted.is_set():
+                    break
             connections.close_all()
+
+        if self._credits_exhausted.is_set():
+            raise CommandError(
+                "Stopped: the OpenAI account has no credits left, so results are not meaningful. "
+                "Add credits (https://platform.openai.com/settings/organization/billing/) and run again. "
+                "If production uses the same account, its evaluations are failing too."
+            )
 
         failures = self._report([item[0] for item in prepared], runs, skipped)
         if options["report"]:
@@ -129,6 +150,8 @@ class Command(BaseCommand):
 
     def _evaluate(self, item):
         case, question, answer_data, transcript = item
+        if self._credits_exhausted.is_set():
+            return case, None
         try:
             response = SingleResponse.objects.create(
                 name=f"evaluation-case:{case.id}",
@@ -141,7 +164,10 @@ class Command(BaseCommand):
             # apply() runs the Celery task in-process, including its retries.
             evaluate_single_response.apply(args=[response.pk, question.pk])
             response.refresh_from_db()
-            return case, observe(response)
+            observation = observe(response)
+            if CREDITS_EXHAUSTED_ERROR in observation.error:
+                self._credits_exhausted.set()
+            return case, observation
         finally:
             connections.close_all()
 

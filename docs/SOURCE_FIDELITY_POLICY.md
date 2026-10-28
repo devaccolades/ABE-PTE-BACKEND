@@ -51,11 +51,16 @@ particular, an Essay may legitimately disagree with a suggested position.
    point triggers a whole-answer zero. Original marks and the reason are retained.
 6. A grounded or mixed answer retains normal rubric grading. Missing details,
    synonyms, paraphrases and a partly faithful answer are not automatic zeros.
-7. Missing/invalid/uncertain/low-confidence review output does not silently pass
-   and does not invent a zero. The response returns `ok=false`, code
-   `source_fidelity_unavailable`. Provider/assessment failures are eligible for
-   the existing bounded task retry policy; persistent failures remain visible
-   for investigation. Missing or oversized input is non-retryable until corrected.
+7. An uncertain or below-threshold verdict, or evidence still unverifiable after
+   the repair, never invents a zero. The answer keeps its normal rubric grading
+   and `integrity_checks.source_fidelity` records `status=review` with
+   `requires_review=true` for staff follow-up. These reviews are not cached, so a
+   re-evaluation asks again. Earlier versions failed the evaluation instead,
+   which blocked valid answers (and their session PDFs) on a self-reported
+   confidence estimate.
+8. Provider failures still return `ok=false`, code `source_fidelity_unavailable`,
+   and use the existing bounded task retry policy. Missing or oversized input is
+   non-retryable until the question bank is corrected.
 
 There is one bounded repair for malformed evidence. Neither input is silently
 truncated: both must fit 12,000 characters. A self-reported confidence score is

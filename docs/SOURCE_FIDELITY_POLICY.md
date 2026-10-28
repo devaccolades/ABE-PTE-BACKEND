@@ -34,12 +34,18 @@ particular, an Essay may legitimately disagree with a suggested position.
 
 ## Decision Flow
 
-1. Existing input, strict-Form and prompt-copy checks remain in place. An existing
-   integrity zero retains its reason and does not incur another model call.
+1. Existing input, strict-Form and prompt-copy checks remain in place. Word- and
+   sentence-count zeros and template zeros keep their reason and incur no review.
+   The review runs before the Form-mark check, so an off-topic or contradictory
+   summary is zeroed for that reason rather than for the Form mark the grader gave
+   it. If the review is unavailable, an existing Form zero still stands instead of
+   becoming a provider error.
 2. Existing rubric grading, language audits and delivery safeguards remain intact.
 3. A separate model request compares only the source and candidate meaning. It
    does not receive the first grader's scores or feedback. It checks topic,
-   negation, causal relationships, conclusions and speaker positions.
+   negation, causal relationships, conclusions and speaker positions. Source
+   positions attributed to the wrong speakers are `mixed`, not contradictory, so
+   normal Content grading gives them low partial credit (Pearson bands 1-2).
 4. Its JSON assessment must contain candidate/source quotations and a
    comparison reason. Quotes are validated against the actual input strings as
    consecutive words: case, punctuation, apostrophe style and `...` between

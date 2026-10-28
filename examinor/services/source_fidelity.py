@@ -13,7 +13,7 @@ from examinor.services.evaluator import evaluate_with_openai
 from examinor.services.repetitive_answer import apply_answer_integrity_override
 
 
-VERSION = "source-fidelity-v2"
+VERSION = "source-fidelity-v3"
 TASKS = frozenset({
     "retell_lecture", "summarise_group_discussion",
     "summarize_spoken_text", "summarize_written_text",
@@ -46,11 +46,13 @@ verbatim overlap between the answer and source. Do not check essay opinions.
 verdict:
 - grounded: a faithful summary of meaningful source ideas.
 - mixed: meaningful source ideas are conveyed, but details are missing, inaccurate
-  or mixed with unrelated material. Leave normal Content calibration to grading.
+  or mixed with unrelated material. Positions from the source attributed to the
+  wrong speakers are mixed. Leave normal Content calibration to grading.
 - off_topic: the response discusses a different subject and conveys no meaningful
   source idea, even if fluent and well structured.
 - contradictory: the core summary reverses the source meaning and conveys no
-  meaningful faithful source idea. Negation and speaker attribution matter.
+  meaningful faithful source idea. Negation matters; misattributing which speaker
+  held a source position is not by itself contradictory.
 - uncertain: the available evidence does not justify any of the above.
 
 For grounded/mixed, supply at least one supported evidence pair. For off_topic,

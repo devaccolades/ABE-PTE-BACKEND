@@ -392,13 +392,18 @@ def _apply_template_policy(result, task_type, question_text, payload):
         ),
     )
     result = apply_template_content_override(result, detection)
-    result = apply_strict_form_policy(result, task_type, answer)
-    # An existing integrity zero must not become a provider error or lose its reason.
-    if any(item.get("applied") for item in result.get("score_overrides", []) if isinstance(item, dict)):
-        return result
+    if _has_applied_override(result):
+        return apply_strict_form_policy(result, task_type, answer)
+    # Meaning is reviewed before Form so an off-topic or contradictory summary is
+    # zeroed for that reason, not for the Form mark the grader gave it.
     source = str(question_text or "") if task_type == "summarize_written_text" else reference
     fidelity = audit_source_fidelity(task_type, answer, source)
     if fidelity["status"] == "unavailable":
+        formed = apply_strict_form_policy(result, task_type, answer)
+        if _has_applied_override(formed):
+            # An existing integrity zero must not become a provider error or lose its reason.
+            formed["integrity_checks"]["source_fidelity"] = fidelity
+            return formed
         return {
             "ok": False, "code": "source_fidelity_unavailable",
             "error": fidelity["reason"], "retryable": fidelity["retryable"],
@@ -406,7 +411,14 @@ def _apply_template_policy(result, task_type, question_text, payload):
             "input_context": result.get("input_context"),
             "integrity_checks": {**result.get("integrity_checks", {}), "source_fidelity": fidelity},
         }
-    return apply_source_fidelity_override(result, fidelity)
+    result = apply_source_fidelity_override(result, fidelity)
+    if _has_applied_override(result):
+        return result
+    return apply_strict_form_policy(result, task_type, answer)
+
+
+def _has_applied_override(result):
+    return any(item.get("applied") for item in result.get("score_overrides", []) if isinstance(item, dict))
 
 
 def _evaluate_with_context(prompt, prompt_hash, payload):

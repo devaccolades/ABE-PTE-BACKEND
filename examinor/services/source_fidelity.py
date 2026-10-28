@@ -152,7 +152,11 @@ def validate_fidelity_assessment(data, answer, source):
 
 
 def audit_source_fidelity(task_type, answer, source, *, use_cache=True):
-    """Return a decision or an explicit failure; never accept an unaudited mark."""
+    """Return a decision; only a confident, evidenced off-topic or contradictory verdict zeroes.
+
+    An uncertain, low-confidence or unverifiable review keeps normal grading and is
+    flagged for review. Provider failures and unusable inputs return an explicit failure.
+    """
     if not fidelity_enabled(task_type):
         return {"status": "not_applicable", "is_source_invalid": False,
                 "detector_version": VERSION}
@@ -195,11 +199,14 @@ def audit_source_fidelity(task_type, answer, source, *, use_cache=True):
             if valid:
                 break
         if not valid:
-            return _failure(error, prompt_hash=key, model=model)
+            return _review(f"Source fidelity evidence could not be verified after a repair: {error}",
+                           answer, source, prompt_hash=key, model=model, minimum_confidence=threshold)
 
     if data["verdict"] == "uncertain" or data["confidence"] < threshold:
-        return _failure("Source fidelity is uncertain; no final marks were accepted.",
-                        prompt_hash=key, model=model, assessment=data)
+        # Not cached, so a re-evaluation asks again.
+        return _review("Source fidelity is uncertain; normal grading kept for review.",
+                       answer, source, prompt_hash=key, model=model, minimum_confidence=threshold,
+                       assessment=data)
     if use_cache and not cached_valid:
         # Retain the exact review inputs privately in the audit cache, not the API result.
         cached, _ = EvaluationCache.objects.update_or_create(
@@ -237,6 +244,13 @@ def apply_source_fidelity_override(result, detection):
         else:
             result["evaluation"]["feedback"] = message
     return result
+
+
+def _review(reason, answer, source, **evidence):
+    return {"detector_version": VERSION, "status": "review", "is_source_invalid": False,
+            "requires_review": True, "reason": reason,
+            "answer_sha256": hashlib.sha256(answer.encode()).hexdigest(),
+            "source_sha256": hashlib.sha256(source.encode()).hexdigest(), **evidence}
 
 
 def _failure(reason, *, retryable=True, **evidence):

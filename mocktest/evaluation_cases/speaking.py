@@ -65,6 +65,7 @@ CASES = [
         id="di-template", label="generic describe-image template", trainer_ref="DI-004",
         answer="This image shows some important information. There are many different elements in the picture and they are connected to each other. The most important part is in the middle. Overall, the image gives a lot of useful information and it is very informative.",
         expect={"zero": True},
+        known_issue="Often scores content 1/6 instead of zero, so generic templates keep some marks.",
     ),
     retell(
         id="rl-good", label="faithful retell with fillers",
@@ -95,6 +96,7 @@ CASES = [
         id="rl-keywords", label="list of keywords",
         answer="Cars, city, suburbs, shopping, downtown, business, traffic, urban, planning, economic, environmental.",
         expect={"traits": {"content": (0, 2)}},
+        known_issue="A bare keyword list occasionally scores content 3/6.",
     ),
     short_answer(
         id="asq-correct", label="correct answer in a sentence",

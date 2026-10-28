@@ -204,11 +204,12 @@ class SourceFidelityAuditTests(TestCase):
             self.assertEqual(result["status"], "pass")
 
     @patch("examinor.services.source_fidelity.evaluate_with_openai")
-    def test_uncertainty_low_confidence_or_provider_failure_never_invents_zero_or_pass(self, provider):
+    def test_uncertain_or_low_confidence_reviews_are_flagged_never_zeroed(self, provider):
         for data in (audit("uncertain"), audit(confidence=0.6)):
             provider.return_value = {"success": True, "data": data}
             result = audit_source_fidelity("retell_lecture", PETS, SOURCE)
-            self.assertEqual(result["status"], "unavailable")
+            self.assertEqual(result["status"], "review")
+            self.assertTrue(result["requires_review"])
             self.assertFalse(result["is_source_invalid"])
         provider.return_value = {"success": False, "error": "timeout"}
         self.assertEqual(audit_source_fidelity("retell_lecture", PETS, SOURCE)["status"], "unavailable")
@@ -223,10 +224,11 @@ class SourceFidelityAuditTests(TestCase):
         self.assertIn("VALIDATION REPAIR", provider.call_args.args[0])
 
     @patch("examinor.services.source_fidelity.evaluate_with_openai")
-    def test_repeated_invalid_evidence_is_not_cached_or_scored(self, provider):
+    def test_repeated_invalid_evidence_is_flagged_not_cached_or_zeroed(self, provider):
         provider.return_value = {"success": True, "data": {}}
         result = audit_source_fidelity("retell_lecture", PETS, SOURCE)
-        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["status"], "review")
+        self.assertFalse(result["is_source_invalid"])
         self.assertEqual(provider.call_count, 2)
         self.assertFalse(EvaluationCache.objects.exists())
 
@@ -355,14 +357,24 @@ class SourceFidelityPipelineTests(TestCase):
 
     @patch("examinor.services.source_fidelity.evaluate_with_openai")
     @patch("examinor.services.orchestrator.evaluate_with_openai")
-    def test_uncertain_review_keeps_response_unscored_instead_of_silently_passing(self, grader, reviewer):
+    def test_uncertain_review_keeps_normal_grading_and_is_flagged(self, grader, reviewer):
         grader.return_value = {"success": True, "data": graded()}
         reviewer.return_value = {"success": True, "data": audit("uncertain")}
+        result = self.evaluate()
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["evaluation"]["scores"]["content"]["score"], 5)
+        self.assertEqual(result["integrity_checks"]["source_fidelity"]["status"], "review")
+        self.assertNotIn("score_overrides", result)
+
+    @patch("examinor.services.source_fidelity.evaluate_with_openai")
+    @patch("examinor.services.orchestrator.evaluate_with_openai")
+    def test_provider_failure_still_fails_the_evaluation_for_retry(self, grader, reviewer):
+        grader.return_value = {"success": True, "data": graded()}
+        reviewer.return_value = {"success": False, "error": "timeout"}
         result = self.evaluate()
         self.assertFalse(result["ok"])
         self.assertEqual(result["code"], "source_fidelity_unavailable")
         self.assertTrue(result["retryable"])
-        self.assertNotIn("evaluation", result)
 
     @patch("examinor.services.source_fidelity.evaluate_with_openai")
     @patch("examinor.services.orchestrator.evaluate_with_openai")

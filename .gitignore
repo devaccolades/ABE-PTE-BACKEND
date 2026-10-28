@@ -188,3 +188,6 @@ cython_debug/
 
 .codex
 question_bank_audit.csv
+
+# Production question-bank export (answer keys) used by evaluation cases; never commit
+question_bank.json

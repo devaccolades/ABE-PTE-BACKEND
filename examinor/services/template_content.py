@@ -10,7 +10,7 @@ from examinor.services.repetitive_answer import (
 )
 
 
-VERSION = "template-content-v1"
+VERSION = "template-content-v2"
 WORD_RE = re.compile(r"[^\W_]+(?:['-][^\W_]+)?", re.UNICODE)
 DEFAULT_CONFIG = {
     "enabled": True,
@@ -71,8 +71,15 @@ TEMPLATE / QUESTION-SPECIFIC CONTENT CHECK (separate from rubric traits):
 """, ',\n  "template_assessment": {"verdict":"<substantive|template_dominated|uncertain>","confidence":0.0,"addresses_task":false,"generic_passages":[],"specific_points":[],"reason":"<task-grounded explanation>"}'
 
 
-def validate_template_assessment(evaluation, task_type, answer):
-    """Reject omitted or fabricated evidence before provider output is accepted."""
+def validate_template_assessment(evaluation, task_type, answer, *, strict=False):
+    """Reject structurally invalid output and handle unusable evidence.
+
+    strict rejects any unusable quote so the caller can request a repair.
+    Otherwise unusable quotes are dropped in place, which may only make the
+    outcome more lenient: a verdict that loses specific evidence, or a
+    substantive verdict left without any, becomes uncertain and is reviewed
+    rather than zeroed.
+    """
     if not template_assessment_required(task_type, answer):
         return True, None
     assessment = evaluation.get("template_assessment")
@@ -90,30 +97,69 @@ def validate_template_assessment(evaluation, task_type, answer):
         return False, "template_assessment addresses_task must be boolean."
     if not isinstance(assessment.get("reason"), str) or not assessment["reason"].strip():
         return False, "template_assessment requires a task-grounded reason."
-    positions = {}
-    for key, minimum in (("generic_passages", 4), ("specific_points", 2)):
+    for key in ("generic_passages", "specific_points"):
         quotes = assessment.get(key)
         if not isinstance(quotes, list) or len(quotes) > 30:
             return False, f"template_assessment {key} must be a list of at most 30 quotes."
-        positions[key] = set()
-        for quote in quotes:
-            if not isinstance(quote, dict):
-                return False, f"template_assessment {key} requires quote objects."
-            text, reason = quote.get("text"), quote.get("reason")
-            if (
-                not isinstance(text, str) or len(WORD_RE.findall(text)) < minimum
-                or text not in answer
-                or not isinstance(reason, str) or not reason.strip()
-            ):
-                return False, f"template_assessment {key} requires exact candidate quotes and reasons."
-            positions[key].update(_quoted_word_positions(answer, text))
-    if positions["generic_passages"] & positions["specific_points"]:
-        return False, "template_assessment generic and specific evidence overlaps."
-    if assessment["verdict"] == "substantive" and (
-        not assessment["addresses_task"] or not assessment["specific_points"]
-    ):
-        return False, "A substantive template_assessment must identify specific relevant content."
+    generic, specific, dropped = _usable_evidence(assessment, answer)
+    unsupported = assessment["verdict"] == "substantive" and (
+        not assessment["addresses_task"] or not specific
+    )
+    if strict:
+        if dropped:
+            item = dropped[0]
+            text = item["quote"].get("text") if isinstance(item["quote"], dict) else item["quote"]
+            return False, f"template_assessment {item['list']} quote {text!r}: {item['problem']}."
+        if unsupported:
+            return False, "A substantive template_assessment must identify specific relevant content."
+        return True, None
+
+    assessment["generic_passages"] = generic
+    assessment["specific_points"] = specific
+    lost_specific = any(item["list"] == "specific_points" for item in dropped)
+    if unsupported or (lost_specific and assessment["verdict"] == "template_dominated"):
+        assessment["downgraded_from"] = assessment["verdict"]
+        assessment["verdict"] = "uncertain"
+    if dropped:
+        assessment["dropped_evidence"] = [*assessment.get("dropped_evidence", []), *dropped]
     return True, None
+
+
+def _usable_evidence(assessment, answer):
+    dropped = []
+    kept = {}
+    for key, minimum in (("generic_passages", 4), ("specific_points", 2)):
+        kept[key] = []
+        for quote in assessment[key]:
+            problem = _quote_problem(quote, answer, minimum)
+            if problem:
+                dropped.append({"list": key, "quote": quote, "problem": problem})
+            else:
+                kept[key].append(quote)
+    specific_positions = set()
+    for quote in kept["specific_points"]:
+        specific_positions.update(_quoted_word_positions(answer, quote["text"]))
+    generic = []
+    for quote in kept["generic_passages"]:
+        if _quoted_word_positions(answer, quote["text"]) & specific_positions:
+            # Overlap is resolved in favour of the candidate's specific content.
+            dropped.append({"list": "generic_passages", "quote": quote, "problem": "overlaps specific evidence"})
+        else:
+            generic.append(quote)
+    return generic, kept["specific_points"], dropped
+
+
+def _quote_problem(quote, answer, minimum_words):
+    if not isinstance(quote, dict):
+        return "not a quote object"
+    text, reason = quote.get("text"), quote.get("reason")
+    if not isinstance(text, str) or text not in answer:
+        return "not an exact candidate quote"
+    if len(WORD_RE.findall(text)) < minimum_words:
+        return f"fewer than {minimum_words} words"
+    if not isinstance(reason, str) or not reason.strip():
+        return "missing reason"
+    return None
 
 
 def inspect_template_content(evaluation, task_type, answer, *, source_available, context_complete=True):

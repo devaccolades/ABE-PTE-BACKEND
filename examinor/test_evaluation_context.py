@@ -26,7 +26,7 @@ from mocktest.models import (
     UserMockTestSession, UserResponse,
 )
 from mocktest.services.question_bank_validation import QuestionBankAuditor
-from mocktest.tasks import evaluate_single_response, evaluate_user_response
+from mocktest.tasks import evaluate_single_response, evaluate_user_response, evaluation_retry_allowed
 
 
 def image_data(colour="red"):
@@ -231,6 +231,20 @@ class GroundedEvaluationTests(TestCase):
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json()["code"], code)
         evaluate.assert_not_called()
+
+    @patch("examinor.services.orchestrator.evaluate_with_openai")
+    def test_malformed_provider_json_is_retryable(self, evaluate):
+        self.subsection("repeat_sentence")
+        evaluate.return_value = {"success": False, "error": "Failed to parse JSON.", "retryable": True}
+        response = self.admin_client().post("/exam/test/", {
+            "subsection_name": "repeat_sentence",
+            "question_text": "Students must submit the assignment before Friday",
+            "audio_text": "Students must submit the assignment before Friday",
+        }, format="json")
+        result = response.json()
+        self.assertFalse(result["ok"])
+        self.assertIs(result["retryable"], True)
+        self.assertTrue(evaluation_retry_allowed(result, current_retries=2))
 
     @patch("examinor.services.orchestrator.evaluate_with_openai")
     def test_diagnostic_spoken_answer_receives_exam_content_guardrails(self, evaluate):

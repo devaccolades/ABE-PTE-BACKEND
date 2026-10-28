@@ -79,6 +79,8 @@ def evaluate_with_openai(prompt, phash, *, image_data_url=None):
             return {
                 "success": False,
                 "error": "Failed to parse JSON.",
+                # A malformed completion is transient; a new request usually succeeds.
+                "retryable": True,
                 "raw": raw_output,
                 "prompt_hash": phash
             }

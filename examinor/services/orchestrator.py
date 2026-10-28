@@ -212,6 +212,7 @@ def run_evaluation_for_subsection(
         return {
             "ok": False,
             "error": result["error"],
+            "retryable": result.get("retryable"),
             "prompt_hash": p_hash,
             "model": cache_model,
             "prompt": prompt,
@@ -223,9 +224,10 @@ def run_evaluation_for_subsection(
         rubric,
         subsection.name,
         evaluation_answer_text(evaluation_payload),
+        strict_evidence=True,
     )
     template_valid, _ = validate_template_assessment(
-        result["data"], subsection.name, evaluation_answer_text(evaluation_payload),
+        result["data"], subsection.name, evaluation_answer_text(evaluation_payload), strict=True,
     ) if isinstance(result["data"], dict) else (False, None)
     initial_template_assessment = (
         deepcopy(result["data"].get("template_assessment")) if template_valid else None
@@ -271,6 +273,7 @@ def run_evaluation_for_subsection(
                 rubric,
                 subsection.name,
                 evaluation_answer_text(evaluation_payload),
+                strict_evidence=True,
             )
 
     if result["success"] and not valid:
@@ -307,6 +310,7 @@ def run_evaluation_for_subsection(
         return {
             "ok": False,
             "error": result["error"],
+            "retryable": result.get("retryable"),
             "prompt_hash": p_hash,
             "model": cache_model,
             "prompt": prompt,
@@ -412,7 +416,9 @@ def _evaluate_with_context(prompt, prompt_hash, payload):
     return evaluate_with_openai(prompt, prompt_hash)
 
 
-def _validate_provider_evaluation(data, rubric, task_type, answer_text):
+def _validate_provider_evaluation(data, rubric, task_type, answer_text, *, strict_evidence=False):
+    # strict_evidence before a repair request, so unusable template evidence can be
+    # repaired; after it, unusable evidence is dropped instead of failing the answer.
     valid, normalized, error = validate_and_normalize_evaluation_result(
         {"ok": True, "evaluation": data},
         rubric,
@@ -420,7 +426,9 @@ def _validate_provider_evaluation(data, rubric, task_type, answer_text):
     if not valid:
         return False, None, error
 
-    valid, error = validate_template_assessment(normalized["evaluation"], task_type, answer_text)
+    valid, error = validate_template_assessment(
+        normalized["evaluation"], task_type, answer_text, strict=strict_evidence,
+    )
     if not valid:
         return False, None, error
 

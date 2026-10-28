@@ -151,9 +151,16 @@ for review instead of receiving this hard-zero override. The new assessment is
 not required below the configured minimum length; other integrity and rubric
 rules remain active.
 
-Missing or fabricated assessment metadata on an eligible response triggers the
-existing bounded output-repair path. If it remains invalid, evaluation fails
+A missing or structurally invalid assessment on an eligible response triggers
+the existing bounded output-repair path. If it remains invalid, evaluation fails
 rather than publishing a score with the required check silently omitted.
+
+Unusable quotations (not exact, too short, missing a reason, or generic quotes
+overlapping specific ones) also trigger that repair. If the repaired output
+still contains them, they are dropped and recorded in `dropped_evidence` instead
+of failing the evaluation. Dropping can only make the outcome more lenient: a
+verdict that loses specific evidence, or a substantive verdict left without
+any, becomes `uncertain` and is flagged for review, never zeroed.
 Language-only audits cannot erase an already-valid template assessment.
 
 Set `TEMPLATE_CONTENT_DETECTION_ENABLED=false` to disable only this semantic check.

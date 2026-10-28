@@ -40,9 +40,13 @@ particular, an Essay may legitimately disagree with a suggested position.
 3. A separate model request compares only the source and candidate meaning. It
    does not receive the first grader's scores or feedback. It checks topic,
    negation, causal relationships, conclusions and speaker positions.
-4. Its JSON assessment must contain exact candidate/source quotations and a
-   comparison reason. Quotes are validated against the actual input strings;
-   guessed/fabricated quotes cannot support a decision.
+4. Its JSON assessment must contain candidate/source quotations and a
+   comparison reason. Quotes are validated against the actual input strings as
+   consecutive words: case, punctuation, apostrophe style and `...` between
+   quoted fragments are tolerated, word order and contiguity are not. Pairs that
+   cannot be traced to both texts are dropped (kept in `dropped_evidence`) and
+   cannot support a decision. The verdict must still be justified by the
+   remaining pairs, and any supported claim, traceable or not, blocks a zero.
 5. A high-confidence off-topic or contradictory verdict with no supported source
    point triggers a whole-answer zero. Original marks and the reason are retained.
 6. A grounded or mixed answer retains normal rubric grading. Missing details,

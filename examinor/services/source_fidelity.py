@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import math
+import re
 
 from django.conf import settings
 
@@ -12,12 +13,14 @@ from examinor.services.evaluator import evaluate_with_openai
 from examinor.services.repetitive_answer import apply_answer_integrity_override
 
 
-VERSION = "source-fidelity-v1"
+VERSION = "source-fidelity-v2"
 TASKS = frozenset({
     "retell_lecture", "summarise_group_discussion",
     "summarize_spoken_text", "summarize_written_text",
 })
 MAX_TEXT_CHARS = 12000
+ELLIPSIS_RE = re.compile(r"\.{3}|…")
+QUOTE_WORD_RE = re.compile(r"[^\W_]+(?:'[^\W_]+)*")
 logger = logging.getLogger(__name__)
 
 
@@ -70,7 +73,46 @@ Return only JSON:
 """
 
 
+def _quote_words(text):
+    text = text.replace("’", "'").replace("‘", "'").casefold()
+    return QUOTE_WORD_RE.findall(text)
+
+
+def quote_matches(quote, text):
+    """True when each '...'-separated fragment of quote appears as consecutive words in text.
+
+    Case, punctuation and apostrophe style are ignored; word order and contiguity are not.
+    """
+    if not isinstance(quote, str):
+        return False
+    fragments = [_quote_words(part) for part in ELLIPSIS_RE.split(quote)]
+    fragments = [words for words in fragments if words]
+    if sum(len(words) for words in fragments) < 2:
+        return False
+    haystack = " " + " ".join(_quote_words(text)) + " "
+    return all(" " + " ".join(words) + " " in haystack for words in fragments)
+
+
+def _pair_problem(pair, answer, source):
+    if not isinstance(pair, dict):
+        return "not an evidence object"
+    if not quote_matches(pair.get("candidate_quote"), answer):
+        return "candidate_quote is not a multiword quote from the answer"
+    if not quote_matches(pair.get("source_quote"), source):
+        return "source_quote is not a multiword quote from the source"
+    if pair.get("relation") not in {"supported", "contradicted", "unrelated"}:
+        return "invalid relation"
+    if not isinstance(pair.get("reason"), str) or not pair["reason"].strip():
+        return "missing meaning comparison"
+    return None
+
+
 def validate_fidelity_assessment(data, answer, source):
+    """Validate the verdict using only evidence that can be traced to both texts.
+
+    Unusable pairs are dropped in place. A zero verdict still needs usable
+    mismatch evidence, and any supported claim, usable or not, blocks it.
+    """
     if not isinstance(data, dict):
         return False, "Source fidelity assessment must be an object."
     verdict = data.get("verdict")
@@ -85,23 +127,26 @@ def validate_fidelity_assessment(data, answer, source):
     evidence = data.get("evidence")
     if not isinstance(evidence, list) or len(evidence) > 20:
         return False, "Source fidelity evidence must be a list of at most 20 pairs."
-    relations = set()
+    usable, dropped = [], list(data.get("dropped_evidence") or [])
+    claimed = {
+        pair.get("relation")
+        for pair in [*evidence, *(item.get("pair") for item in dropped if isinstance(item, dict))]
+        if isinstance(pair, dict)
+    }
     for pair in evidence:
-        if not isinstance(pair, dict):
-            return False, "Source fidelity evidence must contain objects."
-        for key, text in (("candidate_quote", answer), ("source_quote", source)):
-            quote = pair.get(key)
-            if not isinstance(quote, str) or len(quote.split()) < 2 or quote not in text:
-                return False, f"Source fidelity {key} must be an exact multiword quote."
-        if pair.get("relation") not in {"supported", "contradicted", "unrelated"}:
-            return False, "Source fidelity evidence has an invalid relation."
-        if not isinstance(pair.get("reason"), str) or not pair["reason"].strip():
-            return False, "Source fidelity evidence requires a meaning comparison."
-        relations.add(pair["relation"])
+        problem = _pair_problem(pair, answer, source)
+        if problem:
+            dropped.append({"pair": pair, "problem": problem})
+        else:
+            usable.append(pair)
+    data["evidence"] = usable
+    if dropped:
+        data["dropped_evidence"] = dropped
+    relations = {pair["relation"] for pair in usable}
     if verdict in {"grounded", "mixed"} and "supported" not in relations:
-        return False, "A source-grounded verdict needs supported evidence."
+        return False, "A source-grounded verdict needs supported evidence quoted from both texts."
     required = {"off_topic": "unrelated", "contradictory": "contradicted"}.get(verdict)
-    if required and (required not in relations or "supported" in relations):
+    if required and (required not in relations or "supported" in claimed):
         return False, "A source-invalid verdict needs mismatch evidence and no supported points."
     return True, None
 

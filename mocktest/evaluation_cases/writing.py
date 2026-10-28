@@ -10,17 +10,11 @@ swt = partial(EvaluationCase, task="summarize_written_text", question_id=312, qu
 # general_linguistic_range 6, development_structure_coherence 6.
 essay = partial(EvaluationCase, task="write_essay", question_id=669, question_name="BB-WE")
 
-FIDELITY_QUOTES = (
-    "Source fidelity rejects source quotes the model joins with '...' or writes with "
-    "straight apostrophes, so faithful summaries fail after retries."
-)
-
 CASES = [
     swt(
         id="swt-good", label="faithful one-sentence summary",
         answer="The Indian Ocean, the third-largest ocean and landlocked to the north by Asia, drives monsoon patterns that shape the economies of South Asia and East Africa and has long been a vital trade crossroads that still carries much of the world's oil and gas, but rising sea temperatures and geopolitical competition over shipping lanes now make managing its environmental and strategic risks a primary concern for bordering nations.",
         expect={"no_override": True, "traits": {"content": (3, 4)}, "ratio": (0.75, 1)},
-        known_issue=FIDELITY_QUOTES,
     ),
     swt(
         id="swt-partial", label="one minor idea only",
@@ -42,7 +36,6 @@ CASES = [
         id="swt-template", label="generic filler with no source content",
         answer="The passage discusses an important topic which has many aspects, and the author explains various key points in detail, highlighting significant ideas and emphasizing the importance of the issue, which is relevant to modern society and deserves careful consideration by everyone.",
         expect={"zero": True},
-        known_issue="A generic template quote under 4 words rejects the whole result, so it fails instead of scoring zero.",
     ),
     swt(
         id="swt-over-75-words", label="good content, 80 words",

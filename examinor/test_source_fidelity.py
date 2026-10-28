@@ -9,7 +9,7 @@ from examinor.models import EvaluationCache
 from examinor.scoring.response_scores import compile_response_score_evidence
 from examinor.services.orchestrator import run_evaluation_for_subsection
 from examinor.services.source_fidelity import (
-    audit_source_fidelity, build_fidelity_prompt, validate_fidelity_assessment,
+    audit_source_fidelity, build_fidelity_prompt, quote_matches, validate_fidelity_assessment,
 )
 from mocktest.models import (
     MockTest, MockTestSection, Question, Section, SingleResponse, SubSection,
@@ -110,6 +110,36 @@ class SourceFidelityValidationTests(SimpleTestCase):
         for data in variants:
             with self.subTest(data=data):
                 self.assertFalse(validate_fidelity_assessment(data, PETS, SOURCE)[0])
+
+    def test_quotes_tolerate_ellipses_case_punctuation_and_apostrophes(self):
+        source = "It remains a critical route. A significant portion of the world’s petroleum passes through it."
+        self.assertTrue(quote_matches("It remains a critical route... the world's petroleum passes", source))
+        self.assertTrue(quote_matches("it remains, a critical route", source))
+        self.assertTrue(quote_matches("A significant portion … petroleum passes through it", source))
+
+    def test_quotes_must_keep_word_order_and_contiguity(self):
+        source = "It remains a critical route for energy."
+        self.assertFalse(quote_matches("It remains a route", source))
+        self.assertFalse(quote_matches("critical route remains", source))
+        self.assertFalse(quote_matches("route ... invented words", source))
+        self.assertFalse(quote_matches("critical", source))
+        self.assertFalse(quote_matches(None, source))
+
+    def test_unusable_pairs_are_dropped_when_usable_evidence_remains(self):
+        data = audit("grounded", FAITHFUL, SOURCE)
+        data["evidence"][0].update(candidate_quote="One finds them stressful", source_quote="The first opposes it")
+        data["evidence"].append({**data["evidence"][0], "source_quote": "invented source words"})
+        self.assertEqual(validate_fidelity_assessment(data, FAITHFUL, SOURCE), (True, None))
+        self.assertEqual(len(data["evidence"]), 1)
+        self.assertIn("source_quote", data["dropped_evidence"][0]["problem"])
+
+    def test_an_unusable_supported_claim_still_blocks_a_zero(self):
+        data = audit()
+        data["evidence"].append({"candidate_quote": "invented words", "source_quote": "fabricated source",
+                                 "relation": "supported", "reason": "A faithful point."})
+        self.assertFalse(validate_fidelity_assessment(data, PETS, SOURCE)[0])
+        # Revalidating the cleaned data must not forget the dropped supported claim.
+        self.assertFalse(validate_fidelity_assessment(data, PETS, SOURCE)[0])
 
     def test_prompt_treats_negation_and_paraphrase_not_word_overlap_as_evidence(self):
         prompt = build_fidelity_prompt("summarize_written_text", REVERSED, CLIMATE_SOURCE)

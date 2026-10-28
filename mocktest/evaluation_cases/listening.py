@@ -23,6 +23,10 @@ CASES = [
         id="sst-good", label="faithful summary, 60 words",
         answer="The lecture explained that emotional stability differs between people. While some people value intense, roller-coaster experiences and the euphoria they bring, the speaker emphasised that a peaceful and stable mood is more important for happiness. The speaker concluded that the secret of happiness is moderation, avoiding too much strain and finding a balance between excitement and contentment in everyday life.",
         expect={"no_override": True, "traits": {"content": (3, 4)}},
+        known_issue=(
+            "By policy, a fidelity verdict below SOURCE_FIDELITY_MIN_CONFIDENCE fails the "
+            "evaluation instead of passing it for review; seen as 'mixed' at 0.87. Decision pending."
+        ),
     ),
     sst(
         id="sst-keywords", label="source keywords with little meaning",

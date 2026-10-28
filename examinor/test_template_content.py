@@ -117,24 +117,60 @@ class TemplateContentTests(SimpleTestCase):
         self.assertLess(result["generic_word_ratio"], 0.7)
         self.assertFalse(result["is_template_dominated"])
 
-    def test_invalid_or_invented_evidence_is_rejected(self):
+    def test_structurally_invalid_assessments_are_rejected(self):
         variants = []
         variants.append({"scores": {}})
         for key, value in (("confidence", float("nan")), ("confidence", True), ("addresses_task", "false"), ("reason", "")):
             data = provider_data()
             data["template_assessment"][key] = value
             variants.append(data)
-        data = provider_data("Words that are not in the saved answer")
-        variants.append(data)
         data = provider_data()
-        data["template_assessment"]["specific_points"] = deepcopy(data["template_assessment"]["generic_passages"])
-        variants.append(data)
-        data = provider_data()
-        data["template_assessment"].update(verdict="substantive", addresses_task=True)
+        data["template_assessment"]["generic_passages"] = "not a list"
         variants.append(data)
         for data in variants:
             with self.subTest(data=data):
                 self.assertFalse(validate_template_assessment(data, "respond_to_a_situation", GENERIC)[0])
+
+    def test_unusable_evidence_is_dropped_and_cannot_cause_a_zero(self):
+        invented = provider_data("Words that are not in the saved answer")
+        overlapping = provider_data()
+        overlapping["template_assessment"]["specific_points"] = deepcopy(
+            overlapping["template_assessment"]["generic_passages"]
+        )
+        unsupported = provider_data()
+        unsupported["template_assessment"].update(verdict="substantive", addresses_task=True)
+        for data in (invented, overlapping, unsupported):
+            with self.subTest(data=data):
+                # Strict validation asks for a repair and leaves the output untouched.
+                before = deepcopy(data)
+                self.assertFalse(validate_template_assessment(data, "respond_to_a_situation", GENERIC, strict=True)[0])
+                self.assertEqual(data, before)
+                self.assertEqual(validate_template_assessment(data, "respond_to_a_situation", GENERIC), (True, None))
+                result = self.inspect(GENERIC, data)
+                self.assertFalse(result["is_template_dominated"])
+                self.assertEqual(result["status"], "review")
+        self.assertEqual(invented["template_assessment"]["generic_passages"], [])
+        self.assertEqual(invented["template_assessment"]["dropped_evidence"][0]["problem"], "not an exact candidate quote")
+        self.assertEqual(overlapping["template_assessment"]["generic_passages"], [])
+        self.assertEqual(unsupported["template_assessment"]["verdict"], "uncertain")
+        self.assertEqual(unsupported["template_assessment"]["downgraded_from"], "substantive")
+
+    def test_short_generic_quote_is_dropped_without_losing_the_rest(self):
+        data = provider_data()
+        data["template_assessment"]["generic_passages"].append(
+            {"text": "several important aspects", "reason": "Generic filler."}
+        )
+        self.assertEqual(validate_template_assessment(data, "respond_to_a_situation", GENERIC), (True, None))
+        self.assertEqual(len(data["template_assessment"]["generic_passages"]), 1)
+        self.assertEqual(data["template_assessment"]["dropped_evidence"][0]["problem"], "fewer than 4 words")
+        self.assertTrue(self.inspect(GENERIC, data)["is_template_dominated"])
+
+    def test_losing_specific_evidence_downgrades_a_template_verdict(self):
+        data = provider_data()
+        data["template_assessment"]["specific_points"] = [{"text": "invented content", "reason": "Relevant."}]
+        self.assertEqual(validate_template_assessment(data, "respond_to_a_situation", GENERIC), (True, None))
+        self.assertEqual(data["template_assessment"]["verdict"], "uncertain")
+        self.assertFalse(self.inspect(GENERIC, data)["is_template_dominated"])
 
     def test_short_and_fixed_answer_tasks_do_not_require_this_assessment(self):
         for task in ("read_aloud", "repeat_sentence", "write_from_dictation", "answer_short_question", "fib_dropdown", "mc_multiple"):
@@ -202,6 +238,28 @@ class TemplateContentOrchestratorTests(TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["evaluation"]["weighted_score"], 0)
         self.assertEqual(evaluate.call_count, 2)
+
+    @patch("examinor.services.orchestrator.evaluate_with_openai")
+    def test_unrepaired_evidence_is_reviewed_instead_of_failing_the_answer(self, evaluate):
+        short_quote = provider_data()
+        short_quote["template_assessment"]["generic_passages"].append(
+            {"text": "several important aspects", "reason": "Generic filler."}
+        )
+        evaluate.side_effect = [
+            {"success": True, "data": provider_data("Fabricated candidate quotation not in this answer")},
+            {"success": True, "data": provider_data("Still not a quotation from this answer")},
+        ]
+        result = run_evaluation_for_subsection(self.subsection, QUESTION, {"answer_data": GENERIC})
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["integrity_checks"]["template_content"]["status"], "review")
+        self.assertEqual(evaluate.call_count, 2)
+
+        EvaluationCache.objects.all().delete()
+        evaluate.reset_mock()
+        evaluate.side_effect = [{"success": True, "data": deepcopy(short_quote)} for _ in range(2)]
+        result = run_evaluation_for_subsection(self.subsection, QUESTION, {"answer_data": GENERIC})
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(result["integrity_checks"]["template_content"]["is_template_dominated"])
 
     @patch("examinor.services.orchestrator.evaluate_with_openai")
     def test_language_audit_cannot_erase_a_valid_template_finding(self, evaluate):

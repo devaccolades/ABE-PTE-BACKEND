@@ -610,10 +610,31 @@ Evidence quotes are checked against both inputs. A high-confidence entirely
 off-topic or meaning-reversed summary with no supported source point zeroes the
 whole answer, preserving original marks under `source_fidelity_failed`.
 Grounded/partially faithful summaries retain normal rubric grading. Uncertain or
-invalid reviews return an explicit evaluation failure, not a fabricated score.
+unverifiable reviews keep normal grading and are flagged for review
+(`status=review`); provider failures still fail the evaluation.
 
 The audit has its own source/answer/model-bound cache and retained input snapshot.
 Prompt v7 and new attempt/result metadata improve traceability. Existing saved
 responses are not rewritten. Essay disagreement, WFD and other tasks are unchanged.
 See `docs/SOURCE_FIDELITY_POLICY.md` for limits, cost, rollback and a non-saving
 server diagnostic for SingleResponse 289. No migration is required.
+
+## Pearson band calibration (prompt v8)
+
+Scoring follows Pearson's PTE Academic Test Taker Score Guide (2025) where the
+evaluator was measured to be more generous (see `mocktest/evaluation_cases`):
+
+- Templates: a confident "template-dominated, does not address the task" verdict
+  zeroes the answer when quoted generic words are at least twice the specific
+  ones (`template-content-v3`), as Pearson scores memorised material Content 0.
+- Prompt rules: a Respond to a Situation reply stating only the goal is band 1
+  and one or two fragments cannot exceed 3; an essay missing a required view or
+  part cannot exceed Content 4; a Describe Image whose main figures, rankings or
+  trends contradict the image cannot exceed Content 3.
+- Deterministic caps (`score_guardrails`): an essay without paragraph breaks
+  has Development, Structure and Coherence capped at 3; spelling is capped by
+  the number of annotated spelling errors (one error 1, more than one 0).
+- Off-topic summaries flagged as templates are also reviewed for source
+  fidelity, so the student is told the summary is off-topic.
+
+These lower scores for the answers concerned. Stored results are not rewritten.

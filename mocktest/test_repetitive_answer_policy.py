@@ -56,6 +56,13 @@ class RepetitiveAnswerPolicyTests(TestCase):
 
     def test_writing_response_is_zeroed_and_reason_is_stored(self):
         mock_test, question, subsection = self._question("write_essay")
+        # Essay rubrics always include Form, which the content/form gate requires.
+        subsection.rubric = {"content": {"max": 6}, "form": {"max": 2}}
+        subsection.trait_skill_map = {"content": ["writing"], "form": ["writing"]}
+        subsection.save()
+        evaluation = self._evaluation()
+        evaluation["evaluation"]["scores"]["form"] = {"score": 2, "max": 2}
+        evaluation["evaluation"].update(weighted_score=7, max_score=8)
         session = UserMockTestSession.objects.create(
             name="Candidate",
             session_id="repetition-writing-session",
@@ -75,7 +82,7 @@ class RepetitiveAnswerPolicyTests(TestCase):
 
         result = validate_evaluation_or_fail(
             response,
-            self._evaluation(),
+            evaluation,
             subsection,
         )
 
@@ -90,7 +97,7 @@ class RepetitiveAnswerPolicyTests(TestCase):
         )
         self.assertEqual(
             result["score_overrides"][0]["original_weighted_score"],
-            5,
+            7,
         )
 
         response.evaluation_result = result

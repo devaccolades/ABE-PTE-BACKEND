@@ -5,7 +5,7 @@ from examinor.services.template_content import template_assessment_instructions
 from examinor.services.strict_form import strict_form_instructions
 
 
-PROMPT_VERSION = "pte-evaluation-prompt-v7"
+PROMPT_VERSION = "pte-evaluation-prompt-v8"
 MAX_CANDIDATE_RESPONSE_CHARS = 12000
 MAX_REFERENCE_MATERIAL_CHARS = 12000
 
@@ -60,6 +60,38 @@ def evaluation_answer_text(evaluation_payload):
         if isinstance(legacy_text, str) and legacy_text.strip():
             return legacy_text
     return normalize_answer_text(evaluation_payload.get("answer_data"))
+
+
+# Pearson PTE Academic Test Taker Score Guide (2025) band wording for cases the
+# evaluator otherwise over-credits.
+TASK_CALIBRATION_RULES = {
+    "describe_image": (
+        "- Describe Image content: if the main figures, rankings or trends stated\n"
+        "  contradict the image, content cannot exceed 3 (band 3 allows only minor\n"
+        "  inaccuracies; bands 4+ require accurate descriptions of main features).\n"
+    ),
+    "respond_to_a_situation": (
+        "- Respond to a Situation content: check what the response does in full\n"
+        "  sentences: (a) states the goal, (b) gives the reason/context from the\n"
+        "  prompt, (c) addresses the listener's needs or proposes a next step. Stating\n"
+        "  only the goal, however politely, is band 1 (\"minimally addresses the prompt\n"
+        "  ... with no elaboration or support\"). A reply of one or two short fragments\n"
+        "  (e.g. \"family thing\", \"start without me\") cannot exceed 3 even if it\n"
+        "  touches (b) or (c). Bands 4+ require (a), (b) and (c) developed in sentences.\n"
+    ),
+    "write_essay": (
+        "- Write Essay content: first list every instruction in QUESTION_TEXT (e.g.\n"
+        "  \"discuss both views\", \"advantages and disadvantages\", \"give your\n"
+        "  opinion\"). If any required view or part is not presented at all, content\n"
+        "  cannot exceed 4 however well the covered part is argued (band 4:\n"
+        "  \"adequately addresses the main point\"; band 5+ addresses the prompt fully).\n"
+        "  Example: \"Discuss both views\" answered with arguments for one side only is\n"
+        "  at most 4.\n"
+        "- Write Essay development_structure_coherence: an essay without paragraph\n"
+        "  breaks cannot exceed 3 (\"does not make effective use of paragraphs or lacks\n"
+        "  paragraphs\").\n"
+    ),
+}
 
 
 def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, rubric: dict):
@@ -119,6 +151,7 @@ def build_prompt(task_type: str, question_text: str, evaluation_payload: dict, r
         }
 
     rubric_json = json.dumps(compact_rubric, separators=(",", ":"))
+    task_rules = TASK_CALIBRATION_RULES.get(task_type, "")
 
     # -----------------------------
     # PROMPT
@@ -215,7 +248,7 @@ SCORING INSTRUCTIONS:
 - For Describe Image, verify claims against the attached question image; generic
   descriptive language alone does not establish that its content is correct.
 - For lecture/discussion summaries, compare claims against REFERENCE_MATERIAL.
-- When speech analytics provide an oral fluency or pronunciation band, the
+{task_rules}- When speech analytics provide an oral fluency or pronunciation band, the
   corresponding criterion score must not exceed that measured band.
 - Never infer perfect pronunciation merely because a transcript is readable.
 - Speaking pace belongs to oral fluency. Do not deduct pronunciation marks just

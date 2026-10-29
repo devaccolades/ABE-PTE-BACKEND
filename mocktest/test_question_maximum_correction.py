@@ -40,6 +40,8 @@ class CorrectQuestionSkillMaximumTests(TestCase):
         self.session = UserMockTestSession.objects.create(
             name="Student",
             session_id="maximum-correction-session",
+            # Repairs run on submitted sessions; an unfinished one locks the paper.
+            is_completed=True,
             mock_test=mock_test,
         )
         result = {

@@ -30,6 +30,8 @@ class JsonEncodedRuleResponseRepairTests(TestCase):
         self.session = UserMockTestSession.objects.create(
             name="Candidate",
             session_id="json-rule-repair-session",
+            # Repairs run on submitted sessions; an unfinished one locks the paper.
+            is_completed=True,
             mock_test=self.mock_test,
         )
         self.responses = [

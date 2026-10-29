@@ -166,6 +166,8 @@ class SessionFinalizationTests(TestCase):
         self.assertEqual(mock_delay.call_count, 2)
 
     def test_timer_expiry_resolves_questions_and_finalizes_zero_score(self):
+        # A live paper cannot be edited, so it is unpublished while the section is added.
+        MockTest.objects.filter(pk=self.mock_test.pk).update(is_active=False)
         second_section = Section.objects.create(name="Listening")
         second_mock_test_section = MockTestSection.objects.create(
             mock_test=self.mock_test,
@@ -173,6 +175,7 @@ class SessionFinalizationTests(TestCase):
             order=2,
         )
         self._question("Q-3", mock_test_section=second_mock_test_section)
+        MockTest.objects.filter(pk=self.mock_test.pk).update(is_active=True)
         session = self._start()
 
         first = self.client.get(

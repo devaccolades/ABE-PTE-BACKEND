@@ -58,6 +58,8 @@ class DelimitedMultipleChoiceEvaluationTests(TestCase):
         self.session = UserMockTestSession.objects.create(
             name="Candidate",
             session_id="multiple-choice-repair-session",
+            # Repairs run on submitted sessions; an unfinished one locks the paper.
+            is_completed=True,
             mock_test=mock_test,
         )
 

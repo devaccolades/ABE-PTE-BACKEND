@@ -3430,6 +3430,12 @@ class EvaluationRepairToolTests(TransactionTestCase):
     )
     @patch("mocktest.management.commands.check_evaluation_runtime.current_app")
     def test_runtime_check_reports_worker_queues(self, mock_celery):
+        # A healthy runtime has reviewed templates loaded for the integrity gate.
+        AnswerTemplate.objects.create(
+            name="Runtime check template",
+            answer_type="describe_image",
+            template_text="A reviewed fixed template with [[candidate content]].",
+        )
         inspector = mock_celery.control.inspect.return_value
         inspector.ping.return_value = {"worker-evaluation": {"ok": "pong"}}
         inspector.active_queues.return_value = {

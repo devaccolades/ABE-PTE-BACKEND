@@ -399,3 +399,73 @@ class SourceFidelityPipelineTests(TestCase):
             self.assertEqual(row.listening_score_awarded, 0)
             self.assertTrue(row.evaluation_result["integrity_checks"]["source_fidelity"]["is_source_invalid"])
             self.assertEqual(row.evaluation_result["score_overrides"][-1]["original_scores"]["content"]["score"], 5)
+
+
+OFF_TOPIC_SWT = (
+    "Social media changed how teenagers communicate, making friendships easier online "
+    "while increasing anxiety and reducing face-to-face contact."
+)
+
+
+def swt_graded(form, content):
+    return {"scores": {"form": {"score": form, "max": 1}, "content": {"score": content, "max": 4}},
+            "feedback": {"summary": "Grader feedback.", "errors": []}}
+
+
+@override_settings(SOURCE_FIDELITY_ENABLED=True, OPENAI_EVALUATION_MODEL="test-model",
+                   STRICT_FORM_POLICY_ENABLED=True)
+class SourceFidelityBeforeStrictFormTests(TestCase):
+    def setUp(self):
+        section = Section.objects.create(name="Writing")
+        self.subsection = SubSection.objects.create(
+            name="summarize_written_text", section=section, evaluation_type="ai",
+            rubric={"form": {"max": 1}, "content": {"max": 4}},
+            trait_skill_map={"form": ["writing"], "content": ["reading", "writing"]},
+        )
+
+    def evaluate(self):
+        return run_evaluation_for_subsection(self.subsection, CLIMATE_SOURCE, {"answer_data": OFF_TOPIC_SWT})
+
+    @staticmethod
+    def applied(result):
+        return [item["code"] for item in result.get("score_overrides", []) if item.get("applied")]
+
+    @patch("examinor.services.source_fidelity.evaluate_with_openai")
+    @patch("examinor.services.orchestrator.evaluate_with_openai")
+    def test_off_topic_summary_is_zeroed_as_off_topic_not_for_form(self, grader, reviewer):
+        grader.return_value = {"success": True, "data": swt_graded(form=0, content=0)}
+        reviewer.return_value = {"success": True, "data": audit("off_topic", OFF_TOPIC_SWT, CLIMATE_SOURCE)}
+        result = self.evaluate()
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(self.applied(result), ["source_fidelity_failed"])
+        self.assertIn("does not faithfully answer", result["evaluation"]["feedback"]["summary"])
+
+    @patch("examinor.services.source_fidelity.evaluate_with_openai")
+    @patch("examinor.services.orchestrator.evaluate_with_openai")
+    def test_faithful_summary_is_still_held_to_strict_form(self, grader, reviewer):
+        grader.return_value = {"success": True, "data": swt_graded(form=0, content=3)}
+        reviewer.return_value = {"success": True, "data": audit("grounded", OFF_TOPIC_SWT, CLIMATE_SOURCE)}
+        result = self.evaluate()
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(self.applied(result), ["company_strict_form"])
+
+    @patch("examinor.services.source_fidelity.evaluate_with_openai")
+    @patch("examinor.services.orchestrator.evaluate_with_openai")
+    def test_unavailable_review_does_not_turn_a_form_zero_into_a_failure(self, grader, reviewer):
+        reviewer.return_value = {"success": False, "error": "timeout"}
+        grader.return_value = {"success": True, "data": swt_graded(form=0, content=3)}
+        result = self.evaluate()
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(self.applied(result), ["company_strict_form"])
+        self.assertEqual(result["integrity_checks"]["source_fidelity"]["status"], "unavailable")
+
+        EvaluationCache.objects.all().delete()
+        grader.return_value = {"success": True, "data": swt_graded(form=1, content=3)}
+        result = self.evaluate()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["code"], "source_fidelity_unavailable")
+
+    def test_prompt_treats_speaker_misattribution_as_mixed(self):
+        prompt = build_fidelity_prompt("summarise_group_discussion", PETS, SOURCE)
+        self.assertIn("attributed to the\n  wrong speakers are mixed", prompt)
+        self.assertIn("misattributing which speaker\n  held a source position is not by itself contradictory", prompt)

@@ -1,3 +1,4 @@
+import math
 import re
 from copy import deepcopy
 from difflib import SequenceMatcher
@@ -105,23 +106,27 @@ def _content_cap(task_type, reference, answer, maximum):
     answer_tokens = _tokens(answer)
     if not reference_tokens or not answer_tokens:
         return 0.0, 0.0
-    similarity = SequenceMatcher(
+    matcher = SequenceMatcher(
         None,
         reference_tokens,
         answer_tokens,
         autojunk=False,
-    ).ratio()
-    if task_type == "repeat_sentence":
-        if similarity >= 0.80:
-            cap = maximum
-        elif similarity >= 0.55:
-            cap = min(maximum, 2.0)
-        elif similarity >= 0.25:
-            cap = min(maximum, 1.0)
-        else:
-            cap = 0.0
+    )
+    if task_type == "read_aloud":
+        # Read Aloud bands are the share of prompt words reproduced correctly:
+        # 15% per band, so 90% earns the maximum of 6.
+        reproduced = sum(block.size for block in matcher.get_matching_blocks())
+        share = reproduced / len(reference_tokens)
+        return float(min(maximum, math.floor(share * maximum / 0.9 + 1e-9))), round(share, 4)
+    similarity = matcher.ratio()
+    if similarity >= 0.80:
+        cap = maximum
+    elif similarity >= 0.55:
+        cap = min(maximum, 2.0)
+    elif similarity >= 0.25:
+        cap = min(maximum, 1.0)
     else:
-        cap = round(similarity * maximum)
+        cap = 0.0
     return float(cap), round(similarity, 4)
 
 

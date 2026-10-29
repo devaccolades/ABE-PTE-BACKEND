@@ -10,14 +10,16 @@ from examinor.services.repetitive_answer import (
 )
 
 
-VERSION = "template-content-v2"
+VERSION = "template-content-v3"
 WORD_RE = re.compile(r"[^\W_]+(?:['-][^\W_]+)?", re.UNICODE)
 DEFAULT_CONFIG = {
     "enabled": True,
     "minimum_words": 25,
     "essay_minimum_words": 80,
-    "minimum_generic_words": 20,
-    "hard_ratio": 0.70,
+    "minimum_generic_words": 12,
+    # Generic quoted words must outnumber specific quoted words by this factor, so
+    # an answer with real task content alongside template wording is not zeroed.
+    "generic_to_specific": 2.0,
     "minimum_confidence": 0.90,
 }
 
@@ -181,16 +183,21 @@ def inspect_template_content(evaluation, task_type, answer, *, source_available,
     covered = set()
     for quote in assessment["generic_passages"]:
         covered.update(_quoted_word_positions(answer, quote["text"]))
+    specific = set()
+    for quote in assessment["specific_points"]:
+        specific.update(_quoted_word_positions(answer, quote["text"]))
     words = len(WORD_RE.findall(answer))
     ratio = len(covered) / words
+    # The evaluator quotes examples rather than every generic word, so coverage of
+    # the whole answer is reported but does not decide. Pearson scores memorised,
+    # pre-prepared material as irrelevant (Content 0).
     blocked = (
         source_available and context_complete
         and assessment["verdict"] == "template_dominated"
         and assessment["confidence"] >= config["minimum_confidence"]
         and not assessment["addresses_task"]
-        and not assessment["specific_points"]
         and len(covered) >= config["minimum_generic_words"]
-        and ratio >= config["hard_ratio"]
+        and len(covered) >= config["generic_to_specific"] * len(specific)
     )
     review = not blocked and (
         assessment["verdict"] != "substantive" or not source_available or not context_complete
@@ -203,6 +210,7 @@ def inspect_template_content(evaluation, task_type, answer, *, source_available,
         "word_count": words,
         "generic_word_count": len(covered),
         "generic_word_ratio": round(ratio, 4),
+        "specific_word_count": len(specific),
         "source_available": bool(source_available),
         "context_complete": context_complete,
         "assessment": assessment,

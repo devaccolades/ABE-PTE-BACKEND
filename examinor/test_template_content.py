@@ -112,10 +112,33 @@ class TemplateContentTests(SimpleTestCase):
         data["template_assessment"]["generic_passages"] *= 3
         self.assertEqual(self.inspect(data=data)["generic_word_ratio"], 1)
 
-    def test_small_generic_fraction_does_not_trigger_a_zero(self):
-        result = self.inspect(GENERIC + " " + SPECIFIC * 4, provider_data())
-        self.assertLess(result["generic_word_ratio"], 0.7)
+    def test_specific_content_outweighing_generic_quotes_prevents_a_zero(self):
+        data = provider_data(GENERIC)
+        data["template_assessment"]["specific_points"] = [{"text": SPECIFIC, "reason": "Makes the actual request."}]
+        result = self.inspect(GENERIC + " " + SPECIFIC * 4, data)
         self.assertFalse(result["is_template_dominated"])
+
+    def test_partly_quoted_template_with_token_specific_points_is_zeroed(self):
+        # The evaluator quotes sample generic phrases, not every generic word, and may
+        # list a generic fragment as specific; its confident verdict still decides.
+        sentences = GENERIC.split(". ")
+        data = provider_data(GENERIC)
+        data["template_assessment"]["generic_passages"] = [
+            {"text": sentences[0], "reason": "Interchangeable opening."},
+            {"text": sentences[2], "reason": "Generic filler."},
+        ]
+        data["template_assessment"]["specific_points"] = [{"text": "useful conclusions can support", "reason": "Vague."}]
+        result = self.inspect(GENERIC + " " + GENERIC.lower(), data)
+        self.assertLess(result["generic_word_ratio"], 0.7)
+        self.assertTrue(result["is_template_dominated"])
+
+    def test_too_few_generic_words_or_a_task_answer_never_zero(self):
+        data = provider_data()
+        data["template_assessment"]["generic_passages"] = [{"text": "deserve careful consideration because each", "reason": "Generic."}]
+        self.assertFalse(self.inspect(data=data)["is_template_dominated"])
+        data = provider_data()
+        data["template_assessment"]["addresses_task"] = True
+        self.assertFalse(self.inspect(data=data)["is_template_dominated"])
 
     def test_structurally_invalid_assessments_are_rejected(self):
         variants = []

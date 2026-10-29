@@ -120,8 +120,7 @@ CASES = [
     essay(
         id="essay-no-paragraphs", label="same essay as one block (DSC lower, content unchanged)",
         answer=ESSAY_GOOD.replace("\n\n", " "),
-        expect={"no_override": True, "traits": {"content": (4, 6), "development_structure_coherence": (2, 5)}},
-        known_issue="Scores structure 6/6; Pearson gives about 3 without effective paragraphs. Not tightened by decision.",
+        expect={"no_override": True, "traits": {"content": (4, 6), "development_structure_coherence": (0, 3)}},
     ),
     essay(
         id="essay-spelling-errors", label="same essay with three misspellings (spelling 0)",
@@ -138,7 +137,6 @@ CASES = [
         id="essay-template", label="generic essay that fits any prompt",
         answer="In today's modern world, this issue has become increasingly important and has attracted the attention of many people. There are various opinions about this topic, and in this essay I will discuss both sides of the argument before giving my own opinion.\n\nOn the one hand, there are many advantages that should be considered. Firstly, it is undeniable that this matter has a significant impact on individuals and society as a whole. Many experts believe that it brings numerous benefits which can improve the quality of life for many people. For example, people can gain a lot from it in different aspects of their daily lives. Moreover, it plays a crucial role in the development of the modern world.\n\nOn the other hand, there are also some disadvantages that cannot be ignored. Some people argue that it may cause several problems which can negatively affect people in many ways. For instance, there are various issues that arise as a result of this situation. Furthermore, it is important to consider the long-term consequences, which may be serious if they are not addressed properly by the relevant authorities.\n\nIn conclusion, although there are both advantages and disadvantages, I believe that the benefits outweigh the drawbacks. It is essential that governments and individuals work together to find appropriate solutions to this issue so that everyone can enjoy a better future. Therefore, this topic deserves careful attention from everyone in society.",
         expect={"zero": True},
-        known_issue="Pearson treats memorised material as irrelevant (0); the detector only flags it, so it keeps 15-20/28.",
     ),
     essay(
         id="essay-off-topic", label="well written but about online shopping",
@@ -172,6 +170,5 @@ CASES = [
         id="essay2-one-view", label="online vs classroom: argues only for online (prompt asks for both)",
         answer="Online education is clearly more effective and convenient than traditional classroom learning, and I strongly support it.\n\nThe first advantage is flexibility. Students can study whenever they want, pause and replay lectures, and fit their learning around jobs or family duties. When I studied programming online, I could watch difficult videos several times until I understood them, which would be impossible in a normal lecture.\n\nSecondly, online learning saves time and money. Students do not need to travel to campus, pay for accommodation in expensive cities or buy printed textbooks, because most materials are available digitally. This makes education more affordable for people from poorer backgrounds and those living in rural areas.\n\nFinally, online platforms give access to a huge range of courses from top universities around the world. A student in a small town can learn from famous professors without moving abroad, and can choose exactly the subjects that match their career goals. Many of these courses also award certificates that employers recognise, which helps graduates find better jobs and keep developing their skills throughout their careers.\n\nIn conclusion, online education offers flexibility, lower costs and wider choice. For these reasons, I believe it is the better option for modern students, and universities should move more of their teaching online.",
         expect={"traits": {"content": (2, 4)}},
-        known_issue="Scores content 5/6 although the prompt asks for both views. Not tightened by decision.",
     ),
 ]

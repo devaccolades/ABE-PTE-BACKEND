@@ -31,8 +31,9 @@ from examinor.services.template_content import (
     apply_template_content_override, inspect_template_content, validate_template_assessment,
 )
 from examinor.models import EvaluationCache
+from examinor.services.written_score_guardrails import apply_written_score_guardrails
 from examinor.services.source_fidelity import (
-    audit_source_fidelity, apply_source_fidelity_override,
+    audit_source_fidelity, apply_source_fidelity_override, fidelity_enabled,
 )
 
 
@@ -376,6 +377,7 @@ def _zero_policy_result(rubric, prompt_hash, model, context, reason):
 def _apply_template_policy(result, task_type, question_text, payload):
     result["prompt_version"] = PROMPT_VERSION
     answer = evaluation_answer_text(payload)
+    result["evaluation"] = apply_written_score_guardrails(result["evaluation"], task_type=task_type, answer=answer)
     reference = normalize_answer_text(payload.get("reference_answer"))
     if task_type == "describe_image":
         source_available = bool(payload.get("question_image"))
@@ -392,11 +394,15 @@ def _apply_template_policy(result, task_type, question_text, payload):
         ),
     )
     result = apply_template_content_override(result, detection)
+    source = str(question_text or "") if task_type == "summarize_written_text" else reference
     if _has_applied_override(result):
+        if fidelity_enabled(task_type):
+            # A fluent summary of a different source also reads as generic; when the
+            # review confirms it is off-topic, that is the reason the student sees.
+            result = apply_source_fidelity_override(result, audit_source_fidelity(task_type, answer, source))
         return apply_strict_form_policy(result, task_type, answer)
     # Meaning is reviewed before Form so an off-topic or contradictory summary is
     # zeroed for that reason, not for the Form mark the grader gave it.
-    source = str(question_text or "") if task_type == "summarize_written_text" else reference
     fidelity = audit_source_fidelity(task_type, answer, source)
     if fidelity["status"] == "unavailable":
         formed = apply_strict_form_policy(result, task_type, answer)

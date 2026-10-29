@@ -136,15 +136,23 @@ final template-override decision using these conditions:
 | Evaluator verdict | Template-dominated |
 | Evaluator confidence | At least 0.90 |
 | Addresses the task | No |
-| Meaningful specific points identified | None |
-| Exact-quoted generic words | At least 20 |
-| Generic-word coverage of the whole answer | At least 70% |
+| Exact-quoted generic words | At least 12 |
+| Generic quoted words vs. specific quoted words | At least twice as many |
 | Relevant question/source supplied | Yes |
 | Candidate and reference text within the provider's input limits | Yes |
 
 ALL conditions are required. Confidence is a model judgement, not a calibrated
 probability. A weak answer with some relevant content is not automatically zero
 under this semantic gate; the task rubric still determines its marks.
+
+This follows Pearson, which classifies pre-prepared or memorised material as
+irrelevant (Content 0). Until template-content-v3 the gate also required at
+least 70% of the answer to be quoted as generic and no specific points at all.
+The evaluator quotes sample generic phrases rather than every generic word and
+sometimes lists a generic fragment as "specific", so confidently identified
+templates (RTS-008, essays) kept 15-20 marks. Coverage is still reported as
+`generic_word_ratio` but no longer decides; the 2:1 word comparison keeps answers
+with real task content alongside template wording from being zeroed.
 
 Below-threshold, uncertain, missing-source or truncated-context cases are flagged
 for review instead of receiving this hard-zero override. The new assessment is
@@ -166,7 +174,7 @@ Language-only audits cannot erase an already-valid template assessment.
 Set `TEMPLATE_CONTENT_DETECTION_ENABLED=false` to disable only this semantic check.
 `python manage.py check_evaluation_runtime` reports whether it is enabled.
 `TEMPLATE_CONTENT_CONFIG` in Django settings can override `minimum_words`,
-`essay_minimum_words`, `minimum_generic_words`, `hard_ratio` and
+`essay_minimum_words`, `minimum_generic_words`, `generic_to_specific` and
 `minimum_confidence`. Most thresholds are code/settings configuration, not new
 admin-dashboard fields.
 

@@ -154,7 +154,6 @@ CASES = [
     describe(
         id="di-template", label="generic describe-image template", trainer_ref="DI-004",
         answer=TEMPLATE_DESCRIBE, expect={"zero": True},
-        known_issue="Often scores content 1/6 instead of zero, so generic templates keep some marks.",
     ),
     describe(
         id="di-wrong-image", label="fluent description of a different chart",
@@ -170,11 +169,9 @@ CASES = [
         id="di2-wrong-figures", label="right chart, key figures swapped",
         answer="The bar chart shows transport in Sydney in 2004. Walking was the most popular mode at seventy-two percent, followed by cars at seventeen percent. Public transport was about ten percent and other modes two percent. So most people in Sydney walk.",
         expect={"traits": {"content": (1, 4)}},
-        known_issue="Swapped figures still score content 5/6. Not tightened by decision.",
     ),
     describe_2(id="di2-template", label="generic describe-image template", answer=TEMPLATE_DESCRIBE,
-               expect={"zero": True},
-               known_issue="Often scores content 1/6 instead of zero, so generic templates keep some marks."),
+               expect={"zero": True}),
 
     # Retell Lecture: 6 full paraphrase ... 1 isolated words; memorised material is irrelevant (0).
     retell(
@@ -240,15 +237,14 @@ CASES = [
         expect={"no_override": True, "traits": {"content": (5, 6)}},
     ),
     situation(
-        id="rts-partial-goal", label="apologises and says late, but no reason or plan (band 3-4)",
+        id="rts-partial-goal", label="apologises and says late, no reason or plan (Pearson band 1)",
         answer="Hi, sorry, I'm going to be late for the group meeting today. Sorry about that.",
-        expect={"traits": {"content": (2, 4)}},
+        expect={"traits": {"content": (0, 2)}},
     ),
     situation(
         id="rts-brief", label="10 words, goal met with no elaboration (Pearson band 1)", trainer_ref="RTS-001",
         answer="Hey, I'm gonna be late, family thing. Start without me.",
         expect={"traits": {"content": (0, 3)}},
-        known_issue="Pearson's band 1 describes exactly this; the model gives 4/6.",
     ),
     situation(
         id="rts-rude", label="goal met but situationally inappropriate tone",
@@ -259,7 +255,6 @@ CASES = [
         id="rts-template", label="generic polite template", trainer_ref="RTS-008",
         answer="Hello, I am calling to discuss an important matter with you. I would like to inform you about the current situation and kindly request your consideration. I hope you can understand my position. Thank you very much for your time, understanding and cooperation.",
         expect={"zero": True},
-        known_issue="Scores content 1-2/6 and keeps delivery marks; the trainer accepted zero for this pattern.",
     ),
     situation(
         id="rts-repeats-situation", label="reads the situation back", trainer_ref="RTS-009",
@@ -311,7 +306,9 @@ CASES = [
     discussion(
         id="sgd-positions-swapped", label="right topic, speaker positions misattributed (Pearson band 1-2)",
         answer="The speakers discussed compulsory physical education at university. The first speaker strongly supported mandatory PE because it improves health and sleep. The second speaker opposed it, arguing it is stressful and unfair for students who are not athletic. The third speaker agreed completely with the first speaker and said the current system works well and should not change.",
-        expect={"no_override": True, "traits": {"content": (1, 3)}},
+        # Speaker 3's "should not change" also reverses the source, so a contradictory
+        # zero is defensible; misattribution alone is scored as partial credit.
+        expect={"traits": {"content": (0, 3)}},
     ),
     discussion(
         id="sgd-unrelated-pets", label="fluent story about pets", trainer_ref="SGD-008",

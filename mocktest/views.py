@@ -11,6 +11,8 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from rest_framework.permissions import IsAdminUser
+from rest_framework.throttling import ScopedRateThrottle
+from django.conf import settings
 from .models import EvaluationOutbox, Question, MockTest, MockTestSection, UserResponse, UserMockTestSession, SubQuestion,Section,SubSection,SingleResponse
 from .serializers import (
     AnswerIntegrityTestSerializer,
@@ -100,6 +102,45 @@ def required_audio_error(question, audio_file, request):
         getattr(audio_file, "size", None),
     )
     return "A non-empty answer_audio file is required for this audio question."
+
+
+# Browsers label MediaRecorder output as audio/* or, on some platforms,
+# video/webm or video/mp4; FormData sends untyped blobs as octet-stream.
+ALLOWED_AUDIO_CONTENT_TYPES = frozenset({
+    "video/webm",
+    "video/mp4",
+    "video/ogg",
+    "application/octet-stream",
+})
+
+
+def audio_upload_error(audio_file):
+    if not audio_file:
+        return None
+    content_type = (audio_file.content_type or "").lower()
+    if not (
+        content_type.startswith("audio/")
+        or content_type in ALLOWED_AUDIO_CONTENT_TYPES
+    ):
+        return Response(
+            {
+                "error": f"answer_audio must be an audio recording, not {content_type or 'an untyped file'}.",
+                "code": "audio_upload_invalid_type",
+                "retryable": False,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    maximum = settings.AUDIO_UPLOAD_MAX_BYTES
+    if audio_file.size > maximum:
+        return Response(
+            {
+                "error": f"answer_audio is larger than the {maximum // (1024 * 1024)} MB limit.",
+                "code": "audio_upload_too_large",
+                "retryable": False,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return None
 
 
 def normalize_answer_data(answer):
@@ -193,6 +234,9 @@ def is_final_mock_test_question(question, mock_test):
 
 
 class SessionPDFView(APIView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "session_pdf"
+
     def get(self, request, session_id):
         session = get_object_or_404(UserMockTestSession, session_id=session_id)
 
@@ -337,6 +381,9 @@ class SubSectionQuestionListAPIView(APIView):
         )
 
 class SingleAPIView(APIView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "single_practice"
+
     def post(self, request):
         question_id = request.data.get('question_id')
         question_name = request.data.get('question_name')
@@ -360,6 +407,10 @@ class SingleAPIView(APIView):
                 {"error": "Duplicate question_name. Use question_id."},
                 status=status.HTTP_409_CONFLICT,
             )
+
+        invalid_audio = audio_upload_error(audio_file)
+        if invalid_audio:
+            return invalid_audio
 
         audio_error = required_audio_error(question, audio_file, request)
         if audio_error:
@@ -474,6 +525,9 @@ class MockTestListAPIView(APIView):
 
 
 class StartMockTestAPIView(APIView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "session_start"
+
     def post(self, request):
         name = request.data.get("name")
         mocktest_id = request.data.get("mocktest_id")
@@ -578,6 +632,9 @@ class GetQuestionAPIView(APIView):
 
 
 class UserResponseAPIView(APIView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "answer_submit"
+
     def post(self, request):
         session_id = request.data.get('session_id')
         question_id = request.data.get('question_id')
@@ -612,6 +669,10 @@ class UserResponseAPIView(APIView):
                 {"error": "Duplicate question_name in this mock test. Use unique question names."},
                 status=status.HTTP_409_CONFLICT,
             )
+
+        invalid_audio = audio_upload_error(audio_file)
+        if invalid_audio:
+            return invalid_audio
 
         audio_error = required_audio_error(question, audio_file, request)
         if audio_error:

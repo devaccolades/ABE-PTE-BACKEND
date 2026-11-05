@@ -366,6 +366,25 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
 ]
 CORS_ALLOW_CREDENTIALS = True
 
+# Candidates are anonymous, and these views start paid transcription and
+# evaluation work, so each is throttled per client IP. A test centre shares one
+# IP, so size the rates for a full room. Counters use the default cache, which
+# is per process: with several app workers the effective limit is multiplied.
+REST_FRAMEWORK = {
+    # nginx is the one proxy in front of Django; DRF then takes the client IP
+    # from the last X-Forwarded-For entry instead of trusting the whole header.
+    "NUM_PROXIES": int(os.getenv("DJANGO_NUM_PROXIES", "1")),
+    "DEFAULT_THROTTLE_RATES": {
+        "session_start": os.getenv("THROTTLE_SESSION_START_RATE", "60/hour"),
+        "answer_submit": os.getenv("THROTTLE_ANSWER_SUBMIT_RATE", "3000/hour"),
+        "single_practice": os.getenv("THROTTLE_SINGLE_PRACTICE_RATE", "300/hour"),
+        "session_pdf": os.getenv("THROTTLE_SESSION_PDF_RATE", "60/hour"),
+    },
+}
+AUDIO_UPLOAD_MAX_BYTES = int(
+    os.getenv("AUDIO_UPLOAD_MAX_BYTES", str(10 * 1024 * 1024))
+)
+
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
 CELERY_TASK_DEFAULT_QUEUE = os.getenv("CELERY_TASK_DEFAULT_QUEUE", "default")

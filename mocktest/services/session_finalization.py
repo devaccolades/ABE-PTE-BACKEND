@@ -182,6 +182,20 @@ def mark_section_timed_out(session_id, mock_test_section_id):
         return updated
 
 
+def mark_session_question_skipped(session_id, question_id):
+    with transaction.atomic():
+        session = UserMockTestSession.objects.select_for_update().get(pk=session_id)
+        if not session.manifest_version:
+            return False
+        updated = session.question_manifest.filter(
+            question_id_snapshot=question_id,
+            status="pending",
+        ).update(status="skipped", resolved_at=timezone.now())
+        _finish_submission_if_resolved(session)
+        _recalculate_locked(session)
+        return bool(updated)
+
+
 def complete_session_submission(session_id, remaining_status="not_reached"):
     if remaining_status not in RESOLVED_STATUSES - {"answered"}:
         raise ValueError(f"Unsupported remaining question status: {remaining_status}")

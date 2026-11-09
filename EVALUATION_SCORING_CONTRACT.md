@@ -277,6 +277,16 @@ The response returns HTTP 200 with `recovered_submission=true`.
 No score is fabricated for missing audio. The session remains incomplete and
 the final PDF remains unavailable until replacement evidence is evaluated.
 
+A finished speaking question cannot record again, so an exam client left with no
+recording (for example after a microphone failure, or when the section timer ends
+during preparation) submits `skipped=true` without `answer_audio`, with an
+optional `skip_reason` of `no_recording`, `empty_recording` or `recording_timeout`.
+The backend creates no response, resolves the session question as `skipped`
+(0 marks; its maximum still counts), logs the reason, and returns HTTP 200 with
+`skipped=true` and the session completion state. An existing response still
+returns 409, an attached recording is submitted normally, and questions that do
+not take audio are refused with `skip_not_supported`.
+
 Comma-delimited multiple-choice IDs such as `"1609,1607"` are classified as
 legacy-compatible and normalized to `[1609, 1607]`. They are not interpreted as
 one option ID. The deterministic evaluator uses the normalized IDs for negative

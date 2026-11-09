@@ -46,6 +46,7 @@ from .services.session_finalization import (
     create_session_manifest,
     mark_section_timed_out,
     mark_session_question_answered,
+    mark_session_question_skipped,
     session_question_ids,
 )
 from .services.single_practice import build_single_practice_status
@@ -112,6 +113,9 @@ ALLOWED_AUDIO_CONTENT_TYPES = frozenset({
     "video/ogg",
     "application/octet-stream",
 })
+
+# Why the exam client could not produce a recording; logged with the skip.
+SKIP_REASONS = frozenset({"no_recording", "empty_recording", "recording_timeout"})
 
 
 def audio_upload_error(audio_file):
@@ -674,6 +678,16 @@ class UserResponseAPIView(APIView):
         if invalid_audio:
             return invalid_audio
 
+        # A finished speaking question cannot record again, so the exam client
+        # resolves one that ended without a recording as skipped (0 marks).
+        if str(request.data.get('skipped', 'false')).lower() == 'true' and not audio_file:
+            return self._skip_unrecorded_question(
+                session,
+                question,
+                mock_test,
+                request.data.get('skip_reason'),
+            )
+
         audio_error = required_audio_error(question, audio_file, request)
         if audio_error:
             return Response(
@@ -776,6 +790,52 @@ class UserResponseAPIView(APIView):
             else status.HTTP_201_CREATED
         )
         return Response(data, status=response_status)
+
+    def _skip_unrecorded_question(self, session, question, mock_test, reason):
+        if not question_requires_audio(question):
+            return Response(
+                {
+                    "error": "Only speaking questions can be skipped without a recording.",
+                    "code": "skip_not_supported",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            session = UserMockTestSession.objects.select_for_update().get(
+                pk=session.pk,
+            )
+            existing_response = UserResponse.objects.filter(
+                user_session=session,
+                question=question,
+            ).first()
+            if existing_response:
+                return self._duplicate_response(existing_response)
+            if session.manifest_version:
+                mark_session_question_skipped(session.pk, question.pk)
+            elif is_final_mock_test_question(question, mock_test):
+                session.mark_completed()
+
+        session.refresh_from_db()
+        logger.warning(
+            "Skipped audio question without a recording: session_id=%s "
+            "question_id=%s subsection=%s reason=%s",
+            session.session_id,
+            question.id,
+            question.subsection.name,
+            reason if isinstance(reason, str) and reason in SKIP_REASONS else "unspecified",
+        )
+        return Response(
+            {
+                "skipped": True,
+                "question_id": question.id,
+                "session": {
+                    "is_completed": session.is_completed,
+                    "completed_at": session.completed_at,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @staticmethod
     def _restore_missing_audio_response(response, answer, audio_file):

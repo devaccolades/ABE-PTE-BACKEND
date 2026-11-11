@@ -40,6 +40,7 @@ from examinor.services.orchestrator import (
 from examinor.services.prompt_builder import evaluation_answer_text
 from examinor.services.prompt_copy import detect_prompt_copy, apply_prompt_copy_override
 from examinor.services.strict_form import apply_strict_form_policy
+from examinor.services.minimum_duration import apply_minimum_duration_policy
 from examinor.services.known_answer_templates import apply_known_template_score_override
 from examinor.services.repetitive_answer import (
     apply_repetition_score_override,
@@ -337,6 +338,7 @@ def apply_answer_integrity_policy(response, evaluation_result, subsection):
             template_detection["detector_version"],
         )
 
+    result = apply_minimum_duration_policy(result, subsection.name, payload)
     return apply_strict_form_policy(result, subsection.name, answer_text)
 
 

@@ -62,7 +62,8 @@ Add an entry to the relevant module. Expectations (all optional):
 - `status`: final status, `"completed"` (default) or `"failed"`.
 - `zero`: `True` when the whole answer must score zero, `False` when it must not.
 - `override`: an applied override code, e.g. `source_fidelity_failed`,
-  `company_strict_form`, `template_content_dominated`, `copied_question_answer`.
+  `company_strict_form`, `template_content_dominated`, `copied_question_answer`,
+  `company_minimum_duration`.
 - `no_override`: no score override may apply.
 - `ratio`: `(low, high)` bounds on total / maximum.
 - `traits`: `{"content": (low, high)}` bounds on raw trait scores.

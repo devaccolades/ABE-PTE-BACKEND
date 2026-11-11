@@ -582,6 +582,19 @@ exams and single-question practice. Evidence is stored under
 Read Aloud, Repeat Sentence and other task types are unchanged. Historical
 responses are not automatically modified; this change needs no migration.
 
+## Minimum recording length
+
+Company policy, not Pearson's: a Summarize Group Discussion recording shorter
+than 50 seconds receives zero across all criteria and skill contributions. The
+length is the recording's duration measured at transcription
+(`audio_metadata.duration_seconds`), so silence before or after speaking counts.
+An answer with no measured length is not zeroed by this check. The check runs
+before AI/cache lookup and again at score validation. Evidence is stored under
+`integrity_checks.minimum_duration`, with override code
+`company_minimum_duration`. `MINIMUM_DURATION_POLICY_ENABLED=false` turns it
+off. Historical responses are not automatically modified; this change needs no
+migration.
+
 ## Speech timing and transcription reliability
 
 `speech-evidence-v3` measures speaking pace between the first and last timed

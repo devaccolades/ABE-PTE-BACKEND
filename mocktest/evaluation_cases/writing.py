@@ -12,6 +12,8 @@ from .schema import EvaluationCase
 swt = partial(EvaluationCase, task="summarize_written_text", question_id=312, question_name="SWT6452-2")
 # Source: malicious apps stealing Facebook logins.
 swt_2 = partial(EvaluationCase, task="summarize_written_text", question_id=79, question_name="SWT 1 - BB")
+# Source: climate change and indigenous communities (Bindu-T2).
+swt_3 = partial(EvaluationCase, task="summarize_written_text", question_id=665, question_name="BB-Q1-SWT")
 # Prompt: "Do you agree that the modern lifestyle is too fast-paced for good mental health?"
 # Rubric: form 2, content 6, grammar 2, spelling 2, vocabulary_range 2,
 # general_linguistic_range 6, development_structure_coherence 6.
@@ -112,6 +114,11 @@ CASES = [
         id="swt2-off-topic", label="Facebook apps: summary of an unrelated outage story",
         answer="A global outage this week left millions of users unable to access their accounts for several hours after a faulty software update was released, and the company apologised and promised to improve its testing procedures before future updates.",
         expect={"zero": True},
+    ),
+    swt_3(
+        id="swt3-semicolon-slips", label="one sentence of semicolon clauses with comma slips (Form 1)",
+        answer="Climate change is one of the most pressing global challenges of our time, and its effects are felt disproportionately by indigenious communities around the world; however they have lived in harmony with nature, utilizing their knowledge of the land and its resources; moreover, their deep understanding of the environment and innovative approaches to adaptation can offer valuable insights for the broder global community in addressing climate change.",
+        expect={"no_override": True, "traits": {"form": (1, 1)}},
     ),
 
     # Write Essay. Pearson: Form 2 for 200-300 words, 1 for 120-199 or 301-380, 0 otherwise.

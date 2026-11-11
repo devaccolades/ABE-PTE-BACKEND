@@ -134,6 +134,11 @@ def strict_form_instructions(task_type, answer):
         "are met; otherwise score Form zero. Do not use an intermediate Form band.\n"
         "- For Summarize Written Text, verify it is one complete sentence; "
         "sentence-boundary detection alone does not prove grammatical completeness.\n"
+        "  Clauses joined by semicolons, colons, commas or connectives (however, moreover,\n"
+        "  while, and) still form one sentence, even when a connective is capitalised or a\n"
+        "  comma is missing. Mark such punctuation and grammar slips under grammar, not form.\n"
+        "  Score form zero only when there is no complete sentence, e.g. a fragment with no\n"
+        "  main verb or a list of phrases.\n"
         "- Grade the other criteria normally. Backend policy separately zeros "
         "the whole answer if full Form eligibility fails.\n"
     )

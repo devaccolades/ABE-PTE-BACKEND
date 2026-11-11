@@ -24,6 +24,9 @@ from examinor.services.evaluation_context import (
 )
 from examinor.services.speech_score_guardrails import apply_speech_score_guardrails
 from examinor.services.prompt_copy import detect_prompt_copy, apply_prompt_copy_override
+from examinor.services.minimum_duration import (
+    inspect_minimum_duration, apply_minimum_duration_override,
+)
 from examinor.services.strict_form import (
     inspect_strict_form, apply_strict_form_override, apply_strict_form_policy,
 )
@@ -173,6 +176,12 @@ def run_evaluation_for_subsection(
         return apply_prompt_copy_override(
             _zero_policy_result(rubric, p_hash, cache_model, input_context, prompt_copy["reason"]),
             prompt_copy,
+        )
+    minimum_duration = inspect_minimum_duration(subsection.name, evaluation_payload)
+    if minimum_duration["is_too_short"]:
+        return apply_minimum_duration_override(
+            _zero_policy_result(rubric, p_hash, cache_model, input_context, minimum_duration["reason"]),
+            minimum_duration,
         )
 
     cached = EvaluationCache.objects.filter(
